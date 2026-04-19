@@ -1,0 +1,406 @@
+<template>
+	<view :class="pageLeaving ? 'auth-page auth-page-leave' : 'auth-page'">
+		<view class="status-space"></view>
+		<view class="auth-nav">
+			<view class="nav-button" @click="goBack">
+				<view class="back-chevron">
+					<view class="back-chevron-line back-chevron-line-top"></view>
+					<view class="back-chevron-line back-chevron-line-bottom"></view>
+				</view>
+			</view>
+			<text class="nav-title">{{ authMode == 'login' ? '登录' : '注册' }}</text>
+			<view class="nav-spacer"></view>
+		</view>
+
+		<view class="hero">
+			<view class="ai-mark">
+				<text class="ai-mark-text">AI</text>
+			</view>
+			<text class="hero-title">{{ authMode == 'login' ? '欢迎回来' : '创建账号' }}</text>
+			<text class="hero-desc">{{ authMode == 'login' ? '登录后继续使用大模型对话和同步个人资料。' : '注册时需要绑定邮箱，邮箱验证稍后接入。' }}</text>
+		</view>
+
+		<view class="mode-switch">
+			<view :class="authMode == 'login' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('login')">
+				<text :class="authMode == 'login' ? 'mode-text mode-text-active' : 'mode-text'">登录</text>
+			</view>
+			<view :class="authMode == 'register' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('register')">
+				<text :class="authMode == 'register' ? 'mode-text mode-text-active' : 'mode-text'">注册</text>
+			</view>
+		</view>
+
+		<view :class="authMotionClass.length > 0 ? 'form ' + authMotionClass : 'form'">
+			<input class="form-input" v-model="username" placeholder="用户名或邮箱" placeholder-class="input-placeholder" />
+			<input v-if="authMode == 'register'" class="form-input" v-model="email" placeholder="绑定邮箱" placeholder-class="input-placeholder" />
+			<input class="form-input" v-model="password" password="true" placeholder="密码" placeholder-class="input-placeholder" />
+			<view class="submit-button" @click="submitAuth">
+				<text class="submit-text">{{ loading ? '请稍候...' : (authMode == 'login' ? '登录' : '注册并登录') }}</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	type AuthPayload = {
+		userId : number
+		username : string
+		email : string
+		nickname : string
+		avatarUrl : string
+		bio : string
+		role : string
+		token : string
+	}
+
+	const apiBaseUrl = 'http://localhost:8080'
+	const authMode = ref('login')
+	const username = ref('')
+	const email = ref('')
+	const password = ref('')
+	const loading = ref(false)
+	const authMotionClass = ref('')
+	const pageLeaving = ref(false)
+
+	function setAuthMode(mode : string) {
+		if (mode == authMode.value) {
+			return
+		}
+		authMode.value = mode
+		authMotionClass.value = mode == 'login' ? 'form-slide-left' : 'form-slide-right'
+		setTimeout(() => {
+			authMotionClass.value = ''
+		}, 220)
+	}
+
+	function goBack() {
+		if (pageLeaving.value) {
+			return
+		}
+		pageLeaving.value = true
+		setTimeout(() => {
+			uni.navigateBack({
+				animationType: 'slide-out-bottom',
+				animationDuration: 260
+			})
+		}, 250)
+	}
+
+	function submitAuth() {
+		if (loading.value) {
+			return
+		}
+		const cleanUsername = username.value.trim()
+		const cleanEmail = email.value.trim()
+		const cleanPassword = password.value
+		if (cleanUsername.length == 0 || cleanPassword.length == 0 || (authMode.value == 'register' && cleanEmail.length == 0)) {
+			uni.showToast({
+				title: '请填写完整信息',
+				icon: 'none'
+			})
+			return
+		}
+		loading.value = true
+		uni.request({
+			url: apiBaseUrl + (authMode.value == 'register' ? '/api/auth/register' : '/api/auth/login'),
+			method: 'POST',
+			header: {
+				'Content-Type': 'application/json'
+			},
+			data: authMode.value == 'register' ? {
+				username: cleanUsername,
+				email: cleanEmail,
+				password: cleanPassword
+			} : {
+				username: cleanUsername,
+				password: cleanPassword
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					saveAuth(body.data as AuthPayload)
+					uni.showToast({
+						title: authMode.value == 'register' ? '注册成功' : '已登录',
+						icon: 'none'
+					})
+					pageLeaving.value = true
+					setTimeout(() => {
+						uni.reLaunch({
+							url: '/pages/index/index'
+						})
+					}, 240)
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '登录失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				loading.value = false
+			}
+		})
+	}
+
+	function saveAuth(payload : AuthPayload) {
+		const nickname = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
+		const avatarUrl = payload.avatarUrl == null ? '' : payload.avatarUrl
+		const bio = payload.bio == null || payload.bio.length == 0 ? '这个人还没有写简介。' : payload.bio
+		uni.setStorageSync('app_token', payload.token)
+		uni.setStorageSync('app_username', payload.username)
+		uni.setStorageSync('app_email', payload.email)
+		uni.setStorageSync('app_nickname', nickname)
+		uni.setStorageSync('app_avatar_url', avatarUrl)
+		uni.setStorageSync('app_bio', bio)
+	}
+</script>
+
+<style>
+	.auth-page {
+		min-height: 100vh;
+		background-color: #f6f7fb;
+		padding-left: 22px;
+		padding-right: 22px;
+		box-sizing: border-box;
+		animation-name: pageRiseIn;
+		animation-duration: 260ms;
+		animation-timing-function: ease-out;
+	}
+
+	.auth-page-leave {
+		animation-name: pageSinkOut;
+		animation-duration: 260ms;
+		animation-timing-function: ease-in;
+		animation-fill-mode: forwards;
+	}
+
+	@keyframes pageRiseIn {
+		from {
+			opacity: 0;
+			transform: translateY(24px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@keyframes pageSinkOut {
+		from {
+			opacity: 1;
+			transform: translateY(0);
+		}
+		to {
+			opacity: 0;
+			transform: translateY(18px);
+		}
+	}
+
+	.status-space {
+		height: 36px;
+	}
+
+	.auth-nav {
+		height: 48px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.nav-button,
+	.nav-spacer {
+		width: 38px;
+		height: 38px;
+	}
+
+	.nav-button {
+		position: relative;
+		border-radius: 19px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		border-width: 1px;
+		border-color: #eef2f7;
+	}
+
+	.back-chevron {
+		position: absolute;
+		width: 16px;
+		height: 16px;
+		left: 12px;
+		top: 11px;
+	}
+
+	.back-chevron-line {
+		position: absolute;
+		left: 2px;
+		width: 11px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #111827;
+	}
+
+	.back-chevron-line-top {
+		top: 4px;
+		transform: rotate(-45deg);
+	}
+
+	.back-chevron-line-bottom {
+		top: 10px;
+		transform: rotate(45deg);
+	}
+
+	.nav-title {
+		font-size: 17px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.hero {
+		align-items: center;
+		padding-top: 54px;
+		padding-bottom: 30px;
+	}
+
+	.ai-mark {
+		width: 58px;
+		height: 58px;
+		border-radius: 20px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 18px;
+	}
+
+	.ai-mark-text {
+		font-size: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.hero-title {
+		font-size: 30px;
+		line-height: 38px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.hero-desc {
+		width: 86%;
+		margin-top: 8px;
+		font-size: 14px;
+		line-height: 22px;
+		color: #667085;
+		text-align: center;
+	}
+
+	.mode-switch {
+		height: 46px;
+		border-radius: 22px;
+		background-color: #e9edf5;
+		padding: 4px;
+		flex-direction: row;
+		margin-bottom: 16px;
+	}
+
+	.mode-item {
+		flex: 1;
+		border-radius: 18px;
+		align-items: center;
+		justify-content: center;
+		transition-property: background-color, transform;
+		transition-duration: 180ms;
+	}
+
+	.mode-item-active {
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		transform: scale(1.02);
+	}
+
+	.mode-text {
+		font-size: 14px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.mode-text-active {
+		color: #111827;
+	}
+
+	.form {
+		width: 100%;
+	}
+
+	.form-slide-right {
+		animation-name: formSlideRight;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	.form-slide-left {
+		animation-name: formSlideLeft;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes formSlideRight {
+		from {
+			opacity: 0;
+			transform: translateX(22px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
+	}
+
+	@keyframes formSlideLeft {
+		from {
+			opacity: 0;
+			transform: translateX(-22px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
+	}
+
+	.form-input {
+		height: 52px;
+		border-radius: 20px;
+		background-color: #ffffff;
+		padding-left: 16px;
+		padding-right: 16px;
+		margin-bottom: 12px;
+		font-size: 15px;
+		color: #111827;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.input-placeholder {
+		color: #98a2b3;
+	}
+
+	.submit-button {
+		height: 52px;
+		border-radius: 26px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-top: 8px;
+	}
+
+	.submit-text {
+		font-size: 15px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+</style>

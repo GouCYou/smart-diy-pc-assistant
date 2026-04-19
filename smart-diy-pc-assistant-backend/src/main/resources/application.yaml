@@ -1,0 +1,48 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: smart-diy-pc-assistant-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/smart_diy_pc_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: admin
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3s
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+app:
+  security:
+    jwt-secret: ${JWT_SECRET:smart-diy-pc-assistant-development-secret-must-be-replaced}
+    jwt-expiration-minutes: 10080
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+  qiniu:
+    access-key: ${QINIU_ACCESS_KEY:}
+    secret-key: ${QINIU_SECRET_KEY:}
+    bucket: ${QINIU_BUCKET:}
+    domain: ${QINIU_DOMAIN:}
+    upload-url: ${QINIU_UPLOAD_URL:https://upload-z2.qiniup.com}
+  ai:
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:}
+    model-name: ${AI_MODEL_NAME:}
+    timeout-seconds: 60

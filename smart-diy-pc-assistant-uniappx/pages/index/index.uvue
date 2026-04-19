@@ -1,0 +1,2261 @@
+<template>
+	<view class="app-shell" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
+		<view v-if="activeTab == 0" :class="getPageClass('chat-page')">
+			<view class="status-space"></view>
+			<view class="chat-nav">
+				<view class="nav-button" @click="toggleHistory">
+					<view class="menu-line"></view>
+					<view class="menu-line menu-line-short"></view>
+				</view>
+				<text class="nav-title">对话</text>
+				<view class="nav-button" @click="startNewConversation">
+					<view class="plus-line"></view>
+					<view class="plus-line plus-line-vertical"></view>
+				</view>
+			</view>
+
+			<scroll-view class="chat-scroll" scroll-y="true">
+				<view v-if="chatMessages.length == 0" class="chat-empty">
+					<view class="ai-orbit">
+						<view class="ai-core">
+							<text class="ai-core-text">AI</text>
+						</view>
+						<view class="ai-dot ai-dot-one"></view>
+						<view class="ai-dot ai-dot-two"></view>
+						<view class="ai-dot ai-dot-three"></view>
+					</view>
+					<text class="chat-empty-title">有什么装机问题？</text>
+					<text class="chat-empty-desc">告诉我预算、用途、屏幕分辨率、外观偏好，我会帮你整理成清晰的配置思路。</text>
+					<view class="prompt-grid">
+						<view v-for="item in promptChips" :key="item" class="prompt-card" @click="choosePrompt(item)">
+							<text class="prompt-text">{{ item }}</text>
+						</view>
+					</view>
+				</view>
+
+				<view v-else class="message-list">
+					<view v-for="(message, index) in chatMessages" :key="index" :class="message.role == 'user' ? 'message-row message-row-user' : 'message-row'">
+						<view :class="message.role == 'user' ? 'message-bubble message-bubble-user' : 'message-bubble message-bubble-ai'">
+							<text :class="message.role == 'user' ? 'message-text message-text-user' : 'message-text'">{{ message.content }}</text>
+						</view>
+					</view>
+					<view v-if="chatLoading" class="message-row">
+						<view class="message-bubble message-bubble-ai">
+							<text class="message-text">正在整理配置思路...</text>
+						</view>
+					</view>
+				</view>
+			</scroll-view>
+
+			<view class="composer">
+				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
+				<view :class="draft.length > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
+					<view class="send-arrow-line"></view>
+					<view class="send-arrow-head send-arrow-head-top"></view>
+					<view class="send-arrow-head send-arrow-head-bottom"></view>
+				</view>
+			</view>
+
+		</view>
+
+		<view v-if="activeTab == 1" :class="getPageClass('normal-page')">
+			<view class="status-space"></view>
+			<view class="page-head">
+				<view>
+					<text class="page-title">配置</text>
+					<text class="page-subtitle">手动选择配件，或让 AI 生成后保存到这里。</text>
+				</view>
+			</view>
+
+			<view class="segmented">
+				<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
+					<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">我的配置</text>
+				</view>
+				<view :class="buildSegment == 1 ? 'segment-active' : 'segment'" @click="selectBuildSegment(1)">
+					<text :class="buildSegment == 1 ? 'segment-active-text' : 'segment-text'">AI 生成</text>
+				</view>
+				<view :class="buildSegment == 2 ? 'segment-active' : 'segment'" @click="selectBuildSegment(2)">
+					<text :class="buildSegment == 2 ? 'segment-active-text' : 'segment-text'">收藏</text>
+				</view>
+			</view>
+
+			<view class="empty-state">
+				<view class="empty-illustration">
+					<view class="empty-grid-row">
+						<view class="empty-grid-cell"></view>
+						<view class="empty-grid-cell"></view>
+					</view>
+					<view class="empty-grid-row">
+						<view class="empty-grid-cell"></view>
+						<view class="empty-grid-cell empty-grid-cell-accent"></view>
+					</view>
+				</view>
+				<text class="empty-title">{{ getBuildEmptyTitle() }}</text>
+				<text class="empty-desc">{{ getBuildEmptyDesc() }}</text>
+				<view class="action-stack">
+					<view class="primary-action" @click="createBuild">
+						<text class="primary-action-text">新建配置</text>
+					</view>
+					<view class="secondary-action" @click="askAiForBuild">
+						<text class="secondary-action-text">让 AI 生成</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="activeTab == 2" :class="getPageClass('normal-page')">
+			<view class="status-space"></view>
+			<view class="page-head page-head-row">
+				<view class="page-head-main">
+					<text class="page-title">发现</text>
+					<text class="page-subtitle">发帖、上传图片，也可以关联自己的配置。</text>
+				</view>
+				<view class="small-primary" @click="publishPost">
+					<text class="small-primary-text">发帖</text>
+				</view>
+			</view>
+
+			<view class="compose-box">
+				<text class="compose-placeholder">分享装机想法、预算困惑或成品照片</text>
+				<view class="compose-tools">
+					<view class="tool-pill" @click="pickImage">
+						<view class="tool-image-icon">
+							<view class="tool-image-sun"></view>
+							<view class="tool-image-hill"></view>
+						</view>
+						<text class="tool-pill-text">图片</text>
+					</view>
+					<view class="tool-pill" @click="attachBuild">
+						<view class="tool-build-icon">
+							<view class="tool-build-dot"></view>
+							<view class="tool-build-dot"></view>
+						</view>
+						<text class="tool-pill-text">配置</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="empty-state empty-state-soft">
+				<view class="empty-illustration empty-forum">
+					<view class="forum-bubble"></view>
+					<view class="forum-bubble forum-bubble-small"></view>
+				</view>
+				<text class="empty-title">还没有社区内容</text>
+				<text class="empty-desc">发布第一条帖子后，这里会展示你的动态和其他用户的装机讨论。</text>
+			</view>
+		</view>
+
+		<view v-if="activeTab == 3" :class="getPageClass('normal-page')">
+			<view class="status-space"></view>
+			<view class="page-head">
+				<view class="page-head-main">
+					<text class="page-title">热点</text>
+					<text class="page-subtitle">硬件资讯、价格变化和装机提醒。</text>
+				</view>
+			</view>
+
+			<view class="empty-state">
+				<view class="empty-illustration empty-news">
+					<view class="news-line news-line-long"></view>
+					<view class="news-line"></view>
+					<view class="news-line news-line-short"></view>
+				</view>
+				<text class="empty-title">暂无新闻热点</text>
+				<text class="empty-desc">有新的硬件资讯时，会在这里集中展示。</text>
+			</view>
+		</view>
+
+		<view v-if="activeTab == 4" :class="getPageClass('normal-page')">
+			<view class="status-space"></view>
+			<view class="profile-card" @click="handleProfileCardClick">
+				<view class="profile-avatar">
+					<image v-if="currentAvatarUrl.length > 0" class="profile-avatar-image" :src="currentAvatarUrl" mode="aspectFill"></image>
+					<text v-if="currentAvatarUrl.length == 0" class="profile-avatar-text">{{ getProfileAvatarText() }}</text>
+				</view>
+				<view class="profile-copy">
+					<text class="profile-title">{{ token.length > 0 ? currentNickname : '登录 / 注册' }}</text>
+					<text class="profile-desc">{{ token.length > 0 ? currentBio : '登录后同步配置、收藏和社区内容。' }}</text>
+					<text v-if="token.length > 0" class="profile-email">{{ currentEmail }}</text>
+				</view>
+			</view>
+
+			<view class="zero-stats">
+				<view class="zero-stat">
+					<text class="zero-number">0</text>
+					<text class="zero-label">配置</text>
+				</view>
+				<view class="zero-stat">
+					<text class="zero-number">0</text>
+					<text class="zero-label">收藏</text>
+				</view>
+				<view class="zero-stat zero-stat-last">
+					<text class="zero-number">0</text>
+					<text class="zero-label">帖子</text>
+				</view>
+			</view>
+
+			<view class="menu-list">
+				<view class="menu-item" @click="openSettings">
+					<text class="menu-text">设置</text>
+					<text class="menu-arrow">›</text>
+				</view>
+				<view v-if="token.length > 0" :class="logoutPressed ? 'menu-item menu-item-pressed' : 'menu-item'" @click="logout">
+					<text class="menu-text menu-text-danger">退出登录</text>
+					<text class="menu-arrow">›</text>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="!historyOpen" class="tabbar">
+			<view :class="activeTab == 0 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(0)">
+				<view class="tab-glyph ai-tab-glyph">
+					<text :class="activeTab == 0 ? 'ai-tab-text ai-tab-text-active' : 'ai-tab-text'">AI</text>
+				</view>
+				<text :class="activeTab == 0 ? 'tab-label tab-label-active' : 'tab-label'">对话</text>
+			</view>
+			<view :class="activeTab == 1 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(1)">
+				<view class="tab-glyph grid-glyph">
+					<view class="grid-icon-row">
+						<view :class="activeTab == 1 ? 'grid-icon-cell grid-icon-cell-active' : 'grid-icon-cell'"></view>
+						<view :class="activeTab == 1 ? 'grid-icon-cell grid-icon-cell-active' : 'grid-icon-cell'"></view>
+					</view>
+					<view class="grid-icon-row">
+						<view :class="activeTab == 1 ? 'grid-icon-cell grid-icon-cell-active' : 'grid-icon-cell'"></view>
+						<view :class="activeTab == 1 ? 'grid-icon-cell grid-icon-cell-active' : 'grid-icon-cell'"></view>
+					</view>
+				</view>
+				<text :class="activeTab == 1 ? 'tab-label tab-label-active' : 'tab-label'">配置</text>
+			</view>
+			<view :class="activeTab == 2 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(2)">
+				<view class="tab-glyph discover-glyph">
+					<view :class="activeTab == 2 ? 'discover-circle discover-circle-active' : 'discover-circle'"></view>
+					<view :class="activeTab == 2 ? 'discover-needle discover-needle-active' : 'discover-needle'"></view>
+				</view>
+				<text :class="activeTab == 2 ? 'tab-label tab-label-active' : 'tab-label'">发现</text>
+			</view>
+			<view :class="activeTab == 3 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(3)">
+				<view class="tab-glyph news-glyph">
+					<view :class="activeTab == 3 ? 'news-icon-paper news-icon-paper-active' : 'news-icon-paper'">
+						<view :class="activeTab == 3 ? 'news-icon-line news-icon-line-long news-icon-line-active' : 'news-icon-line news-icon-line-long'"></view>
+						<view :class="activeTab == 3 ? 'news-icon-line news-icon-line-active' : 'news-icon-line'"></view>
+					</view>
+				</view>
+				<text :class="activeTab == 3 ? 'tab-label tab-label-active' : 'tab-label'">热点</text>
+			</view>
+			<view :class="activeTab == 4 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(4)">
+				<view class="tab-glyph mine-glyph">
+					<view :class="activeTab == 4 ? 'mine-icon-head mine-icon-head-active' : 'mine-icon-head'"></view>
+					<view :class="activeTab == 4 ? 'mine-icon-body mine-icon-body-active' : 'mine-icon-body'"></view>
+				</view>
+				<text :class="activeTab == 4 ? 'tab-label tab-label-active' : 'tab-label'">我的</text>
+			</view>
+		</view>
+
+		<view v-if="historyOpen" class="history-mask" @click="closeHistory"></view>
+		<view :class="historyOpen ? 'history-panel history-panel-open' : 'history-panel'">
+			<view class="history-top">
+				<text class="history-title">对话记录</text>
+				<view class="history-close" @click="closeHistory">
+					<view class="close-line"></view>
+					<view class="close-line close-line-two"></view>
+				</view>
+			</view>
+			<scroll-view class="history-list" scroll-y="true" :refresher-enabled="token.length > 0" :refresher-triggered="historyRefreshing" @refresherrefresh="refreshConversations">
+				<view v-if="conversationList.length > 0">
+					<view v-for="item in conversationList" :key="item.id" class="history-row">
+						<view :class="getHistoryItemClass(item.id)" @click="openConversation(item.id)" @longpress="showConversationDeleteAction(item.id)">
+							<text :class="currentConversationId == item.id ? 'history-item-title history-item-title-active' : 'history-item-title'">{{ item.title }}</text>
+							<text class="history-item-time">{{ formatHistoryTime(item.updatedAt) }}</text>
+						</view>
+						<view :class="deleteActionConversationId == item.id ? 'history-delete-action history-delete-action-show' : 'history-delete-action'" @click.stop="openDeleteDialog(item.id, item.title)">
+							<view class="trash-handle"></view>
+							<view class="trash-lid"></view>
+							<view class="trash-can">
+								<view class="trash-line"></view>
+								<view class="trash-line"></view>
+								<view class="trash-line"></view>
+							</view>
+						</view>
+					</view>
+				</view>
+				<view v-if="conversationList.length == 0" class="history-empty">
+					<view class="empty-dot">
+						<view class="empty-dot-inner"></view>
+					</view>
+					<text class="history-empty-title">暂无对话记录</text>
+					<text class="history-empty-desc">{{ token.length > 0 ? '开始第一次对话后，会在这里继续查看和切换。' : '登录后可以同步查看历史对话。' }}</text>
+				</view>
+			</scroll-view>
+		</view>
+
+		<view v-if="deleteDialogVisible" class="delete-dialog-mask" @click="cancelDeleteDialog">
+			<view class="delete-dialog" @click.stop>
+				<text class="delete-dialog-title">删除这条对话？</text>
+				<text class="delete-dialog-desc">“{{ pendingDeleteTitle }}” 删除后无法恢复。</text>
+				<view class="delete-dialog-actions">
+					<view class="delete-dialog-cancel" @click="cancelDeleteDialog">
+						<text class="delete-dialog-cancel-text">取消</text>
+					</view>
+					<view class="delete-dialog-confirm" @click="confirmDeleteDialog">
+						<text class="delete-dialog-confirm-text">{{ deleteSubmitting ? '删除中...' : '删除' }}</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+	</view>
+</template>
+
+<script setup lang="uts">
+	type ChatMessage = {
+		role : string
+		content : string
+	}
+
+	type ConversationSummary = {
+		id : number
+		title : string
+		updatedAt : string
+	}
+
+	type UserProfilePayload = {
+		userId : number
+		username : string
+		email : string
+		nickname : string
+		avatarUrl : string
+		bio : string
+		role : string
+	}
+
+	const apiBaseUrl = 'http://localhost:8080'
+	const activeTab = ref(0)
+	const historyOpen = ref(false)
+	const touchStartX = ref(0)
+	const touchStartY = ref(0)
+	const draft = ref('')
+	const buildSegment = ref(0)
+	const pageMotionClass = ref('')
+	const chatMessages = ref([] as ChatMessage[])
+	const conversationList = ref([] as ConversationSummary[])
+	const currentConversationId = ref(0)
+	const chatLoading = ref(false)
+	const historyRefreshing = ref(false)
+	const historyPressLocked = ref(false)
+	const deleteActionConversationId = ref(0)
+	const deleteDialogVisible = ref(false)
+	const pendingDeleteConversationId = ref(0)
+	const pendingDeleteTitle = ref('')
+	const deleteSubmitting = ref(false)
+	const logoutPressed = ref(false)
+	const token = ref('')
+	const currentUsername = ref('')
+	const currentEmail = ref('')
+	const currentNickname = ref('')
+	const currentAvatarUrl = ref('')
+	const currentBio = ref('')
+
+	const promptChips = [
+		'预算 6000 元，主玩 2K 游戏',
+		'白色小机箱，安静一点',
+		'剪辑、建模和游戏都要兼顾',
+		'已有显卡，帮我补齐其他配件'
+	]
+
+	let historyRefreshTimer : number = 0
+
+	loadAuth()
+	if (token.value.length > 0) {
+		loadConversations()
+		startHistoryRefreshTimer()
+	}
+	onShow(() => {
+		loadAuth()
+		if (token.value.length > 0) {
+			loadConversations()
+			startHistoryRefreshTimer()
+		} else {
+			stopHistoryRefreshTimer()
+		}
+		if (activeTab.value == 4) {
+			loadProfile()
+		}
+	})
+	onHide(() => {
+		stopHistoryRefreshTimer()
+	})
+
+	function getBuildEmptyTitle() : string {
+		if (buildSegment.value == 1) {
+			return '还没有 AI 生成记录'
+		}
+		if (buildSegment.value == 2) {
+			return '还没有收藏配置'
+		}
+		return '还没有配置'
+	}
+
+	function getBuildEmptyDesc() : string {
+		if (buildSegment.value == 1) {
+			return '从对话页描述你的预算和用途，生成后的方案会收纳在这里。'
+		}
+		if (buildSegment.value == 2) {
+			return '看到喜欢的配置后可以收藏，方便之后对比和调整。'
+		}
+		return '你可以从零开始选择配件，也可以先让 AI 生成一份方案再调整。'
+	}
+
+	function getPageClass(baseClass : string) : string {
+		if (pageMotionClass.value.length == 0) {
+			return 'page ' + baseClass
+		}
+		return 'page ' + baseClass + ' ' + pageMotionClass.value
+	}
+
+	function selectTab(index : number) {
+		if (index == activeTab.value) {
+			historyOpen.value = false
+			return
+		}
+		if (index > activeTab.value) {
+			pageMotionClass.value = 'page-enter-right'
+		} else {
+			pageMotionClass.value = 'page-enter-left'
+		}
+		activeTab.value = index
+		historyOpen.value = false
+		if (index == 4) {
+			loadAuth()
+			loadProfile()
+		}
+		setTimeout(() => {
+			pageMotionClass.value = ''
+		}, 260)
+	}
+
+	function selectBuildSegment(index : number) {
+		buildSegment.value = index
+	}
+
+	function toggleHistory() {
+		historyOpen.value = !historyOpen.value
+		if (historyOpen.value) {
+			loadConversations()
+		}
+	}
+
+	function closeHistory() {
+		historyOpen.value = false
+		deleteActionConversationId.value = 0
+		deleteDialogVisible.value = false
+	}
+
+	function choosePrompt(text : string) {
+		draft.value = text
+	}
+
+	function submitMessage() {
+		const text = draft.value.trim()
+		if (text.length == 0) {
+			return
+		}
+		if (token.value.length == 0) {
+			uni.showToast({
+				title: '请先登录后再使用 AI 对话',
+				icon: 'none'
+			})
+			openAuthPage()
+			return
+		}
+		if (chatLoading.value) {
+			return
+		}
+		chatMessages.value.push({
+			role: 'user',
+			content: text
+		})
+		draft.value = ''
+		chatLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/ai/chat',
+			method: 'POST',
+			header: {
+				'Content-Type': 'application/json',
+				'Authorization': 'Bearer ' + token.value
+			},
+			data: {
+				conversationId: currentConversationId.value > 0 ? currentConversationId.value : null,
+				message: text
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const data = body.data as any
+					currentConversationId.value = data.conversationId as number
+					chatMessages.value.push({
+						role: 'assistant',
+						content: formatAiContent(data.content as string)
+					})
+					loadConversations()
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					chatMessages.value.push({
+						role: 'assistant',
+						content: '登录状态已失效，请重新登录后继续对话。'
+					})
+					openAuthPage()
+					return
+				}
+				chatMessages.value.push({
+					role: 'assistant',
+					content: '后端暂时没有返回有效内容，请稍后再试。'
+				})
+			},
+			fail: () => {
+				chatMessages.value.push({
+					role: 'assistant',
+					content: '暂时连接不到后端服务，请确认后端已经启动。'
+				})
+			},
+			complete: () => {
+				chatLoading.value = false
+			}
+		})
+	}
+
+	function startNewConversation() {
+		chatMessages.value = []
+		currentConversationId.value = 0
+		draft.value = ''
+		uni.showToast({
+			title: '已新建对话',
+			icon: 'none'
+		})
+	}
+
+	function askAiForBuild() {
+		selectTab(0)
+		draft.value = '请帮我生成一套适合我的电脑配置'
+	}
+
+	function createBuild() {
+		uni.showToast({
+			title: '后续接入配件选择器',
+			icon: 'none'
+		})
+	}
+
+	function publishPost() {
+		uni.showToast({
+			title: '后续接入发帖页',
+			icon: 'none'
+		})
+	}
+
+	function pickImage() {
+		uni.showToast({
+			title: '后续接入图片选择和七牛云上传',
+			icon: 'none'
+		})
+	}
+
+	function attachBuild() {
+		uni.showToast({
+			title: '暂无可关联配置',
+			icon: 'none'
+		})
+	}
+
+	function login() {
+		openAuthPage()
+	}
+
+	function handleProfileCardClick() {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		openProfileEditor()
+	}
+
+	function getProfileAvatarText() : string {
+		if (token.value.length == 0) {
+			return '我'
+		}
+		if (currentNickname.value.length > 0) {
+			return currentNickname.value.substring(0, 1)
+		}
+		if (currentUsername.value.length > 0) {
+			return currentUsername.value.substring(0, 1)
+		}
+		return '我'
+	}
+
+	function logout() {
+		if (logoutPressed.value) {
+			return
+		}
+		logoutPressed.value = true
+		setTimeout(() => {
+			clearAuth()
+			stopHistoryRefreshTimer()
+			logoutPressed.value = false
+			uni.showToast({
+				title: '您已退出登录！',
+				icon: 'none'
+			})
+		}, 180)
+	}
+
+	function openAuthPage() {
+		uni.navigateTo({
+			url: '/pages/auth/auth',
+			animationType: 'slide-in-bottom',
+			animationDuration: 260
+		})
+	}
+
+	function openProfileEditor() {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/profile/profile',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
+	function openSettings() {
+		uni.showToast({
+			title: '后续接入设置',
+			icon: 'none'
+		})
+	}
+
+	function loadAuth() {
+		const savedToken = uni.getStorageSync('app_token')
+		const savedUsername = uni.getStorageSync('app_username')
+		const savedEmail = uni.getStorageSync('app_email')
+		const savedNickname = uni.getStorageSync('app_nickname')
+		const savedAvatarUrl = uni.getStorageSync('app_avatar_url')
+		const savedBio = uni.getStorageSync('app_bio')
+		if (savedToken != null) {
+			token.value = savedToken as string
+		}
+		if (savedUsername != null) {
+			currentUsername.value = savedUsername as string
+		}
+		if (savedEmail != null) {
+			currentEmail.value = savedEmail as string
+		}
+		if (savedNickname != null) {
+			currentNickname.value = savedNickname as string
+		}
+		if (savedAvatarUrl != null) {
+			currentAvatarUrl.value = savedAvatarUrl as string
+		}
+		if (savedBio != null) {
+			currentBio.value = savedBio as string
+		}
+		if (currentNickname.value.length == 0 && currentUsername.value.length > 0) {
+			currentNickname.value = currentUsername.value
+		}
+	}
+
+	function saveProfile(payload : UserProfilePayload) {
+		currentUsername.value = payload.username
+		currentEmail.value = payload.email
+		currentNickname.value = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
+		currentAvatarUrl.value = normalizeAvatarUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
+		currentBio.value = payload.bio == null || payload.bio.length == 0 ? '这个人还没有写简介。' : payload.bio
+		uni.setStorageSync('app_username', currentUsername.value)
+		uni.setStorageSync('app_email', currentEmail.value)
+		uni.setStorageSync('app_nickname', currentNickname.value)
+		uni.setStorageSync('app_avatar_url', currentAvatarUrl.value)
+		uni.setStorageSync('app_bio', currentBio.value)
+	}
+
+	function normalizeAvatarUrl(url : string) : string {
+		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
+			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
+		}
+		return url
+	}
+
+	function clearAuth() {
+		token.value = ''
+		currentConversationId.value = 0
+		conversationList.value = []
+		chatMessages.value = []
+		currentUsername.value = ''
+		currentEmail.value = ''
+		currentNickname.value = ''
+		currentAvatarUrl.value = ''
+		currentBio.value = ''
+		uni.removeStorageSync('app_token')
+		uni.removeStorageSync('app_username')
+		uni.removeStorageSync('app_email')
+		uni.removeStorageSync('app_nickname')
+		uni.removeStorageSync('app_avatar_url')
+		uni.removeStorageSync('app_bio')
+	}
+
+	function loadProfile() {
+		if (token.value.length == 0) {
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/user/profile',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					saveProfile(body.data as UserProfilePayload)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			},
+			fail: () => {
+			}
+		})
+	}
+
+	function loadConversations() {
+		loadConversationsWithState(false)
+	}
+
+	function refreshConversations() {
+		if (token.value.length == 0) {
+			historyRefreshing.value = false
+			return
+		}
+		historyRefreshing.value = true
+		loadConversationsWithState(true)
+	}
+
+	function loadConversationsWithState(fromRefresh : boolean) {
+		if (token.value.length == 0) {
+			conversationList.value = []
+			if (fromRefresh) {
+				historyRefreshing.value = false
+			}
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/ai/conversations',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					conversationList.value = body.data as ConversationSummary[]
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			},
+			complete: () => {
+				if (fromRefresh) {
+					historyRefreshing.value = false
+				}
+			}
+		})
+	}
+
+	function openConversation(conversationId : number) {
+		if (historyPressLocked.value) {
+			return
+		}
+		if (deleteActionConversationId.value != 0) {
+			deleteActionConversationId.value = 0
+			return
+		}
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/ai/conversations/' + conversationId + '/messages',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					currentConversationId.value = conversationId
+					chatMessages.value = body.data as ChatMessage[]
+					historyOpen.value = false
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '读取对话失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function getHistoryItemClass(conversationId : number) : string {
+		let className = currentConversationId.value == conversationId ? 'history-item history-item-active' : 'history-item'
+		if (deleteActionConversationId.value == conversationId) {
+			className += ' history-item-delete-open'
+		}
+		return className
+	}
+
+	function showConversationDeleteAction(conversationId : number) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		historyPressLocked.value = true
+		setTimeout(() => {
+			historyPressLocked.value = false
+		}, 420)
+		deleteActionConversationId.value = conversationId
+	}
+
+	function openDeleteDialog(conversationId : number, title : string) {
+		pendingDeleteConversationId.value = conversationId
+		pendingDeleteTitle.value = title
+		deleteDialogVisible.value = true
+	}
+
+	function cancelDeleteDialog() {
+		if (deleteSubmitting.value) {
+			return
+		}
+		deleteDialogVisible.value = false
+		pendingDeleteConversationId.value = 0
+		pendingDeleteTitle.value = ''
+	}
+
+	function confirmDeleteDialog() {
+		if (deleteSubmitting.value || pendingDeleteConversationId.value == 0) {
+			return
+		}
+		deleteConversation(pendingDeleteConversationId.value)
+	}
+
+	function deleteConversation(conversationId : number) {
+		deleteSubmitting.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/ai/conversations/' + conversationId,
+			method: 'DELETE',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					conversationList.value = conversationList.value.filter((item) : boolean => item.id != conversationId)
+					if (currentConversationId.value == conversationId) {
+						currentConversationId.value = 0
+						chatMessages.value = []
+					}
+					deleteActionConversationId.value = 0
+					deleteDialogVisible.value = false
+					pendingDeleteConversationId.value = 0
+					pendingDeleteTitle.value = ''
+					uni.showToast({
+						title: '已删除对话',
+						icon: 'none'
+					})
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '删除失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				deleteSubmitting.value = false
+			}
+		})
+	}
+
+	function startHistoryRefreshTimer() {
+		if (historyRefreshTimer != 0) {
+			return
+		}
+		historyRefreshTimer = setInterval(() => {
+			if (token.value.length > 0) {
+				loadConversations()
+			}
+		}, 15000)
+	}
+
+	function stopHistoryRefreshTimer() {
+		if (historyRefreshTimer == 0) {
+			return
+		}
+		clearInterval(historyRefreshTimer)
+		historyRefreshTimer = 0
+	}
+
+	function formatHistoryTime(value : string) : string {
+		if (value.length >= 16) {
+			return value.substring(5, 16).replace('T', ' ')
+		}
+		return value
+	}
+
+	function formatAiContent(content : string) : string {
+		return content
+			.replace(/\*\*/g, '')
+			.replace(/###/g, '')
+			.replace(/##/g, '')
+			.replace(/#/g, '')
+			.replace(/^\s*[-*]\s+/gm, '')
+			.trim()
+	}
+
+	function handleTouchStart(event : TouchEvent) {
+		if (event.touches.length > 0) {
+			touchStartX.value = event.touches[0].clientX
+			touchStartY.value = event.touches[0].clientY
+		}
+	}
+
+	function handleTouchEnd(event : TouchEvent) {
+		if (event.changedTouches.length == 0) {
+			return
+		}
+		const distance = event.changedTouches[0].clientX - touchStartX.value
+		const verticalDistance = event.changedTouches[0].clientY - touchStartY.value
+		const absDistance = Math.abs(distance)
+		const absVerticalDistance = Math.abs(verticalDistance)
+		if (absDistance < 80 || absDistance < absVerticalDistance * 1.2) {
+			return
+		}
+		if (historyOpen.value && distance < -70) {
+			historyOpen.value = false
+			return
+		}
+		if (activeTab.value == 0 && touchStartX.value < 170 && distance > 70) {
+			historyOpen.value = true
+			return
+		}
+		if (distance < -80 && activeTab.value < 4) {
+			selectTab(activeTab.value + 1)
+			return
+		}
+		if (distance > 80 && activeTab.value > 0) {
+			selectTab(activeTab.value - 1)
+		}
+	}
+</script>
+
+<style>
+	.app-shell {
+		min-height: 100vh;
+		background-color: #f6f7fb;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.page {
+		min-height: 100vh;
+		box-sizing: border-box;
+		padding-left: 18px;
+		padding-right: 18px;
+		padding-bottom: 112px;
+		transform: translateX(0);
+	}
+
+	.page-enter-right {
+		animation-name: pageInRight;
+		animation-duration: 260ms;
+		animation-timing-function: ease-out;
+	}
+
+	.page-enter-left {
+		animation-name: pageInLeft;
+		animation-duration: 260ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes pageInRight {
+		from {
+			opacity: 0;
+			transform: translateX(34px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
+	}
+
+	@keyframes pageInLeft {
+		from {
+			opacity: 0;
+			transform: translateX(-34px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
+	}
+
+	.status-space {
+		height: 36px;
+	}
+
+	.chat-page {
+		background-color: #f9fafc;
+		padding-bottom: 0;
+	}
+
+	.chat-nav {
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		top: 36px;
+		height: 48px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		background-color: #f9fafc;
+		z-index: 30;
+	}
+
+	.nav-title {
+		font-size: 17px;
+		font-weight: 700;
+		color: #111827;
+	}
+
+	.nav-button {
+		position: relative;
+		width: 38px;
+		height: 38px;
+		border-radius: 19px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		border-width: 1px;
+		border-color: #eef2f7;
+	}
+
+	.menu-line {
+		width: 17px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #1f2937;
+		margin-bottom: 5px;
+	}
+
+	.menu-line-short {
+		width: 12px;
+		margin-bottom: 0;
+	}
+
+	.plus-line {
+		width: 16px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #1f2937;
+	}
+
+	.plus-line-vertical {
+		position: absolute;
+		transform: rotate(90deg);
+	}
+
+	.chat-scroll {
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		top: 92px;
+		bottom: 160px;
+		margin-top: 0;
+		z-index: 1;
+	}
+
+	.chat-empty {
+		min-height: 500px;
+		align-items: center;
+		justify-content: center;
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.ai-orbit {
+		position: relative;
+		width: 72px;
+		height: 54px;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 18px;
+	}
+
+	.ai-core {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ai-core-text {
+		font-size: 12px;
+		line-height: 16px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.ai-dot {
+		position: absolute;
+		width: 10px;
+		height: 10px;
+		border-radius: 5px;
+		background-color: #007aff;
+	}
+
+	.ai-dot-one {
+		left: 8px;
+		top: 9px;
+	}
+
+	.ai-dot-two {
+		right: 7px;
+		top: 13px;
+		background-color: #34c759;
+	}
+
+	.ai-dot-three {
+		left: 31px;
+		bottom: 2px;
+		background-color: #ff9500;
+	}
+
+	.chat-empty-title {
+		font-size: 25px;
+		line-height: 34px;
+		font-weight: 800;
+		color: #111827;
+		text-align: center;
+	}
+
+	.chat-empty-desc {
+		width: 86%;
+		margin-top: 10px;
+		font-size: 14px;
+		line-height: 22px;
+		color: #667085;
+		text-align: center;
+	}
+
+	.prompt-grid {
+		width: 100%;
+		margin-top: 28px;
+	}
+
+	.prompt-card {
+		min-height: 48px;
+		border-radius: 18px;
+		background-color: #ffffff;
+		justify-content: center;
+		padding-left: 16px;
+		padding-right: 16px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.prompt-text {
+		font-size: 14px;
+		line-height: 20px;
+		color: #344054;
+	}
+
+	.message-list {
+		padding-top: 12px;
+		padding-bottom: 24px;
+	}
+
+	.message-row {
+		flex-direction: row;
+		margin-bottom: 14px;
+	}
+
+	.message-row-user {
+		justify-content: flex-end;
+	}
+
+	.message-bubble {
+		max-width: 82%;
+		padding: 13px 15px;
+		border-radius: 21px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+	}
+
+	.message-bubble-ai {
+		background-color: #ffffff;
+	}
+
+	.message-bubble-user {
+		background-color: #ffffff;
+	}
+
+	.message-text {
+		font-size: 15px;
+		line-height: 22px;
+		color: #111827;
+	}
+
+	.message-text-user {
+		color: #111827;
+	}
+
+	.composer {
+		position: fixed;
+		left: 30px;
+		right: 30px;
+		bottom: 98px;
+		min-height: 56px;
+		border-radius: 28px;
+		background-color: #ffffff;
+		flex-direction: row;
+		align-items: center;
+		padding: 7px;
+		margin-bottom: 0;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+		border-width: 1px;
+		border-color: rgba(226, 232, 240, 0.9);
+		z-index: 30;
+	}
+
+	.composer-input {
+		flex: 1;
+		height: 42px;
+		padding-left: 14px;
+		padding-right: 10px;
+		font-size: 15px;
+		color: #111827;
+	}
+
+	.composer-placeholder {
+		color: #98a2b3;
+	}
+
+	.send-button {
+		position: relative;
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: #e5e7eb;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.send-button-ready {
+		background-color: #111827;
+	}
+
+	.send-arrow-line {
+		width: 17px;
+		height: 3px;
+		border-radius: 3px;
+		background-color: #ffffff;
+	}
+
+	.send-arrow-head {
+		position: absolute;
+		width: 9px;
+		height: 3px;
+		border-radius: 3px;
+		background-color: #ffffff;
+		right: 11px;
+	}
+
+	.send-arrow-head-top {
+		transform: rotate(45deg);
+		margin-top: -6px;
+	}
+
+	.send-arrow-head-bottom {
+		transform: rotate(-45deg);
+		margin-top: 6px;
+	}
+
+	.history-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(15, 23, 42, 0.18);
+		z-index: 60;
+	}
+
+	.history-panel {
+		position: fixed;
+		left: -304px;
+		top: 0;
+		bottom: 0;
+		width: 304px;
+		background-color: #ffffff;
+		z-index: 61;
+		padding-top: 56px;
+		padding-left: 18px;
+		padding-right: 18px;
+		box-sizing: border-box;
+		box-shadow: none;
+		transition-property: left;
+		transition-duration: 240ms;
+	}
+
+	.history-panel-open {
+		left: 0;
+		box-shadow: 22px 0 45px rgba(15, 23, 42, 0.13);
+	}
+
+	.history-top {
+		height: 44px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.history-list {
+		margin-top: 18px;
+		height: 620px;
+	}
+
+	.history-row {
+		flex-direction: row;
+		align-items: center;
+		margin-bottom: 10px;
+	}
+
+	.history-item {
+		flex: 1;
+		border-radius: 18px;
+		background-color: #f6f7fb;
+		padding: 14px;
+		border-width: 1px;
+		border-color: #edf0f5;
+		transition-property: transform, background-color, border-color;
+		transition-duration: 180ms;
+	}
+
+	.history-item-active {
+		background-color: #eef5ff;
+		border-color: #d8e8ff;
+	}
+
+	.history-item-delete-open {
+		transform: translateX(-3px);
+		background-color: #f6f7fb;
+		border-color: #ffccd0;
+	}
+
+	.history-delete-action {
+		width: 0;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #ff3b30;
+		align-items: center;
+		justify-content: center;
+		opacity: 0;
+		overflow: hidden;
+		margin-left: 0;
+		transform: scale(0.88);
+		transition-property: width, opacity, margin-left, transform;
+		transition-duration: 180ms;
+	}
+
+	.history-delete-action-show {
+		width: 34px;
+		opacity: 1;
+		margin-left: 6px;
+		transform: scale(1);
+		animation-name: trashShake;
+		animation-duration: 520ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: infinite;
+	}
+
+	.trash-handle {
+		width: 6px;
+		height: 2px;
+		border-radius: 3px;
+		background-color: #ffffff;
+		margin-bottom: 1px;
+	}
+
+	.trash-lid {
+		width: 15px;
+		height: 3px;
+		border-radius: 4px;
+		background-color: #ffffff;
+		margin-bottom: 1px;
+	}
+
+	.trash-can {
+		width: 14px;
+		height: 13px;
+		border-radius: 4px;
+		background-color: #ffffff;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		padding-left: 2px;
+		padding-right: 2px;
+		box-sizing: border-box;
+	}
+
+	.trash-line {
+		width: 1px;
+		height: 8px;
+		border-radius: 2px;
+		background-color: #ff3b30;
+		margin-left: 1px;
+		margin-right: 1px;
+	}
+
+	@keyframes trashShake {
+		0% {
+			transform: rotate(0deg) scale(1);
+		}
+		25% {
+			transform: rotate(-3deg) scale(1.01);
+		}
+		50% {
+			transform: rotate(3deg) scale(1);
+		}
+		75% {
+			transform: rotate(-2deg) scale(1.01);
+		}
+		100% {
+			transform: rotate(0deg) scale(1);
+		}
+	}
+
+	.history-item-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.history-item-title-active {
+		color: #007aff;
+	}
+
+	.history-item-time {
+		margin-top: 5px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+	}
+
+	.history-title {
+		font-size: 22px;
+		font-weight: 800;
+		color: #111827;
+		margin-left: 6px;
+	}
+
+	.history-close {
+		position: relative;
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #f2f4f7;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-line {
+		position: absolute;
+		width: 14px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #667085;
+		transform: rotate(45deg);
+	}
+
+	.close-line-two {
+		transform: rotate(-45deg);
+	}
+
+	.history-empty {
+		margin-top: 96px;
+		align-items: center;
+		padding-left: 18px;
+		padding-right: 18px;
+	}
+
+	.empty-dot {
+		width: 52px;
+		height: 52px;
+		border-radius: 26px;
+		background-color: #f3f6fb;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 16px;
+	}
+
+	.empty-dot-inner {
+		width: 18px;
+		height: 18px;
+		border-radius: 9px;
+		background-color: #c7d2fe;
+	}
+
+	.history-empty-title {
+		font-size: 17px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.history-empty-desc {
+		margin-top: 8px;
+		font-size: 13px;
+		line-height: 20px;
+		text-align: center;
+		color: #667085;
+	}
+
+	.delete-dialog-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(15, 23, 42, 0.28);
+		z-index: 80;
+		align-items: center;
+		justify-content: center;
+		padding-left: 28px;
+		padding-right: 28px;
+	}
+
+	.delete-dialog {
+		width: 100%;
+		border-radius: 28px;
+		background-color: #ffffff;
+		padding: 26px 20px 18px;
+		align-items: center;
+		border-width: 1px;
+		border-color: rgba(255, 255, 255, 0.9);
+		box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+		animation-name: dialogPop;
+		animation-duration: 180ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes dialogPop {
+		from {
+			opacity: 0;
+			transform: scale(0.94);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
+	}
+
+	.delete-dialog-title {
+		font-size: 20px;
+		line-height: 28px;
+		font-weight: 900;
+		color: #111827;
+		text-align: center;
+	}
+
+	.delete-dialog-desc {
+		width: 88%;
+		margin-top: 8px;
+		font-size: 14px;
+		line-height: 21px;
+		color: #667085;
+		text-align: center;
+	}
+
+	.delete-dialog-actions {
+		width: 100%;
+		flex-direction: row;
+		margin-top: 22px;
+	}
+
+	.delete-dialog-cancel,
+	.delete-dialog-confirm {
+		flex: 1;
+		height: 48px;
+		border-radius: 20px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.delete-dialog-cancel {
+		background-color: #f3f6fb;
+		margin-right: 10px;
+	}
+
+	.delete-dialog-confirm {
+		background-color: #ff3b30;
+	}
+
+	.delete-dialog-cancel-text,
+	.delete-dialog-confirm-text {
+		font-size: 15px;
+		font-weight: 900;
+	}
+
+	.delete-dialog-cancel-text {
+		color: #344054;
+	}
+
+	.delete-dialog-confirm-text {
+		color: #ffffff;
+	}
+
+	.normal-page {
+		background-color: #f6f7fb;
+	}
+
+	.page-head {
+		margin-bottom: 18px;
+	}
+
+	.page-head-row {
+		flex-direction: row;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+
+	.page-head-main {
+		flex: 1;
+		padding-right: 12px;
+	}
+
+	.page-title {
+		font-size: 30px;
+		line-height: 38px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.page-subtitle {
+		margin-top: 5px;
+		font-size: 14px;
+		line-height: 21px;
+		color: #667085;
+	}
+
+	.segmented {
+		flex-direction: row;
+		background-color: #e9edf5;
+		border-radius: 18px;
+		padding: 4px;
+		margin-bottom: 18px;
+	}
+
+	.segment,
+	.segment-active {
+		flex: 1;
+		height: 36px;
+		border-radius: 14px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.segment-active {
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+	}
+
+	.segment-text,
+	.segment-active-text {
+		font-size: 13px;
+	}
+
+	.segment-text {
+		color: #667085;
+	}
+
+	.segment-active-text {
+		color: #111827;
+		font-weight: 700;
+	}
+
+	.empty-state {
+		min-height: 430px;
+		border-radius: 30px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		padding-left: 24px;
+		padding-right: 24px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.empty-state-soft {
+		box-shadow: none;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.empty-illustration {
+		width: 76px;
+		height: 76px;
+		border-radius: 26px;
+		background-color: #f2f6ff;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 20px;
+	}
+
+	.empty-grid-row {
+		flex-direction: row;
+	}
+
+	.empty-grid-cell {
+		width: 18px;
+		height: 18px;
+		border-radius: 7px;
+		background-color: #d7e4ff;
+		margin: 3px;
+	}
+
+	.empty-grid-cell-accent {
+		background-color: #34c759;
+	}
+
+	.empty-title {
+		font-size: 20px;
+		line-height: 28px;
+		font-weight: 800;
+		color: #111827;
+		text-align: center;
+	}
+
+	.empty-desc {
+		margin-top: 8px;
+		font-size: 14px;
+		line-height: 22px;
+		color: #667085;
+		text-align: center;
+	}
+
+	.action-stack {
+		width: 100%;
+		margin-top: 24px;
+	}
+
+	.primary-action,
+	.secondary-action {
+		height: 48px;
+		border-radius: 24px;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 10px;
+	}
+
+	.primary-action {
+		background-color: #111827;
+	}
+
+	.secondary-action {
+		background-color: #eef5ff;
+	}
+
+	.primary-action-text {
+		font-size: 15px;
+		font-weight: 800;
+		color: #ffffff;
+	}
+
+	.secondary-action-text {
+		font-size: 15px;
+		font-weight: 800;
+		color: #007aff;
+	}
+
+	.small-primary {
+		height: 38px;
+		padding-left: 16px;
+		padding-right: 16px;
+		border-radius: 19px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.small-primary-text {
+		font-size: 14px;
+		font-weight: 800;
+		color: #ffffff;
+	}
+
+	.compose-box {
+		border-radius: 26px;
+		background-color: #ffffff;
+		padding: 16px;
+		margin-bottom: 14px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.compose-placeholder {
+		font-size: 15px;
+		line-height: 22px;
+		color: #98a2b3;
+	}
+
+	.compose-tools {
+		flex-direction: row;
+		margin-top: 14px;
+	}
+
+	.tool-pill {
+		height: 34px;
+		border-radius: 17px;
+		background-color: #f3f6fb;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 12px;
+		padding-right: 12px;
+		margin-right: 10px;
+	}
+
+	.tool-image-icon {
+		position: relative;
+		width: 16px;
+		height: 14px;
+		border-radius: 4px;
+		border-width: 2px;
+		border-color: #007aff;
+		margin-right: 6px;
+		overflow: hidden;
+	}
+
+	.tool-image-sun {
+		position: absolute;
+		right: 2px;
+		top: 2px;
+		width: 4px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #007aff;
+	}
+
+	.tool-image-hill {
+		position: absolute;
+		left: 2px;
+		bottom: -1px;
+		width: 12px;
+		height: 7px;
+		border-radius: 7px;
+		background-color: #007aff;
+	}
+
+	.tool-build-icon {
+		width: 15px;
+		height: 15px;
+		flex-direction: row;
+		margin-right: 6px;
+	}
+
+	.tool-build-dot {
+		width: 6px;
+		height: 15px;
+		border-radius: 3px;
+		background-color: #34c759;
+		margin-right: 3px;
+	}
+
+	.tool-pill-text {
+		font-size: 13px;
+		font-weight: 700;
+		color: #344054;
+	}
+
+	.empty-forum {
+		background-color: #f0fdf4;
+	}
+
+	.forum-bubble {
+		width: 38px;
+		height: 24px;
+		border-radius: 13px;
+		background-color: #34c759;
+	}
+
+	.forum-bubble-small {
+		width: 24px;
+		height: 16px;
+		background-color: #9ae6b4;
+		margin-top: -5px;
+		margin-left: 20px;
+	}
+
+	.empty-news {
+		background-color: #fff7ed;
+	}
+
+	.news-line {
+		width: 34px;
+		height: 5px;
+		border-radius: 3px;
+		background-color: #ff9500;
+		margin-bottom: 6px;
+	}
+
+	.news-line-long {
+		width: 42px;
+	}
+
+	.news-line-short {
+		width: 24px;
+		margin-bottom: 0;
+	}
+
+	.profile-card {
+		border-radius: 30px;
+		background-color: #ffffff;
+		padding: 20px;
+		flex-direction: row;
+		align-items: center;
+		margin-bottom: 14px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.profile-avatar {
+		position: relative;
+		width: 64px;
+		height: 64px;
+		border-radius: 32px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-right: 14px;
+		overflow: hidden;
+	}
+
+	.profile-avatar-image {
+		position: absolute;
+		width: 64px;
+		height: 64px;
+		border-radius: 32px;
+		left: 0;
+		top: 0;
+		z-index: 2;
+	}
+
+	.profile-avatar-text {
+		font-size: 24px;
+		line-height: 32px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.profile-copy {
+		flex: 1;
+	}
+
+	.profile-title {
+		font-size: 22px;
+		line-height: 29px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.profile-desc {
+		margin-top: 4px;
+		font-size: 13px;
+		line-height: 20px;
+		color: #667085;
+	}
+
+	.profile-email {
+		margin-top: 4px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #98a2b3;
+	}
+
+	.zero-stats {
+		flex-direction: row;
+		margin-bottom: 14px;
+	}
+
+	.zero-stat {
+		flex: 1;
+		border-radius: 22px;
+		background-color: #ffffff;
+		padding-top: 16px;
+		padding-bottom: 16px;
+		align-items: center;
+		margin-right: 9px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.zero-stat-last {
+		margin-right: 0;
+	}
+
+	.zero-number {
+		font-size: 22px;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	.zero-label {
+		margin-top: 4px;
+		font-size: 12px;
+		color: #667085;
+	}
+
+	.menu-list {
+		border-radius: 26px;
+		background-color: #ffffff;
+		padding: 6px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.menu-item {
+		height: 54px;
+		border-radius: 20px;
+		padding-left: 14px;
+		padding-right: 12px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.menu-item-pressed {
+		background-color: #fff1f0;
+		transform: scale(0.98);
+		transition-property: background-color, transform;
+		transition-duration: 160ms;
+	}
+
+	.menu-text {
+		font-size: 15px;
+		font-weight: 700;
+		color: #111827;
+	}
+
+	.menu-text-danger {
+		color: #ff3b30;
+	}
+
+	.menu-arrow {
+		font-size: 25px;
+		color: #98a2b3;
+	}
+
+	.tabbar {
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		bottom: 14px;
+		height: 72px;
+		border-radius: 27px;
+		background-color: rgba(255, 255, 255, 0.96);
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding-left: 8px;
+		padding-right: 8px;
+		box-shadow: 0 10px 26px rgba(15, 23, 42, 0.1);
+		border-width: 1px;
+		border-color: rgba(255, 255, 255, 0.9);
+		z-index: 20;
+	}
+
+	.tab-item {
+		flex: 1;
+		height: 58px;
+		border-radius: 22px;
+		align-items: center;
+		justify-content: center;
+		transition-property: background-color, transform;
+		transition-duration: 180ms;
+	}
+
+	.tab-item-active {
+		background-color: #eef5ff;
+		transform: scale(1.03);
+	}
+
+	.tab-glyph {
+		position: relative;
+		width: 28px;
+		height: 26px;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 2px;
+	}
+
+	.tab-label {
+		font-size: 11px;
+		line-height: 14px;
+		font-weight: 700;
+		color: #8a94a6;
+	}
+
+	.tab-label-active {
+		color: #007aff;
+	}
+
+	.ai-tab-glyph {
+		border-radius: 10px;
+	}
+
+	.ai-tab-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #8a94a6;
+	}
+
+	.ai-tab-text-active {
+		color: #007aff;
+	}
+
+	.grid-icon-row {
+		flex-direction: row;
+	}
+
+	.grid-icon-cell {
+		width: 8px;
+		height: 8px;
+		border-radius: 3px;
+		background-color: #8a94a6;
+		margin: 2px;
+	}
+
+	.grid-icon-cell-active {
+		background-color: #007aff;
+	}
+
+	.discover-circle {
+		width: 19px;
+		height: 19px;
+		border-radius: 10px;
+		border-width: 2px;
+		border-color: #8a94a6;
+	}
+
+	.discover-circle-active {
+		border-color: #007aff;
+	}
+
+	.discover-needle {
+		position: absolute;
+		width: 2px;
+		height: 12px;
+		border-radius: 2px;
+		background-color: #8a94a6;
+		transform: rotate(40deg);
+	}
+
+	.discover-needle-active {
+		background-color: #007aff;
+	}
+
+	.news-icon-paper {
+		width: 20px;
+		height: 21px;
+		border-radius: 6px;
+		border-width: 2px;
+		border-color: #8a94a6;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.news-icon-paper-active {
+		border-color: #007aff;
+	}
+
+	.news-icon-line {
+		width: 10px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #8a94a6;
+		margin-top: 3px;
+	}
+
+	.news-icon-line-active {
+		background-color: #007aff;
+	}
+
+	.news-icon-line-long {
+		width: 13px;
+		margin-top: 0;
+	}
+
+	.mine-icon-head {
+		width: 10px;
+		height: 10px;
+		border-radius: 5px;
+		background-color: #8a94a6;
+		margin-bottom: 3px;
+	}
+
+	.mine-icon-head-active {
+		background-color: #007aff;
+	}
+
+	.mine-icon-body {
+		width: 19px;
+		height: 9px;
+		border-radius: 8px;
+		background-color: #8a94a6;
+	}
+
+	.mine-icon-body-active {
+		background-color: #007aff;
+	}
+
+	.tab-item-active .discover-circle,
+	.tab-item-active .news-icon-paper {
+		border-color: #007aff;
+	}
+
+	.tab-item-active .grid-icon-cell,
+	.tab-item-active .discover-needle,
+	.tab-item-active .news-icon-line,
+	.tab-item-active .mine-icon-head,
+	.tab-item-active .mine-icon-body {
+		background-color: #007aff;
+	}
+</style>

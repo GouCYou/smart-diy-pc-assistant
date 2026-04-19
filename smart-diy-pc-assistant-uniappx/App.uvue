@@ -1,0 +1,55 @@
+<script setup lang="uts">
+	// #ifdef APP-ANDROID || APP-HARMONY
+	let firstBackTime = 0
+	// #endif
+
+	onLaunch(() => {
+		console.log('应用启动')
+	})
+
+	onAppShow(() => {
+		console.log('应用显示')
+	})
+
+	onAppHide(() => {
+		console.log('应用隐藏')
+	})
+
+	// #ifdef APP-ANDROID || APP-HARMONY
+	onLastPageBackPress(() => {
+		if (firstBackTime == 0) {
+			uni.showToast({
+				title: '再按一次退出应用',
+				position: 'bottom'
+			})
+			firstBackTime = Date.now()
+			setTimeout(() => {
+				firstBackTime = 0
+			}, 2000)
+		} else if (Date.now() - firstBackTime < 2000) {
+			firstBackTime = Date.now()
+			uni.exit()
+		}
+	})
+
+	onExit(() => {
+		console.log('应用退出')
+	})
+	// #endif
+</script>
+
+<style>
+	page {
+		background-color: #f5f7fb;
+		color: #111827;
+		font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+	}
+
+	.uni-row {
+		flex-direction: row;
+	}
+
+	.uni-column {
+		flex-direction: column;
+	}
+</style>
