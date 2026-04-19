@@ -25,8 +25,13 @@ public class ChatMessage {
     private String role;
 
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String content;
+
+    private Long buildConfigId;
+
+    @Column(length = 80)
+    private String buildConfigTitle;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -35,9 +40,15 @@ public class ChatMessage {
     }
 
     public ChatMessage(Long conversationId, String role, String content) {
+        this(conversationId, role, content, null, "");
+    }
+
+    public ChatMessage(Long conversationId, String role, String content, Long buildConfigId, String buildConfigTitle) {
         this.conversationId = conversationId;
         this.role = role;
         this.content = content;
+        this.buildConfigId = buildConfigId;
+        this.buildConfigTitle = buildConfigTitle;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -47,6 +58,14 @@ public class ChatMessage {
 
     public String getContent() {
         return content;
+    }
+
+    public Long getBuildConfigId() {
+        return buildConfigId;
+    }
+
+    public String getBuildConfigTitle() {
+        return buildConfigTitle == null ? "" : buildConfigTitle;
     }
 
     public LocalDateTime getCreatedAt() {

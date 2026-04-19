@@ -8,7 +8,7 @@
 					<view class="menu-line menu-line-short"></view>
 				</view>
 				<text class="nav-title">对话</text>
-				<view class="nav-button" @click="startNewConversation">
+				<view :class="newConversationPressed ? 'nav-button nav-button-pressed nav-button-plus-active' : 'nav-button'" @click="startNewConversation">
 					<view class="plus-line"></view>
 					<view class="plus-line plus-line-vertical"></view>
 				</view>
@@ -38,16 +38,40 @@
 						<view :class="message.role == 'user' ? 'message-bubble message-bubble-user' : 'message-bubble message-bubble-ai'">
 							<text :class="message.role == 'user' ? 'message-text message-text-user' : 'message-text'">{{ message.content }}</text>
 						</view>
+						<view v-if="message.buildConfigId > 0" class="chat-build-card" @click="openChatBuildDetail(message.buildConfigId)">
+							<view class="chat-build-icon">
+								<text class="chat-build-icon-text">AI</text>
+							</view>
+							<view class="chat-build-main">
+								<text class="chat-build-title">{{ message.buildConfigTitle }}</text>
+								<text class="chat-build-desc">点击查看配置详情</text>
+							</view>
+							<text class="chat-build-arrow">›</text>
+						</view>
 					</view>
 					<view v-if="chatLoading" class="message-row">
-						<view class="message-bubble message-bubble-ai">
-							<text class="message-text">正在整理配置思路...</text>
+						<view class="message-bubble message-bubble-ai message-bubble-breathing">
+							<view class="thinking-mark">
+								<text class="thinking-mark-text">AI</text>
+							</view>
+							<text class="breathing-title">正在思考</text>
 						</view>
 					</view>
 				</view>
 			</scroll-view>
 
+			<view v-if="attachedBuildId > 0" class="composer-attachment">
+				<text class="composer-attachment-text">已附加：{{ attachedBuildTitle }}</text>
+				<view class="composer-attachment-close" @click="clearAttachedBuild">
+					<view class="close-line"></view>
+					<view class="close-line close-line-two"></view>
+				</view>
+			</view>
 			<view class="composer">
+				<view :class="attachedBuildId > 0 ? 'attach-button attach-button-active' : 'attach-button'" @click="openChatBuildPicker">
+					<view class="attach-icon-line"></view>
+					<view class="attach-icon-dot"></view>
+				</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
 				<view :class="draft.length > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
 					<view class="send-arrow-line"></view>
@@ -60,10 +84,12 @@
 
 		<view v-if="activeTab == 1" :class="getPageClass('normal-page')">
 			<view class="status-space"></view>
-			<view class="page-head">
-				<view>
-					<text class="page-title">配置</text>
-					<text class="page-subtitle">手动选择配件，或让 AI 生成后保存到这里。</text>
+			<view class="page-head page-head-row">
+				<view class="page-head-main">
+					<text class="page-title page-title-inset">配置</text>
+				</view>
+				<view class="small-primary" @click="createBuild">
+					<text class="small-primary-text">新建</text>
 				</view>
 			</view>
 
@@ -79,36 +105,80 @@
 				</view>
 			</view>
 
-			<view class="empty-state">
-				<view class="empty-illustration">
-					<view class="empty-grid-row">
-						<view class="empty-grid-cell"></view>
-						<view class="empty-grid-cell"></view>
-					</view>
-					<view class="empty-grid-row">
-						<view class="empty-grid-cell"></view>
-						<view class="empty-grid-cell empty-grid-cell-accent"></view>
+			<scroll-view class="build-scroll" scroll-y="true">
+				<view v-if="buildList.length > 0" class="build-list">
+					<view v-for="item in buildList" :key="item.id" class="build-card" @click="openBuildDetail(item)">
+						<view class="build-card-head">
+							<view class="build-card-main">
+								<text class="build-title">{{ item.title }}</text>
+								<text class="build-meta">{{ getBuildSourceLabel(item.source) }} · {{ formatHistoryTime(item.updatedAt) }}</text>
+							</view>
+							<view :class="item.favorite ? 'favorite-button favorite-button-active' : 'favorite-button'" @click.stop="toggleBuildFavorite(item)">
+								<text :class="item.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ item.favorite ? '★' : '☆' }}</text>
+								<text :class="item.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ item.favorite ? '已收藏' : '收藏' }}</text>
+							</view>
+						</view>
+						<view class="build-score-row">
+							<view class="build-score-pill">
+								<text class="build-score-label">总价</text>
+								<text class="build-score-value">¥{{ item.totalPrice }}</text>
+							</view>
+							<view class="build-score-pill">
+								<text class="build-score-label">性能</text>
+								<text class="build-score-value">{{ item.performanceScore }} 分</text>
+							</view>
+						</view>
+						<text class="build-summary">{{ item.summary }}</text>
+						<view class="build-part-preview">
+							<text v-for="part in item.parts" :key="part.id" class="build-part-chip">{{ getHardwareTypeLabel(part.type) }} · {{ part.model }}</text>
+						</view>
+						<view class="build-actions">
+							<view class="build-action build-action-soft" @click.stop="editBuild(item)">
+								<text class="build-action-icon">✎</text>
+								<text class="build-action-text">编辑</text>
+							</view>
+							<view class="build-action build-action-soft" @click.stop="copyBuild(item.content)">
+								<text class="build-action-icon">⧉</text>
+								<text class="build-action-text">复制</text>
+							</view>
+							<view class="build-action build-action-danger" @click.stop="deleteBuild(item.id)">
+								<text class="build-action-danger-text">⌫</text>
+								<text class="build-action-danger-text">删除</text>
+							</view>
+						</view>
 					</view>
 				</view>
-				<text class="empty-title">{{ getBuildEmptyTitle() }}</text>
-				<text class="empty-desc">{{ getBuildEmptyDesc() }}</text>
-				<view class="action-stack">
-					<view class="primary-action" @click="createBuild">
-						<text class="primary-action-text">新建配置</text>
+
+				<view v-if="buildList.length == 0" class="empty-state">
+					<view class="empty-illustration">
+						<view class="empty-grid-row">
+							<view class="empty-grid-cell"></view>
+							<view class="empty-grid-cell"></view>
+						</view>
+						<view class="empty-grid-row">
+							<view class="empty-grid-cell"></view>
+							<view class="empty-grid-cell empty-grid-cell-accent"></view>
+						</view>
 					</view>
-					<view class="secondary-action" @click="askAiForBuild">
-						<text class="secondary-action-text">让 AI 生成</text>
+					<text class="empty-title">{{ getBuildEmptyTitle() }}</text>
+					<text class="empty-desc">{{ getBuildEmptyDesc() }}</text>
+					<view v-if="buildSegment != 2" class="action-stack">
+						<view class="primary-action" @click="createBuild">
+							<text class="primary-action-text">新建配置</text>
+						</view>
+						<view class="secondary-action" @click="askAiForBuild">
+							<text class="secondary-action-text">让 AI 生成</text>
+						</view>
 					</view>
 				</view>
-			</view>
+			</scroll-view>
 		</view>
 
 		<view v-if="activeTab == 2" :class="getPageClass('normal-page')">
 			<view class="status-space"></view>
 			<view class="page-head page-head-row">
 				<view class="page-head-main">
-					<text class="page-title">发现</text>
-					<text class="page-subtitle">发帖、上传图片，也可以关联自己的配置。</text>
+					<text class="page-title page-title-inset">发现</text>
 				</view>
 				<view class="small-primary" @click="publishPost">
 					<text class="small-primary-text">发帖</text>
@@ -149,8 +219,7 @@
 			<view class="status-space"></view>
 			<view class="page-head">
 				<view class="page-head-main">
-					<text class="page-title">热点</text>
-					<text class="page-subtitle">硬件资讯、价格变化和装机提醒。</text>
+					<text class="page-title page-title-inset">热点</text>
 				</view>
 			</view>
 
@@ -303,6 +372,148 @@
 			</view>
 		</view>
 
+		<view v-if="buildFormVisible" class="build-form-mask" @click="closeBuildForm">
+			<view class="build-form" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">{{ buildEditingId > 0 ? '编辑配置' : '新建配置' }}</text>
+					<view class="build-form-close" @click="closeBuildForm">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<view class="build-live-panel">
+					<view class="build-live-item">
+						<text class="build-live-label">实时总价</text>
+						<text class="build-live-value">¥{{ getCurrentBuildTotalPrice() }}</text>
+					</view>
+					<view class="build-live-item">
+						<text class="build-live-label">性能评分</text>
+						<text class="build-live-value">{{ getCurrentBuildPerformanceScore() }} 分</text>
+					</view>
+				</view>
+				<scroll-view class="build-form-body" scroll-y="true">
+					<input class="build-form-input" v-model="buildFormTitle" placeholder="配置名称" placeholder-class="input-placeholder" />
+					<textarea class="build-form-textarea build-note-textarea" v-model="buildFormNote" placeholder="备注，例如偏好白色、小机箱、安静一点" placeholder-class="input-placeholder" />
+					<view class="part-selector-list">
+						<view v-for="partType in hardwareTypeOptions" :key="partType.key" :class="getPartSelectorClass(partType.key)" @click="openPartPicker(partType.key)">
+							<view class="part-selector-main">
+								<text class="part-selector-label">{{ partType.label }}</text>
+								<text :class="hasSelectedPart(partType.key) ? 'part-selector-value' : 'part-selector-placeholder'">{{ getSelectedPartName(partType.key) }}</text>
+							</view>
+							<text class="part-selector-price">{{ getSelectedPartPrice(partType.key) }}</text>
+						</view>
+					</view>
+					<view class="compat-list">
+						<text v-for="message in getCurrentCompatibilityMessages()" :key="message" class="compat-message">{{ message }}</text>
+					</view>
+				</scroll-view>
+				<view class="build-form-submit" @click="saveBuild">
+					<text class="build-form-submit-text">{{ buildSaving ? '保存中...' : '保存配置' }}</text>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="partPickerVisible" class="build-form-mask" @click="closePartPicker">
+			<view class="part-picker" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">选择{{ getHardwareTypeLabel(activePickerType) }}</text>
+					<view class="build-form-close" @click="closePartPicker">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<view class="part-search-row">
+					<input class="part-search-input" v-model="hardwareKeyword" confirm-type="search" placeholder="搜索品牌或型号" placeholder-class="input-placeholder" @confirm="loadHardwareOptions" />
+					<view class="part-search-button" @click="loadHardwareOptions">
+						<text class="part-search-button-text">搜索</text>
+					</view>
+				</view>
+				<scroll-view class="part-option-scroll" scroll-y="true">
+					<view v-for="part in hardwareOptions" :key="part.id" class="part-option" @click="selectHardwarePart(part)">
+						<view class="part-option-main">
+							<text class="part-option-title">{{ part.brand }} {{ part.model }}</text>
+							<text class="part-option-spec">{{ getPartSpecText(part) }}</text>
+						</view>
+						<view class="part-option-side">
+							<text class="part-option-price">¥{{ part.price }}</text>
+							<text class="part-option-score">{{ part.performanceScore }} 分</text>
+						</view>
+					</view>
+					<view v-if="hardwareOptions.length == 0" class="part-empty">
+						<text class="part-empty-text">暂无可选硬件</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
+		<view v-if="buildDetailVisible" class="build-form-mask" @click="closeBuildDetail">
+			<view class="build-detail" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">{{ selectedBuildDetail.title }}</text>
+					<view class="build-form-close" @click="closeBuildDetail">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<view class="build-detail-metrics">
+					<view class="build-detail-metric">
+						<text class="build-live-label">总价</text>
+						<text class="build-live-value">¥{{ selectedBuildDetail.totalPrice }}</text>
+					</view>
+					<view class="build-detail-metric">
+						<text class="build-live-label">性能</text>
+						<text class="build-live-value">{{ selectedBuildDetail.performanceScore }} 分</text>
+					</view>
+				</view>
+				<scroll-view class="build-detail-scroll" scroll-y="true">
+					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="detail-part-row">
+						<text class="detail-part-title">{{ getHardwareTypeLabel(part.type) }} · {{ part.brand }} {{ part.model }}</text>
+						<text class="detail-part-meta">¥{{ part.price }} · 性能 {{ part.performanceScore }} · {{ getPartSpecText(part) }}</text>
+					</view>
+					<view class="compat-list compat-list-detail">
+						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
+					</view>
+					<text v-if="selectedBuildDetail.note.length > 0" class="detail-note">备注：{{ selectedBuildDetail.note }}</text>
+				</scroll-view>
+				<view class="build-detail-actions">
+					<view class="build-action build-action-soft" @click="editBuild(selectedBuildDetail)">
+						<text class="build-action-icon">✎</text>
+						<text class="build-action-text">编辑</text>
+					</view>
+					<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
+						<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
+						<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="chatBuildPickerVisible" class="build-form-mask" @click="closeChatBuildPicker">
+			<view class="part-picker" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">选择配置单</text>
+					<view class="build-form-close" @click="closeChatBuildPicker">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<scroll-view class="part-option-scroll" scroll-y="true">
+					<view v-for="item in chatAttachBuildList" :key="item.id" class="part-option" @click="attachBuildToChat(item)">
+						<view class="part-option-main">
+							<text class="part-option-title">{{ item.title }}</text>
+							<text class="part-option-spec">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+						</view>
+						<view class="part-option-side">
+							<text class="part-option-price">添加</text>
+						</view>
+					</view>
+					<view v-if="chatAttachBuildList.length == 0" class="part-empty">
+						<text class="part-empty-text">暂无可附加配置</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
 	</view>
 </template>
 
@@ -310,6 +521,8 @@
 	type ChatMessage = {
 		role : string
 		content : string
+		buildConfigId : number
+		buildConfigTitle : string
 	}
 
 	type ConversationSummary = {
@@ -328,6 +541,45 @@
 		role : string
 	}
 
+	type HardwareTypeOption = {
+		key : string
+		label : string
+	}
+
+	type HardwarePartItem = {
+		id : number
+		type : string
+		brand : string
+		model : string
+		price : number
+		performanceScore : number
+		socketType : string
+		memoryType : string
+		formFactor : string
+		wattage : number
+		gpuLengthMm : number
+		coolerHeightMm : number
+		supportedFormFactors : string
+		specs : string
+		enabled : boolean
+	}
+
+	type BuildConfigItem = {
+		id : number
+		title : string
+		note : string
+		totalPrice : number
+		performanceScore : number
+		compatibilityStatus : string
+		compatibilityMessages : string[]
+		parts : HardwarePartItem[]
+		summary : string
+		content : string
+		source : string
+		favorite : boolean
+		updatedAt : string
+	}
+
 	const apiBaseUrl = 'http://localhost:8080'
 	const activeTab = ref(0)
 	const historyOpen = ref(false)
@@ -335,6 +587,38 @@
 	const touchStartY = ref(0)
 	const draft = ref('')
 	const buildSegment = ref(0)
+	const buildList = ref([] as BuildConfigItem[])
+	const buildLoading = ref(false)
+	const buildFormVisible = ref(false)
+	const buildSaving = ref(false)
+	const buildEditingId = ref(0)
+	const buildFormTitle = ref('')
+	const buildFormNote = ref('')
+	const selectedHardwareParts = ref([] as HardwarePartItem[])
+	const partPickerVisible = ref(false)
+	const activePickerType = ref('CPU')
+	const hardwareKeyword = ref('')
+	const hardwareOptions = ref([] as HardwarePartItem[])
+	const buildDetailVisible = ref(false)
+	const chatBuildPickerVisible = ref(false)
+	const chatAttachBuildList = ref([] as BuildConfigItem[])
+	const attachedBuildId = ref(0)
+	const attachedBuildTitle = ref('')
+	const selectedBuildDetail = ref({
+		id: 0,
+		title: '',
+		note: '',
+		totalPrice: 0,
+		performanceScore: 0,
+		compatibilityStatus: 'WARN',
+		compatibilityMessages: [] as string[],
+		parts: [] as HardwarePartItem[],
+		summary: '',
+		content: '',
+		source: 'MANUAL',
+		favorite: false,
+		updatedAt: ''
+	} as BuildConfigItem)
 	const pageMotionClass = ref('')
 	const chatMessages = ref([] as ChatMessage[])
 	const conversationList = ref([] as ConversationSummary[])
@@ -348,6 +632,7 @@
 	const pendingDeleteTitle = ref('')
 	const deleteSubmitting = ref(false)
 	const logoutPressed = ref(false)
+	const newConversationPressed = ref(false)
 	const token = ref('')
 	const currentUsername = ref('')
 	const currentEmail = ref('')
@@ -361,6 +646,17 @@
 		'剪辑、建模和游戏都要兼顾',
 		'已有显卡，帮我补齐其他配件'
 	]
+
+	const hardwareTypeOptions = [
+		{ key: 'CPU', label: 'CPU' },
+		{ key: 'MOTHERBOARD', label: '主板' },
+		{ key: 'GPU', label: '显卡' },
+		{ key: 'MEMORY', label: '内存' },
+		{ key: 'STORAGE', label: '硬盘' },
+		{ key: 'PSU', label: '电源' },
+		{ key: 'CASE', label: '机箱' },
+		{ key: 'COOLER', label: '散热' }
+	] as HardwareTypeOption[]
 
 	let historyRefreshTimer : number = 0
 
@@ -379,6 +675,9 @@
 		}
 		if (activeTab.value == 4) {
 			loadProfile()
+		}
+		if (activeTab.value == 1) {
+			loadBuildConfigs()
 		}
 	})
 	onHide(() => {
@@ -428,6 +727,9 @@
 			loadAuth()
 			loadProfile()
 		}
+		if (index == 1) {
+			loadBuildConfigs()
+		}
 		setTimeout(() => {
 			pageMotionClass.value = ''
 		}, 260)
@@ -435,6 +737,7 @@
 
 	function selectBuildSegment(index : number) {
 		buildSegment.value = index
+		loadBuildConfigs()
 	}
 
 	function toggleHistory() {
@@ -472,7 +775,9 @@
 		}
 		chatMessages.value.push({
 			role: 'user',
-			content: text
+			content: text,
+			buildConfigId: 0,
+			buildConfigTitle: ''
 		})
 		draft.value = ''
 		chatLoading.value = true
@@ -485,6 +790,7 @@
 			},
 			data: {
 				conversationId: currentConversationId.value > 0 ? currentConversationId.value : null,
+				buildConfigId: attachedBuildId.value > 0 ? attachedBuildId.value : null,
 				message: text
 			},
 			success: (res) => {
@@ -492,10 +798,23 @@
 				if (body != null && body.code == 0 && body.data != null) {
 					const data = body.data as any
 					currentConversationId.value = data.conversationId as number
+					let generatedBuildId = 0
+					let generatedBuildTitle = ''
+					if (data.generatedBuildConfigId != null) {
+						generatedBuildId = data.generatedBuildConfigId as number
+					}
+					if (data.generatedBuildConfigTitle != null) {
+						generatedBuildTitle = data.generatedBuildConfigTitle as string
+					}
 					chatMessages.value.push({
 						role: 'assistant',
-						content: formatAiContent(data.content as string)
+						content: formatAiContent(data.content as string),
+						buildConfigId: generatedBuildId,
+						buildConfigTitle: generatedBuildTitle
 					})
+					if (generatedBuildId > 0) {
+						loadBuildConfigs()
+					}
 					loadConversations()
 					return
 				}
@@ -503,20 +822,26 @@
 					clearAuth()
 					chatMessages.value.push({
 						role: 'assistant',
-						content: '登录状态已失效，请重新登录后继续对话。'
+						content: '登录状态已失效，请重新登录后继续对话。',
+						buildConfigId: 0,
+						buildConfigTitle: ''
 					})
 					openAuthPage()
 					return
 				}
 				chatMessages.value.push({
 					role: 'assistant',
-					content: '后端暂时没有返回有效内容，请稍后再试。'
+					content: '后端暂时没有返回有效内容，请稍后再试。',
+					buildConfigId: 0,
+					buildConfigTitle: ''
 				})
 			},
 			fail: () => {
 				chatMessages.value.push({
 					role: 'assistant',
-					content: '暂时连接不到后端服务，请确认后端已经启动。'
+					content: '暂时连接不到后端服务，请确认后端已经启动。',
+					buildConfigId: 0,
+					buildConfigTitle: ''
 				})
 			},
 			complete: () => {
@@ -526,13 +851,21 @@
 	}
 
 	function startNewConversation() {
+		if (newConversationPressed.value) {
+			return
+		}
+		newConversationPressed.value = true
 		chatMessages.value = []
 		currentConversationId.value = 0
+		clearAttachedBuild()
 		draft.value = ''
-		uni.showToast({
-			title: '已新建对话',
-			icon: 'none'
-		})
+		setTimeout(() => {
+			newConversationPressed.value = false
+			uni.showToast({
+				title: '已新建对话',
+				icon: 'none'
+			})
+		}, 220)
 	}
 
 	function askAiForBuild() {
@@ -540,10 +873,173 @@
 		draft.value = '请帮我生成一套适合我的电脑配置'
 	}
 
-	function createBuild() {
+	function openChatBuildPicker() {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		chatBuildPickerVisible.value = true
+		loadChatAttachBuilds()
+	}
+
+	function closeChatBuildPicker() {
+		chatBuildPickerVisible.value = false
+	}
+
+	function loadChatAttachBuilds() {
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs?segment=all',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					chatAttachBuildList.value = body.data as BuildConfigItem[]
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时读取不到配置单',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function attachBuildToChat(item : BuildConfigItem) {
+		attachedBuildId.value = item.id
+		attachedBuildTitle.value = item.title
+		chatBuildPickerVisible.value = false
 		uni.showToast({
-			title: '后续接入配件选择器',
+			title: '已附加配置单',
 			icon: 'none'
+		})
+	}
+
+	function clearAttachedBuild() {
+		attachedBuildId.value = 0
+		attachedBuildTitle.value = ''
+	}
+
+	function createBuild() {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		buildEditingId.value = 0
+		buildFormTitle.value = ''
+		buildFormNote.value = ''
+		selectedHardwareParts.value = []
+		buildFormVisible.value = true
+		activePickerType.value = 'CPU'
+		hardwareKeyword.value = ''
+		loadHardwareOptions()
+	}
+
+	function editBuild(item : BuildConfigItem) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		buildDetailVisible.value = false
+		buildEditingId.value = item.id
+		buildFormTitle.value = item.title
+		buildFormNote.value = item.note
+		selectedHardwareParts.value = item.parts
+		buildFormVisible.value = true
+		activePickerType.value = 'CPU'
+		hardwareKeyword.value = ''
+		loadHardwareOptions()
+	}
+
+	function closeBuildForm() {
+		if (buildSaving.value) {
+			return
+		}
+		buildFormVisible.value = false
+		buildEditingId.value = 0
+	}
+
+	function saveBuild() {
+		if (buildSaving.value) {
+			return
+		}
+		if (buildFormTitle.value.trim().length == 0) {
+			uni.showToast({
+				title: '请填写配置名称',
+				icon: 'none'
+			})
+			return
+		}
+		const partIds = getSelectedPartIds()
+		if (partIds.length == 0) {
+			uni.showToast({
+				title: '请至少选择一个硬件',
+				icon: 'none'
+			})
+			return
+		}
+		if (getCurrentCompatibilityStatus() == 'BLOCK') {
+			uni.showToast({
+				title: '存在兼容性问题',
+				icon: 'none'
+			})
+			return
+		}
+		const wasEditing = buildEditingId.value > 0
+		buildSaving.value = true
+		uni.request({
+			url: wasEditing ? apiBaseUrl + '/api/build-configs/' + buildEditingId.value : apiBaseUrl + '/api/build-configs',
+			method: wasEditing ? 'PUT' : 'POST',
+			header: {
+				'Content-Type': 'application/json',
+				'Authorization': 'Bearer ' + token.value
+			},
+			data: {
+				title: buildFormTitle.value.trim(),
+				note: buildFormNote.value.trim(),
+				partIds: partIds,
+				source: 'MANUAL'
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					buildFormVisible.value = false
+					buildEditingId.value = 0
+					buildSegment.value = 0
+					loadBuildConfigs()
+					uni.showToast({
+						title: wasEditing ? '配置已更新' : '配置已保存',
+						icon: 'none'
+					})
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '保存失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				buildSaving.value = false
+			}
 		})
 	}
 
@@ -696,6 +1192,14 @@
 		currentNickname.value = ''
 		currentAvatarUrl.value = ''
 		currentBio.value = ''
+		buildList.value = []
+		selectedHardwareParts.value = []
+		buildEditingId.value = 0
+		buildFormVisible.value = false
+		partPickerVisible.value = false
+		buildDetailVisible.value = false
+		chatBuildPickerVisible.value = false
+		clearAttachedBuild()
 		uni.removeStorageSync('app_token')
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
@@ -725,6 +1229,459 @@
 				}
 			},
 			fail: () => {
+			}
+		})
+	}
+
+	function loadBuildConfigs() {
+		if (token.value.length == 0) {
+			buildList.value = []
+			return
+		}
+		buildLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs?segment=' + getBuildSegmentKey(),
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					buildList.value = body.data as BuildConfigItem[]
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			},
+			complete: () => {
+				buildLoading.value = false
+			}
+		})
+	}
+
+	function getBuildSegmentKey() : string {
+		if (buildSegment.value == 1) {
+			return 'ai'
+		}
+		if (buildSegment.value == 2) {
+			return 'favorite'
+		}
+		return 'mine'
+	}
+
+	function getBuildSourceLabel(source : string) : string {
+		return source == 'AI' ? 'AI 生成' : '手动配置'
+	}
+
+	function getHardwareTypeLabel(type : string) : string {
+		for (let i = 0; i < hardwareTypeOptions.length; i++) {
+			if (hardwareTypeOptions[i].key == type) {
+				return hardwareTypeOptions[i].label
+			}
+		}
+		return type
+	}
+
+	function getSelectedPart(type : string) : any {
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			if (selectedHardwareParts.value[i].type == type) {
+				return selectedHardwareParts.value[i]
+			}
+		}
+		return null
+	}
+
+	function hasSelectedPart(type : string) : boolean {
+		return getSelectedPart(type) != null
+	}
+
+	function getSelectedPartName(type : string) : string {
+		const part = getSelectedPart(type)
+		if (part == null) {
+			return '请选择' + getHardwareTypeLabel(type)
+		}
+		return part.brand + ' ' + part.model
+	}
+
+	function getSelectedPartPrice(type : string) : string {
+		const part = getSelectedPart(type)
+		if (part == null) {
+			return ''
+		}
+		return '¥' + part.price
+	}
+
+	function getPartSelectorClass(type : string) : string {
+		if (hasPartCompatibilityIssue(type)) {
+			return 'part-selector-row part-selector-row-danger'
+		}
+		return 'part-selector-row'
+	}
+
+	function hasPartCompatibilityIssue(type : string) : boolean {
+		const cpu = getSelectedPart('CPU')
+		const motherboard = getSelectedPart('MOTHERBOARD')
+		const memory = getSelectedPart('MEMORY')
+		const gpu = getSelectedPart('GPU')
+		const psu = getSelectedPart('PSU')
+		const pcCase = getSelectedPart('CASE')
+		const cooler = getSelectedPart('COOLER')
+		if ((type == 'CPU' || type == 'MOTHERBOARD') && cpu != null && motherboard != null && cpu.socketType.length > 0 && motherboard.socketType.length > 0 && cpu.socketType != motherboard.socketType) {
+			return true
+		}
+		if ((type == 'MEMORY' || type == 'MOTHERBOARD') && memory != null && motherboard != null && memory.memoryType.length > 0 && motherboard.memoryType.length > 0 && memory.memoryType != motherboard.memoryType) {
+			return true
+		}
+		if (type == 'PSU' && psu != null) {
+			let estimatedWattage = 120
+			for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+				if (selectedHardwareParts.value[i].type != 'PSU') {
+					estimatedWattage += selectedHardwareParts.value[i].wattage
+				}
+			}
+			if (psu.wattage > 0 && psu.wattage < estimatedWattage) {
+				return true
+			}
+		}
+		if ((type == 'GPU' || type == 'CASE') && gpu != null && pcCase != null && gpu.gpuLengthMm > 0 && pcCase.gpuLengthMm > 0 && gpu.gpuLengthMm > pcCase.gpuLengthMm) {
+			return true
+		}
+		if ((type == 'COOLER' || type == 'CASE') && cooler != null && pcCase != null && cooler.coolerHeightMm > 0 && pcCase.coolerHeightMm > 0 && cooler.coolerHeightMm > pcCase.coolerHeightMm) {
+			return true
+		}
+		if ((type == 'MOTHERBOARD' || type == 'CASE') && motherboard != null && pcCase != null && motherboard.formFactor.length > 0 && pcCase.supportedFormFactors.length > 0 && pcCase.supportedFormFactors.toUpperCase().indexOf(motherboard.formFactor.toUpperCase()) < 0) {
+			return true
+		}
+		return false
+	}
+
+	function getSelectedPartIds() : number[] {
+		const ids = [] as number[]
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			ids.push(selectedHardwareParts.value[i].id)
+		}
+		return ids
+	}
+
+	function openPartPicker(type : string) {
+		activePickerType.value = type
+		hardwareKeyword.value = ''
+		partPickerVisible.value = true
+		loadHardwareOptions()
+	}
+
+	function closePartPicker() {
+		partPickerVisible.value = false
+	}
+
+	function loadHardwareOptions() {
+		if (token.value.length == 0) {
+			hardwareOptions.value = []
+			return
+		}
+		let url = apiBaseUrl + '/api/hardware-parts?type=' + activePickerType.value
+		if (hardwareKeyword.value.trim().length > 0) {
+			url += '&keyword=' + encodeURIComponent(hardwareKeyword.value.trim())
+		}
+		uni.request({
+			url: url,
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					hardwareOptions.value = body.data as HardwarePartItem[]
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到硬件库',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function selectHardwarePart(part : HardwarePartItem) {
+		const next = [] as HardwarePartItem[]
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			if (selectedHardwareParts.value[i].type != part.type) {
+				next.push(selectedHardwareParts.value[i])
+			}
+		}
+		next.push(part)
+		selectedHardwareParts.value = next
+		partPickerVisible.value = false
+	}
+
+	function getCurrentBuildTotalPrice() : number {
+		let total = 0
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			total += selectedHardwareParts.value[i].price
+		}
+		return total
+	}
+
+	function getCurrentBuildPerformanceScore() : number {
+		let weighted = 0
+		let weight = 0
+		const cpu = getSelectedPart('CPU')
+		const gpu = getSelectedPart('GPU')
+		const memory = getSelectedPart('MEMORY')
+		const storage = getSelectedPart('STORAGE')
+		const motherboard = getSelectedPart('MOTHERBOARD')
+		if (cpu != null) {
+			weighted += cpu.performanceScore * 30
+			weight += 30
+		}
+		if (gpu != null) {
+			weighted += gpu.performanceScore * 40
+			weight += 40
+		}
+		if (memory != null) {
+			weighted += memory.performanceScore * 12
+			weight += 12
+		}
+		if (storage != null) {
+			weighted += storage.performanceScore * 10
+			weight += 10
+		}
+		if (motherboard != null) {
+			weighted += motherboard.performanceScore * 8
+			weight += 8
+		}
+		if (weight == 0) {
+			return 0
+		}
+		return Math.round(weighted / weight)
+	}
+
+	function getCurrentCompatibilityStatus() : string {
+		const messages = getCurrentCompatibilityMessages()
+		for (let i = 0; i < messages.length; i++) {
+			const message = messages[i]
+			if (message.indexOf('不匹配') >= 0 || message.indexOf('超出') >= 0 || message.indexOf('至少') >= 0) {
+				return 'BLOCK'
+			}
+		}
+		if (messages.length == 1 && messages[0].indexOf('未发现') >= 0) {
+			return 'PASS'
+		}
+		return 'WARN'
+	}
+
+	function getCurrentCompatibilityMessages() : string[] {
+		const messages = [] as string[]
+		const cpu = getSelectedPart('CPU')
+		const motherboard = getSelectedPart('MOTHERBOARD')
+		const memory = getSelectedPart('MEMORY')
+		const gpu = getSelectedPart('GPU')
+		const psu = getSelectedPart('PSU')
+		const pcCase = getSelectedPart('CASE')
+		const cooler = getSelectedPart('COOLER')
+		if (cpu == null) {
+			messages.push('建议补充 CPU。')
+		}
+		if (motherboard == null) {
+			messages.push('建议补充主板。')
+		}
+		if (memory == null) {
+			messages.push('建议补充内存。')
+		}
+		if (psu == null) {
+			messages.push('建议补充电源。')
+		}
+		if (pcCase == null) {
+			messages.push('建议补充机箱。')
+		}
+		if (cpu != null && motherboard != null && cpu.socketType.length > 0 && motherboard.socketType.length > 0 && cpu.socketType != motherboard.socketType) {
+			messages.push('CPU 接口 ' + cpu.socketType + ' 与主板接口 ' + motherboard.socketType + ' 不匹配。')
+		}
+		if (memory != null && motherboard != null && memory.memoryType.length > 0 && motherboard.memoryType.length > 0 && memory.memoryType != motherboard.memoryType) {
+			messages.push('内存类型 ' + memory.memoryType + ' 与主板支持的 ' + motherboard.memoryType + ' 不匹配。')
+		}
+		if (psu != null) {
+			let estimatedWattage = 120
+			for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+				if (selectedHardwareParts.value[i].type != 'PSU') {
+					estimatedWattage += selectedHardwareParts.value[i].wattage
+				}
+			}
+			if (psu.wattage > 0 && psu.wattage < estimatedWattage) {
+				messages.push('电源额定功率建议至少 ' + estimatedWattage + 'W，当前为 ' + psu.wattage + 'W。')
+			}
+		}
+		if (gpu != null && pcCase != null && gpu.gpuLengthMm > 0 && pcCase.gpuLengthMm > 0 && gpu.gpuLengthMm > pcCase.gpuLengthMm) {
+			messages.push('显卡长度 ' + gpu.gpuLengthMm + 'mm 超出机箱支持的 ' + pcCase.gpuLengthMm + 'mm。')
+		}
+		if (cooler != null && pcCase != null && cooler.coolerHeightMm > 0 && pcCase.coolerHeightMm > 0 && cooler.coolerHeightMm > pcCase.coolerHeightMm) {
+			messages.push('散热器高度 ' + cooler.coolerHeightMm + 'mm 超出机箱支持的 ' + pcCase.coolerHeightMm + 'mm。')
+		}
+		if (motherboard != null && pcCase != null && motherboard.formFactor.length > 0 && pcCase.supportedFormFactors.length > 0 && pcCase.supportedFormFactors.toUpperCase().indexOf(motherboard.formFactor.toUpperCase()) < 0) {
+			messages.push('主板版型 ' + motherboard.formFactor + ' 不在机箱支持范围内。')
+		}
+		if (messages.length == 0) {
+			messages.push('当前选择未发现明显兼容性问题。')
+		}
+		return messages
+	}
+
+	function getCompatibilityLabel(status : string) : string {
+		if (status == 'PASS') {
+			return '兼容'
+		}
+		if (status == 'BLOCK') {
+			return '需调整'
+		}
+		return '需确认'
+	}
+
+	function getCompatibilityClass(status : string) : string {
+		if (status == 'PASS') {
+			return 'build-status build-status-pass'
+		}
+		if (status == 'BLOCK') {
+			return 'build-status build-status-block'
+		}
+		return 'build-status build-status-warn'
+	}
+
+	function getPartSpecText(part : HardwarePartItem) : string {
+		let text = ''
+		if (part.socketType.length > 0) {
+			text += part.socketType
+		}
+		if (part.memoryType.length > 0) {
+			text += text.length == 0 ? part.memoryType : ' · ' + part.memoryType
+		}
+		if (part.formFactor.length > 0) {
+			text += text.length == 0 ? part.formFactor : ' · ' + part.formFactor
+		}
+		if (part.wattage > 0) {
+			text += text.length == 0 ? part.wattage + 'W' : ' · ' + part.wattage + 'W'
+		}
+		if (part.gpuLengthMm > 0) {
+			text += text.length == 0 ? part.gpuLengthMm + 'mm' : ' · ' + part.gpuLengthMm + 'mm'
+		}
+		if (part.coolerHeightMm > 0) {
+			text += text.length == 0 ? part.coolerHeightMm + 'mm' : ' · ' + part.coolerHeightMm + 'mm'
+		}
+		if (text.length == 0) {
+			text = part.specs.length > 0 ? part.specs : '通用规格'
+		}
+		return text
+	}
+
+	function openBuildDetail(item : BuildConfigItem) {
+		selectedBuildDetail.value = item
+		buildDetailVisible.value = true
+	}
+
+	function closeBuildDetail() {
+		buildDetailVisible.value = false
+	}
+
+	function openChatBuildDetail(buildConfigId : number) {
+		if (buildConfigId <= 0 || token.value.length == 0) {
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + buildConfigId,
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					selectedBuildDetail.value = body.data as BuildConfigItem
+					buildDetailVisible.value = true
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '配置单不存在',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时读取不到配置详情',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function toggleBuildFavorite(item : BuildConfigItem) {
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + item.id + '/favorite',
+			method: 'PATCH',
+			header: {
+				'Content-Type': 'application/json',
+				'Authorization': 'Bearer ' + token.value
+			},
+			data: {
+				favorite: !item.favorite
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					if (buildDetailVisible.value) {
+						selectedBuildDetail.value.favorite = !selectedBuildDetail.value.favorite
+					}
+					loadBuildConfigs()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '操作失败',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function deleteBuild(id : number) {
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + id,
+			method: 'DELETE',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					buildList.value = buildList.value.filter((item) : boolean => item.id != id)
+					uni.showToast({
+						title: '配置已删除',
+						icon: 'none'
+					})
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '删除失败',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function copyBuild(content : string) {
+		uni.setClipboardData({
+			data: content,
+			success: () => {
+				uni.showToast({
+					title: '已复制配置',
+					icon: 'none'
+				})
 			}
 		})
 	}
@@ -796,7 +1753,7 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					currentConversationId.value = conversationId
-					chatMessages.value = body.data as ChatMessage[]
+					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
 					historyOpen.value = false
 					return
 				}
@@ -812,6 +1769,20 @@
 				})
 			}
 		})
+	}
+
+	function normalizeChatMessages(messages : ChatMessage[]) : ChatMessage[] {
+		const result = [] as ChatMessage[]
+		for (let i = 0; i < messages.length; i++) {
+			const item = messages[i]
+			result.push({
+				role: item.role,
+				content: item.content,
+				buildConfigId: item.buildConfigId == null ? 0 : item.buildConfigId,
+				buildConfigTitle: item.buildConfigTitle == null ? '' : item.buildConfigTitle
+			})
+		}
+		return result
 	}
 
 	function getHistoryItemClass(conversationId : number) : string {
@@ -1060,6 +2031,32 @@
 		justify-content: center;
 		border-width: 1px;
 		border-color: #eef2f7;
+		transition-property: transform, background-color;
+		transition-duration: 180ms;
+	}
+
+	.nav-button-pressed {
+		transform: scale(0.9);
+		background-color: #eef5ff;
+	}
+
+	.nav-button-plus-active {
+		animation-name: plusButtonSpin;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	.nav-button-plus-active .plus-line {
+		background-color: #007aff;
+	}
+
+	@keyframes plusButtonSpin {
+		from {
+			transform: scale(0.92) rotate(0deg);
+		}
+		to {
+			transform: scale(0.92) rotate(90deg);
+		}
 	}
 
 	.menu-line {
@@ -1107,20 +2104,24 @@
 
 	.ai-orbit {
 		position: relative;
-		width: 72px;
-		height: 54px;
+		width: 92px;
+		height: 72px;
 		align-items: center;
 		justify-content: center;
 		margin-bottom: 18px;
 	}
 
 	.ai-core {
+		position: absolute;
+		left: 29px;
+		top: 19px;
 		width: 34px;
 		height: 34px;
 		border-radius: 17px;
 		background-color: #111827;
 		align-items: center;
 		justify-content: center;
+		z-index: 2;
 	}
 
 	.ai-core-text {
@@ -1136,23 +2137,90 @@
 		height: 10px;
 		border-radius: 5px;
 		background-color: #007aff;
+		left: 41px;
+		top: 31px;
+		z-index: 1;
 	}
 
 	.ai-dot-one {
-		left: 8px;
-		top: 9px;
+		transform: translateX(-26px) translateY(-16px) scale(0.92);
+		animation-name: aiDotOneOrbit3d;
+		animation-duration: 3200ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: 1;
 	}
 
 	.ai-dot-two {
-		right: 7px;
-		top: 13px;
 		background-color: #34c759;
+		transform: translateX(27px) translateY(-10px) scale(1.04);
+		z-index: 3;
+		animation-name: aiDotTwoOrbit3d;
+		animation-duration: 3200ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: 1;
 	}
 
 	.ai-dot-three {
-		left: 31px;
-		bottom: 2px;
 		background-color: #ff9500;
+		transform: translateX(0) translateY(27px) scale(0.98);
+		animation-name: aiDotThreeOrbit3d;
+		animation-duration: 3200ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: 1;
+	}
+
+	@keyframes aiDotOneOrbit3d {
+		0% {
+			transform: translateX(-26px) translateY(-16px) scale(0.92);
+		}
+		28% {
+			transform: translateX(7px) translateY(-25px) scale(0.78);
+		}
+		56% {
+			transform: translateX(29px) translateY(4px) scale(1.12);
+		}
+		78% {
+			transform: translateX(-4px) translateY(27px) scale(1.02);
+		}
+		100% {
+			transform: translateX(-26px) translateY(-16px) scale(0.92);
+		}
+	}
+
+	@keyframes aiDotTwoOrbit3d {
+		0% {
+			transform: translateX(27px) translateY(-10px) scale(1.04);
+		}
+		28% {
+			transform: translateX(4px) translateY(26px) scale(1.14);
+		}
+		56% {
+			transform: translateX(-30px) translateY(4px) scale(0.9);
+		}
+		78% {
+			transform: translateX(-3px) translateY(-26px) scale(0.78);
+		}
+		100% {
+			transform: translateX(27px) translateY(-10px) scale(1.04);
+		}
+	}
+
+	@keyframes aiDotThreeOrbit3d {
+		0% {
+			transform: translateX(0) translateY(27px) scale(0.98);
+		}
+		28% {
+			transform: translateX(-29px) translateY(3px) scale(0.86);
+		}
+		56% {
+			transform: translateX(-3px) translateY(-26px) scale(0.78);
+		}
+		78% {
+			transform: translateX(30px) translateY(3px) scale(1.14);
+		}
+		100% {
+			transform: translateX(0) translateY(27px) scale(0.98);
+		}
 	}
 
 	.chat-empty-title {
@@ -1201,12 +2269,13 @@
 	}
 
 	.message-row {
-		flex-direction: row;
+		flex-direction: column;
+		align-items: flex-start;
 		margin-bottom: 14px;
 	}
 
 	.message-row-user {
-		justify-content: flex-end;
+		align-items: flex-end;
 	}
 
 	.message-bubble {
@@ -1226,6 +2295,77 @@
 		background-color: #ffffff;
 	}
 
+	.message-bubble-breathing {
+		width: 122px;
+		height: 44px;
+		padding: 0 12px;
+		flex-direction: row;
+		align-items: center;
+		border-color: #edf2f7;
+		animation-name: thinkingBreathe;
+		animation-duration: 1700ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: infinite;
+	}
+
+	.thinking-mark {
+		width: 28px;
+		height: 28px;
+		border-radius: 14px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-right: 9px;
+		animation-name: coreBreathe;
+		animation-duration: 1700ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: infinite;
+	}
+
+	.thinking-mark-text {
+		font-size: 10px;
+		line-height: 14px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.breathing-title {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #344054;
+	}
+
+	@keyframes thinkingBreathe {
+		0% {
+			transform: scale(0.99);
+			opacity: 0.86;
+		}
+		50% {
+			transform: scale(1.015);
+			opacity: 1;
+		}
+		100% {
+			transform: scale(0.99);
+			opacity: 0.86;
+		}
+	}
+
+	@keyframes coreBreathe {
+		0% {
+			transform: scale(0.9);
+			background-color: #344054;
+		}
+		50% {
+			transform: scale(1.08);
+			background-color: #111827;
+		}
+		100% {
+			transform: scale(0.9);
+			background-color: #344054;
+		}
+	}
+
 	.message-text {
 		font-size: 15px;
 		line-height: 22px;
@@ -1236,10 +2376,66 @@
 		color: #111827;
 	}
 
+	.chat-build-card {
+		width: 260px;
+		min-height: 72px;
+		border-radius: 22px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #dbeafe;
+		margin-top: 8px;
+		padding: 12px;
+		flex-direction: row;
+		align-items: center;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+	}
+
+	.chat-build-icon {
+		width: 42px;
+		height: 42px;
+		border-radius: 16px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+	}
+
+	.chat-build-icon-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.chat-build-main {
+		flex: 1;
+	}
+
+	.chat-build-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.chat-build-desc {
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #667085;
+	}
+
+	.chat-build-arrow {
+		font-size: 24px;
+		line-height: 28px;
+		color: #98a2b3;
+		margin-left: 8px;
+	}
+
 	.composer {
 		position: fixed;
-		left: 30px;
-		right: 30px;
+		left: 18px;
+		right: 18px;
 		bottom: 98px;
 		min-height: 56px;
 		border-radius: 28px;
@@ -1252,6 +2448,75 @@
 		border-width: 1px;
 		border-color: rgba(226, 232, 240, 0.9);
 		z-index: 30;
+	}
+
+	.composer-attachment {
+		position: fixed;
+		left: 30px;
+		right: 30px;
+		bottom: 162px;
+		min-height: 38px;
+		border-radius: 19px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #dbeafe;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding-left: 14px;
+		padding-right: 8px;
+		z-index: 31;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+	}
+
+	.composer-attachment-text {
+		flex: 1;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #007aff;
+	}
+
+	.composer-attachment-close {
+		position: relative;
+		width: 28px;
+		height: 28px;
+		border-radius: 14px;
+		background-color: #f3f6fb;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.attach-button {
+		position: relative;
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: #f3f6fb;
+		align-items: center;
+		justify-content: center;
+		margin-right: 4px;
+	}
+
+	.attach-button-active {
+		background-color: #eef5ff;
+	}
+
+	.attach-icon-line {
+		width: 15px;
+		height: 3px;
+		border-radius: 3px;
+		background-color: #667085;
+	}
+
+	.attach-icon-dot {
+		position: absolute;
+		width: 7px;
+		height: 7px;
+		border-radius: 4px;
+		background-color: #007aff;
+		right: 12px;
+		top: 12px;
 	}
 
 	.composer-input {
@@ -1641,8 +2906,391 @@
 		color: #ffffff;
 	}
 
+	.build-form-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(15, 23, 42, 0.26);
+		z-index: 82;
+		justify-content: flex-end;
+	}
+
+	.build-form {
+		border-radius: 30px;
+		background-color: #ffffff;
+		padding: 20px;
+		padding-bottom: 28px;
+		margin-left: 10px;
+		margin-right: 10px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: #edf0f5;
+		animation-name: buildFormIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes buildFormIn {
+		from {
+			opacity: 0;
+			transform: translateY(30px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.build-form-head {
+		height: 40px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 14px;
+	}
+
+	.build-form-title {
+		font-size: 20px;
+		line-height: 28px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-form-body {
+		height: 430px;
+	}
+
+	.build-form-close {
+		position: relative;
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #f3f6fb;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-form-input {
+		height: 48px;
+		border-radius: 18px;
+		background-color: #f6f7fb;
+		padding-left: 14px;
+		padding-right: 14px;
+		margin-bottom: 10px;
+		font-size: 14px;
+		color: #111827;
+	}
+
+	.build-form-textarea {
+		height: 126px;
+		border-radius: 18px;
+		background-color: #f6f7fb;
+		padding: 14px;
+		margin-bottom: 14px;
+		font-size: 14px;
+		line-height: 21px;
+		color: #111827;
+	}
+
+	.build-note-textarea {
+		height: 82px;
+	}
+
+	.build-live-panel {
+		flex-direction: row;
+		align-items: center;
+		background-color: #f6f9ff;
+		border-radius: 22px;
+		padding: 12px;
+		margin-bottom: 12px;
+		border-width: 1px;
+		border-color: #e8f1ff;
+	}
+
+	.build-live-item {
+		flex: 1;
+	}
+
+	.build-live-label,
+	.build-score-label {
+		font-size: 11px;
+		line-height: 16px;
+		color: #98a2b3;
+		font-weight: 800;
+	}
+
+	.build-live-value,
+	.build-score-value {
+		margin-top: 2px;
+		font-size: 17px;
+		line-height: 23px;
+		color: #111827;
+		font-weight: 900;
+	}
+
+	.part-selector-list {
+		margin-bottom: 10px;
+	}
+
+	.part-selector-row {
+		min-height: 58px;
+		border-radius: 20px;
+		background-color: #f6f7fb;
+		margin-bottom: 8px;
+		padding-left: 14px;
+		padding-right: 14px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.part-selector-row-danger {
+		background-color: #fff5f5;
+		border-width: 1px;
+		border-color: #ffb4ab;
+	}
+
+	.part-selector-main {
+		flex: 1;
+		padding-right: 12px;
+	}
+
+	.part-selector-label {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.part-selector-value,
+	.part-selector-placeholder {
+		margin-top: 2px;
+		font-size: 14px;
+		line-height: 20px;
+	}
+
+	.part-selector-value {
+		color: #111827;
+		font-weight: 800;
+	}
+
+	.part-selector-placeholder {
+		color: #98a2b3;
+	}
+
+	.part-selector-price {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #007aff;
+	}
+
+	.compat-list {
+		background-color: #f8fafc;
+		border-radius: 18px;
+		padding: 12px;
+		margin-bottom: 12px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.compat-list-detail {
+		margin-top: 12px;
+	}
+
+	.compat-message {
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+		margin-bottom: 4px;
+	}
+
+	.build-form-submit {
+		height: 50px;
+		border-radius: 25px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-form-submit-text {
+		font-size: 15px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.part-picker,
+	.build-detail {
+		border-radius: 30px;
+		background-color: #ffffff;
+		padding: 20px;
+		padding-bottom: 24px;
+		margin-left: 10px;
+		margin-right: 10px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: #edf0f5;
+		animation-name: buildFormIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	.part-search-row {
+		flex-direction: row;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.part-search-input {
+		flex: 1;
+		height: 46px;
+		border-radius: 18px;
+		background-color: #f6f7fb;
+		padding-left: 14px;
+		padding-right: 14px;
+		font-size: 14px;
+		color: #111827;
+	}
+
+	.part-search-button {
+		width: 64px;
+		height: 46px;
+		border-radius: 18px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-left: 8px;
+	}
+
+	.part-search-button-text {
+		font-size: 13px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.part-option-scroll {
+		height: 430px;
+	}
+
+	.part-option {
+		min-height: 72px;
+		border-radius: 20px;
+		background-color: #f8fafc;
+		padding: 13px;
+		margin-bottom: 8px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.part-option-main {
+		flex: 1;
+		padding-right: 12px;
+	}
+
+	.part-option-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.part-option-spec {
+		margin-top: 3px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+	}
+
+	.part-option-side {
+		align-items: flex-end;
+	}
+
+	.part-option-price {
+		font-size: 15px;
+		line-height: 21px;
+		font-weight: 900;
+		color: #007aff;
+	}
+
+	.part-option-score {
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+	}
+
+	.part-empty {
+		height: 160px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.part-empty-text {
+		font-size: 14px;
+		color: #98a2b3;
+	}
+
+	.build-detail-metrics {
+		flex-direction: row;
+		align-items: center;
+		background-color: #f6f9ff;
+		border-radius: 22px;
+		padding: 12px;
+		margin-bottom: 12px;
+	}
+
+	.build-detail-metric {
+		flex: 1;
+	}
+
+	.build-detail-scroll {
+		height: 430px;
+	}
+
+	.build-detail-actions {
+		flex-direction: row;
+		margin-top: 12px;
+	}
+
+	.detail-part-row {
+		border-radius: 20px;
+		background-color: #f8fafc;
+		padding: 13px;
+		margin-bottom: 8px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.detail-part-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.detail-part-meta {
+		margin-top: 4px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+	}
+
+	.detail-note {
+		font-size: 13px;
+		line-height: 20px;
+		color: #344054;
+		margin-top: 6px;
+	}
+
 	.normal-page {
 		background-color: #f6f7fb;
+		height: 100vh;
+		overflow: hidden;
 	}
 
 	.page-head {
@@ -1665,6 +3313,10 @@
 		line-height: 38px;
 		font-weight: 800;
 		color: #111827;
+	}
+
+	.page-title-inset {
+		margin-left: 4px;
 	}
 
 	.page-subtitle {
@@ -1709,6 +3361,226 @@
 	.segment-active-text {
 		color: #111827;
 		font-weight: 700;
+	}
+
+	.build-scroll {
+		height: 525px;
+	}
+
+	.build-list {
+		padding-bottom: 18px;
+	}
+
+	.build-card {
+		border-radius: 24px;
+		background-color: #ffffff;
+		padding: 16px;
+		margin-bottom: 12px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.build-card-head {
+		flex-direction: row;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+
+	.build-card-main {
+		flex: 1;
+		padding-right: 12px;
+	}
+
+	.build-title {
+		font-size: 17px;
+		line-height: 24px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-meta {
+		margin-top: 3px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+	}
+
+	.favorite-button {
+		height: 32px;
+		border-radius: 16px;
+		background-color: #f3f6fb;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+
+	.favorite-button-active {
+		background-color: #fff1f0;
+	}
+
+	.favorite-text {
+		font-size: 12px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.favorite-icon {
+		font-size: 13px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #98a2b3;
+		margin-right: 4px;
+	}
+
+	.favorite-icon-active {
+		color: #ff3b30;
+	}
+
+	.favorite-text-active {
+		color: #ff3b30;
+	}
+
+	.build-score-row {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 12px;
+	}
+
+	.build-score-pill {
+		flex: 1;
+		min-height: 54px;
+		border-radius: 18px;
+		background-color: #f6f9ff;
+		padding: 9px 12px;
+		margin-right: 8px;
+	}
+
+	.build-status {
+		height: 34px;
+		border-radius: 17px;
+		align-items: center;
+		justify-content: center;
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+
+	.build-status-pass {
+		background-color: #eafaf0;
+	}
+
+	.build-status-warn {
+		background-color: #fff7e8;
+	}
+
+	.build-status-block {
+		background-color: #fff1f0;
+	}
+
+	.build-status-text {
+		font-size: 12px;
+		line-height: 16px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-tags {
+		flex-direction: row;
+		margin-top: 12px;
+	}
+
+	.build-tag {
+		height: 28px;
+		border-radius: 14px;
+		background-color: #eef5ff;
+		align-items: center;
+		justify-content: center;
+		padding-left: 10px;
+		padding-right: 10px;
+		margin-right: 8px;
+	}
+
+	.build-tag-text {
+		font-size: 12px;
+		font-weight: 800;
+		color: #007aff;
+	}
+
+	.build-summary {
+		margin-top: 12px;
+		font-size: 14px;
+		line-height: 21px;
+		font-weight: 800;
+		color: #344054;
+	}
+
+	.build-content {
+		margin-top: 8px;
+		font-size: 13px;
+		line-height: 21px;
+		color: #667085;
+	}
+
+	.build-part-preview {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 10px;
+	}
+
+	.build-part-chip {
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+		background-color: #f3f6fb;
+		border-radius: 12px;
+		padding: 4px 8px;
+		margin-right: 6px;
+		margin-bottom: 6px;
+	}
+
+	.build-actions {
+		flex-direction: row;
+		margin-top: 14px;
+	}
+
+	.build-action {
+		height: 38px;
+		border-radius: 19px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		padding-left: 14px;
+		padding-right: 14px;
+		margin-right: 10px;
+	}
+
+	.build-action-soft {
+		background-color: #f3f6fb;
+	}
+
+	.build-action-danger {
+		background-color: #fff1f0;
+	}
+
+	.build-action-text {
+		font-size: 13px;
+		font-weight: 900;
+		color: #344054;
+	}
+
+	.build-action-icon {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #344054;
+		margin-right: 4px;
+	}
+
+	.build-action-danger-text {
+		font-size: 13px;
+		font-weight: 900;
+		color: #ff3b30;
 	}
 
 	.empty-state {

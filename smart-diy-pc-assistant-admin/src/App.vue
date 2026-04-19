@@ -23,6 +23,26 @@ type NewsItem = {
   status: 'DRAFT' | 'PUBLISHED'
 }
 
+type HardwarePartType = 'CPU' | 'MOTHERBOARD' | 'GPU' | 'MEMORY' | 'STORAGE' | 'PSU' | 'CASE' | 'COOLER'
+
+type HardwarePart = {
+  id?: number
+  type: HardwarePartType
+  brand: string
+  model: string
+  price: number
+  performanceScore: number
+  socketType: string
+  memoryType: string
+  formFactor: string
+  wattage: number
+  gpuLengthMm: number
+  coolerHeightMm: number
+  supportedFormFactors: string
+  specs: string
+  enabled: boolean
+}
+
 const menuItems = [
   { key: 'dashboard', label: '仪表盘', icon: '⌘' },
   { key: 'components', label: '配件库', icon: '▦' },
@@ -37,12 +57,14 @@ const loggedIn = ref(false)
 const activeMenu = ref('dashboard')
 const loading = ref(false)
 const savingNews = ref(false)
+const savingHardware = ref(false)
 const errorMessage = ref('')
 const username = ref('root')
 const password = ref('admin')
 const currentUser = ref('root')
 const token = ref('')
 const newsList = ref<NewsItem[]>([])
+const hardwareList = ref<HardwarePart[]>([])
 const newsForm = reactive<NewsItem>({
   title: '',
   summary: '',
@@ -50,13 +72,40 @@ const newsForm = reactive<NewsItem>({
   coverUrl: '',
   status: 'DRAFT',
 })
+const hardwareForm = reactive<HardwarePart>({
+  type: 'CPU',
+  brand: '',
+  model: '',
+  price: 0,
+  performanceScore: 0,
+  socketType: '',
+  memoryType: '',
+  formFactor: '',
+  wattage: 0,
+  gpuLengthMm: 0,
+  coolerHeightMm: 0,
+  supportedFormFactors: '',
+  specs: '',
+  enabled: true,
+})
+const editingHardwareId = ref<number | null>(null)
+const hardwareTypeOptions: Array<{ label: string; value: HardwarePartType }> = [
+  { label: 'CPU', value: 'CPU' },
+  { label: '主板', value: 'MOTHERBOARD' },
+  { label: '显卡', value: 'GPU' },
+  { label: '内存', value: 'MEMORY' },
+  { label: '硬盘', value: 'STORAGE' },
+  { label: '电源', value: 'PSU' },
+  { label: '机箱', value: 'CASE' },
+  { label: '散热', value: 'COOLER' },
+]
 
 const currentMenuTitle = computed(() => {
   return menuItems.find((item) => item.key === activeMenu.value)?.label ?? '仪表盘'
 })
 
 const dashboardCards = computed(() => [
-  { label: '配件总数', value: 0, hint: '待接入配件库' },
+  { label: '配件总数', value: hardwareList.value.length, hint: '已接入硬件库' },
   { label: '配置方案', value: 0, hint: '待接入 DIY 配置' },
   { label: '社区帖子', value: 0, hint: '待接入发现模块' },
   { label: '新闻热点', value: newsList.value.length, hint: '已接入基础接口' },
@@ -95,7 +144,7 @@ async function handleLogin() {
     localStorage.setItem('admin_token', data.token)
     localStorage.setItem('admin_user', data.username)
     loggedIn.value = true
-    await loadNews()
+    await Promise.all([loadNews(), loadHardware()])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
   } finally {
@@ -118,6 +167,89 @@ async function loadNews() {
   newsList.value = await request<NewsItem[]>('/api/admin/news', {
     headers: authHeaders(),
   })
+}
+
+async function loadHardware() {
+  if (!token.value) {
+    return
+  }
+  hardwareList.value = await request<HardwarePart[]>('/api/admin/hardware-parts', {
+    headers: authHeaders(),
+  })
+}
+
+function resetHardwareForm() {
+  editingHardwareId.value = null
+  hardwareForm.type = 'CPU'
+  hardwareForm.brand = ''
+  hardwareForm.model = ''
+  hardwareForm.price = 0
+  hardwareForm.performanceScore = 0
+  hardwareForm.socketType = ''
+  hardwareForm.memoryType = ''
+  hardwareForm.formFactor = ''
+  hardwareForm.wattage = 0
+  hardwareForm.gpuLengthMm = 0
+  hardwareForm.coolerHeightMm = 0
+  hardwareForm.supportedFormFactors = ''
+  hardwareForm.specs = ''
+  hardwareForm.enabled = true
+}
+
+function editHardware(item: HardwarePart) {
+  editingHardwareId.value = item.id ?? null
+  hardwareForm.type = item.type
+  hardwareForm.brand = item.brand
+  hardwareForm.model = item.model
+  hardwareForm.price = item.price
+  hardwareForm.performanceScore = item.performanceScore
+  hardwareForm.socketType = item.socketType
+  hardwareForm.memoryType = item.memoryType
+  hardwareForm.formFactor = item.formFactor
+  hardwareForm.wattage = item.wattage
+  hardwareForm.gpuLengthMm = item.gpuLengthMm
+  hardwareForm.coolerHeightMm = item.coolerHeightMm
+  hardwareForm.supportedFormFactors = item.supportedFormFactors
+  hardwareForm.specs = item.specs
+  hardwareForm.enabled = item.enabled
+}
+
+async function saveHardware() {
+  errorMessage.value = ''
+  savingHardware.value = true
+  try {
+    const url = editingHardwareId.value ? `/api/admin/hardware-parts/${editingHardwareId.value}` : '/api/admin/hardware-parts'
+    await request<HardwarePart>(url, {
+      method: editingHardwareId.value ? 'PUT' : 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(hardwareForm),
+    })
+    resetHardwareForm()
+    await loadHardware()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    savingHardware.value = false
+  }
+}
+
+async function deleteHardware(id?: number) {
+  if (!id || !window.confirm('确定删除这个配件？')) {
+    return
+  }
+  try {
+    await request<void>(`/api/admin/hardware-parts/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    await loadHardware()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
+
+function hardwareTypeLabel(type: HardwarePartType) {
+  return hardwareTypeOptions.find((item) => item.value === type)?.label ?? type
 }
 
 async function saveNews() {
@@ -147,6 +279,9 @@ function switchMenu(key: string) {
   if (key === 'news') {
     loadNews()
   }
+  if (key === 'components') {
+    loadHardware()
+  }
 }
 
 onMounted(() => {
@@ -156,7 +291,7 @@ onMounted(() => {
     token.value = savedToken
     currentUser.value = savedUser || 'root'
     loggedIn.value = true
-    loadNews().catch(() => logout())
+    Promise.all([loadNews(), loadHardware()]).catch(() => logout())
   }
 })
 </script>
@@ -252,6 +387,103 @@ onMounted(() => {
             <p>用户端：五栏主界面和对话交互原型</p>
             <p>管理端：后台壳、登录页、新闻热点管理入口</p>
           </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeMenu === 'components'" class="content-area two-column">
+        <form class="editor-card" @submit.prevent="saveHardware">
+          <h3>{{ editingHardwareId ? '编辑配件' : '新增配件' }}</h3>
+          <label>
+            类型
+            <select v-model="hardwareForm.type">
+              <option v-for="item in hardwareTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <div class="form-grid">
+            <label>
+              品牌
+              <input v-model="hardwareForm.brand" required placeholder="例如 AMD / 华硕" />
+            </label>
+            <label>
+              型号
+              <input v-model="hardwareForm.model" required placeholder="例如 Ryzen 5 7500F" />
+            </label>
+          </div>
+          <div class="form-grid">
+            <label>
+              价格
+              <input v-model.number="hardwareForm.price" min="0" required type="number" />
+            </label>
+            <label>
+              性能评分
+              <input v-model.number="hardwareForm.performanceScore" min="0" max="100" required type="number" />
+            </label>
+          </div>
+          <div class="form-grid">
+            <label>
+              CPU 接口
+              <input v-model="hardwareForm.socketType" placeholder="AM5 / LGA1700" />
+            </label>
+            <label>
+              内存类型
+              <input v-model="hardwareForm.memoryType" placeholder="DDR4 / DDR5" />
+            </label>
+          </div>
+          <div class="form-grid">
+            <label>
+              版型
+              <input v-model="hardwareForm.formFactor" placeholder="ATX / M-ATX / ITX" />
+            </label>
+            <label>
+              支持版型
+              <input v-model="hardwareForm.supportedFormFactors" placeholder="ATX,M-ATX,ITX" />
+            </label>
+          </div>
+          <div class="form-grid">
+            <label>
+              功耗 / 额定功率
+              <input v-model.number="hardwareForm.wattage" min="0" type="number" />
+            </label>
+            <label>
+              显卡限长
+              <input v-model.number="hardwareForm.gpuLengthMm" min="0" type="number" />
+            </label>
+          </div>
+          <label>
+            散热限高
+            <input v-model.number="hardwareForm.coolerHeightMm" min="0" type="number" />
+          </label>
+          <label>
+            规格备注
+            <textarea v-model="hardwareForm.specs" placeholder="接口、容量、频率、适用场景等"></textarea>
+          </label>
+          <label class="inline-check">
+            <input v-model="hardwareForm.enabled" type="checkbox" />
+            启用
+          </label>
+          <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+          <div class="button-row">
+            <button class="primary-button" :disabled="savingHardware" type="submit">
+              {{ savingHardware ? '保存中...' : '保存配件' }}
+            </button>
+            <button class="ghost-button" type="button" @click="resetHardwareForm">清空</button>
+          </div>
+        </form>
+
+        <div class="list-card">
+          <h3>配件列表</h3>
+          <article v-for="item in hardwareList" :key="item.id" class="hardware-row">
+            <div class="hardware-row-main">
+              <strong>{{ hardwareTypeLabel(item.type) }} · {{ item.brand }} {{ item.model }}</strong>
+              <p>¥{{ item.price }} · 性能 {{ item.performanceScore }} · {{ item.socketType || item.memoryType || item.formFactor || '通用规格' }}</p>
+            </div>
+            <div class="hardware-actions">
+              <span :class="item.enabled ? 'status-chip published' : 'status-chip'">{{ item.enabled ? '启用' : '停用' }}</span>
+              <button type="button" @click="editHardware(item)">编辑</button>
+              <button class="danger-link" type="button" @click="deleteHardware(item.id)">删除</button>
+            </div>
+          </article>
+          <div v-if="hardwareList.length === 0" class="empty-box">暂无硬件配件</div>
         </div>
       </section>
 
@@ -638,6 +870,95 @@ textarea {
 .two-column .editor-card,
 .two-column .list-card {
   margin-top: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 10px;
+  font-weight: 800;
+}
+
+.inline-check input {
+  width: 18px;
+  height: 18px;
+}
+
+.button-row,
+.hardware-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ghost-button {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 900;
+  color: var(--text);
+  background: #f4f7fb;
+}
+
+.hardware-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.hardware-row-main {
+  min-width: 0;
+}
+
+.hardware-row-main strong {
+  display: block;
+}
+
+.hardware-row-main p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.hardware-actions {
+  flex-shrink: 0;
+}
+
+.hardware-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 800;
+  color: var(--blue-dark);
+  background: rgba(55, 125, 255, 0.1);
+}
+
+.hardware-actions .danger-link {
+  color: #ff3b30;
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.status-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  background: #f3f6fb;
+}
+
+.status-chip.published {
+  color: #0a7a3d;
+  background: rgba(52, 199, 89, 0.12);
 }
 
 .news-row {

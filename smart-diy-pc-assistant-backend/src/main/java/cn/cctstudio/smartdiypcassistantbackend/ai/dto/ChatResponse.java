@@ -1,5 +1,7 @@
 package cn.cctstudio.smartdiypcassistantbackend.ai.dto;
 
+import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigResponse;
+
 public record ChatResponse(
         Long conversationId,
         String content,
@@ -8,6 +10,9 @@ public record ChatResponse(
         String intent,
         String subIntent,
         String safetyLevel,
-        String safetyMessage
+        String safetyMessage,
+        Long generatedBuildConfigId,
+        String generatedBuildConfigTitle,
+        BuildConfigResponse generatedBuildConfig
 ) {
 }
