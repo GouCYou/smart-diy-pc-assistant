@@ -20,6 +20,21 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "个人资料"
 			}
+		},
+		{
+			"path": "pages/post/detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "帖子详情"
+			}
+		},
+		{
+			"path": "pages/image/preview",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "图片预览",
+				"backgroundColor": "transparent"
+			}
 		}
 	],
 	"globalStyle": {

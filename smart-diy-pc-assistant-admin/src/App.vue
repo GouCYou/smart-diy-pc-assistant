@@ -43,10 +43,42 @@ type HardwarePart = {
   enabled: boolean
 }
 
+type AuthorItem = {
+  id: number
+  username: string
+  nickname: string
+  avatarUrl: string
+}
+
+type CommunityPostItem = {
+  id: number
+  author: AuthorItem
+  content: string
+  imageUrls: string[]
+  buildConfig: { id: number; title: string; totalPrice: number; performanceScore: number } | null
+  likeCount: number
+  commentCount: number
+  favoriteCount: number
+  liked: boolean
+  favorite: boolean
+  createdAt: string
+  comments: CommunityCommentItem[]
+}
+
+type CommunityCommentItem = {
+  id: number
+  postId: number
+  author: AuthorItem
+  content: string
+  imageUrls: string[]
+  likeCount: number
+  liked: boolean
+  createdAt: string
+}
+
 const menuItems = [
   { key: 'dashboard', label: '仪表盘', icon: '⌘' },
   { key: 'components', label: '配件库', icon: '▦' },
-  { key: 'builds', label: '配置管理', icon: '◇' },
   { key: 'news', label: '新闻热点', icon: '≡' },
   { key: 'community', label: '社区内容', icon: '✦' },
   { key: 'ai', label: 'AI 设置', icon: 'AI' },
@@ -59,12 +91,23 @@ const loading = ref(false)
 const savingNews = ref(false)
 const savingHardware = ref(false)
 const errorMessage = ref('')
-const username = ref('root')
-const password = ref('admin')
-const currentUser = ref('root')
+const username = ref('')
+const password = ref('')
+const currentUser = ref('')
 const token = ref('')
+const loginPanelRef = ref<HTMLElement | null>(null)
+const isLoginPanelHovered = ref(false)
+const isLoginPanelFocused = ref(false)
 const newsList = ref<NewsItem[]>([])
 const hardwareList = ref<HardwarePart[]>([])
+const hardwareKeyword = ref('')
+const hardwareTypeFilter = ref('ALL')
+const hardwareStatusFilter = ref('ALL')
+const hardwarePage = ref(1)
+const hardwarePageSize = ref(12)
+const communityPosts = ref<CommunityPostItem[]>([])
+const communityComments = ref<CommunityCommentItem[]>([])
+const selectedCommunityPostId = ref<number | null>(null)
 const newsForm = reactive<NewsItem>({
   title: '',
   summary: '',
@@ -104,12 +147,60 @@ const currentMenuTitle = computed(() => {
   return menuItems.find((item) => item.key === activeMenu.value)?.label ?? '仪表盘'
 })
 
+const isLoginEngaged = computed(() => isLoginPanelHovered.value || isLoginPanelFocused.value)
+
 const dashboardCards = computed(() => [
   { label: '配件总数', value: hardwareList.value.length, hint: '已接入硬件库' },
-  { label: '配置方案', value: 0, hint: '待接入 DIY 配置' },
-  { label: '社区帖子', value: 0, hint: '待接入发现模块' },
+  { label: '启用配件', value: hardwareList.value.filter((item) => item.enabled).length, hint: '当前可被用户选择' },
+  { label: '社区帖子', value: communityPosts.value.length, hint: '发现页内容管理' },
   { label: '新闻热点', value: newsList.value.length, hint: '已接入基础接口' },
 ])
+
+const hardwareTypeStats = computed(() => {
+  const total = Math.max(hardwareList.value.length, 1)
+  return hardwareTypeOptions.map((option) => {
+    const count = hardwareList.value.filter((item) => item.type === option.value).length
+    return {
+      label: option.label,
+      count,
+      percent: Math.round((count / total) * 100),
+    }
+  })
+})
+
+const activityBars = computed(() => [
+  { label: '帖子', value: communityPosts.value.length },
+  { label: '评论', value: communityPosts.value.reduce((sum, item) => sum + item.commentCount, 0) },
+  { label: '收藏', value: communityPosts.value.reduce((sum, item) => sum + item.favoriteCount, 0) },
+  { label: '新闻', value: newsList.value.length },
+])
+
+const maxActivityValue = computed(() => {
+  return Math.max(...activityBars.value.map((item) => item.value), 1)
+})
+
+const filteredHardwareList = computed(() => {
+  const keyword = hardwareKeyword.value.trim().toLowerCase()
+  return hardwareList.value.filter((item) => {
+    const matchType = hardwareTypeFilter.value === 'ALL' || item.type === hardwareTypeFilter.value
+    const matchStatus =
+      hardwareStatusFilter.value === 'ALL' ||
+      (hardwareStatusFilter.value === 'ENABLED' && item.enabled) ||
+      (hardwareStatusFilter.value === 'DISABLED' && !item.enabled)
+    const searchable = `${hardwareTypeLabel(item.type)} ${item.brand} ${item.model} ${item.socketType} ${item.memoryType} ${item.formFactor} ${item.specs}`.toLowerCase()
+    return matchType && matchStatus && (keyword.length === 0 || searchable.includes(keyword))
+  })
+})
+
+const hardwareTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredHardwareList.value.length / hardwarePageSize.value))
+})
+
+const pagedHardwareList = computed(() => {
+  const current = Math.min(hardwarePage.value, hardwareTotalPages.value)
+  const start = (current - 1) * hardwarePageSize.value
+  return filteredHardwareList.value.slice(start, start + hardwarePageSize.value)
+})
 
 function authHeaders() {
   return {
@@ -144,7 +235,7 @@ async function handleLogin() {
     localStorage.setItem('admin_token', data.token)
     localStorage.setItem('admin_user', data.username)
     loggedIn.value = true
-    await Promise.all([loadNews(), loadHardware()])
+    await Promise.all([loadNews(), loadHardware(), loadCommunityPosts()])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
   } finally {
@@ -174,6 +265,31 @@ async function loadHardware() {
     return
   }
   hardwareList.value = await request<HardwarePart[]>('/api/admin/hardware-parts', {
+    headers: authHeaders(),
+  })
+}
+
+async function loadCommunityPosts() {
+  if (!token.value) {
+    return
+  }
+  communityPosts.value = await request<CommunityPostItem[]>('/api/admin/community/posts', {
+    headers: authHeaders(),
+  })
+  if (selectedCommunityPostId.value) {
+    const exists = communityPosts.value.some((item) => item.id === selectedCommunityPostId.value)
+    if (exists) {
+      await loadCommunityComments(selectedCommunityPostId.value)
+    } else {
+      selectedCommunityPostId.value = null
+      communityComments.value = []
+    }
+  }
+}
+
+async function loadCommunityComments(postId: number) {
+  selectedCommunityPostId.value = postId
+  communityComments.value = await request<CommunityCommentItem[]>(`/api/admin/community/posts/${postId}/comments`, {
     headers: authHeaders(),
   })
 }
@@ -248,8 +364,72 @@ async function deleteHardware(id?: number) {
   }
 }
 
+async function deleteCommunityPost(id: number) {
+  if (!window.confirm('确定删除这篇帖子？相关评论也会一起删除。')) {
+    return
+  }
+  try {
+    await request<void>(`/api/admin/community/posts/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (selectedCommunityPostId.value === id) {
+      selectedCommunityPostId.value = null
+      communityComments.value = []
+    }
+    await loadCommunityPosts()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
+
+async function deleteCommunityComment(id: number) {
+  if (!window.confirm('确定删除这条评论？')) {
+    return
+  }
+  try {
+    await request<void>(`/api/admin/community/comments/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (selectedCommunityPostId.value) {
+      await loadCommunityComments(selectedCommunityPostId.value)
+      await loadCommunityPosts()
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
+
+function formatTime(value: string) {
+  return value ? value.replace('T', ' ').slice(0, 16) : ''
+}
+
+function handleLoginPanelFocusOut() {
+  requestAnimationFrame(() => {
+    const activeElement = document.activeElement
+    isLoginPanelFocused.value = !!(
+      loginPanelRef.value &&
+      activeElement &&
+      loginPanelRef.value.contains(activeElement)
+    )
+  })
+}
+
 function hardwareTypeLabel(type: HardwarePartType) {
   return hardwareTypeOptions.find((item) => item.value === type)?.label ?? type
+}
+
+function resetHardwarePage() {
+  hardwarePage.value = 1
+}
+
+function previousHardwarePage() {
+  hardwarePage.value = Math.max(1, hardwarePage.value - 1)
+}
+
+function nextHardwarePage() {
+  hardwarePage.value = Math.min(hardwareTotalPages.value, hardwarePage.value + 1)
 }
 
 async function saveNews() {
@@ -282,6 +462,9 @@ function switchMenu(key: string) {
   if (key === 'components') {
     loadHardware()
   }
+  if (key === 'community') {
+    loadCommunityPosts()
+  }
 }
 
 onMounted(() => {
@@ -291,13 +474,13 @@ onMounted(() => {
     token.value = savedToken
     currentUser.value = savedUser || 'root'
     loggedIn.value = true
-    Promise.all([loadNews(), loadHardware()]).catch(() => logout())
+    Promise.all([loadNews(), loadHardware(), loadCommunityPosts()]).catch(() => logout())
   }
 })
 </script>
 
 <template>
-  <main v-if="!loggedIn" class="login-page">
+  <main v-if="!loggedIn" :class="isLoginEngaged ? 'login-page engaged' : 'login-page'">
     <section class="login-hero">
       <div class="hero-card">
         <div class="hero-badge">Smart DIY Admin</div>
@@ -311,8 +494,15 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="login-panel">
-      <form class="login-form" @submit.prevent="handleLogin">
+    <section
+      ref="loginPanelRef"
+      class="login-panel"
+      @mouseenter="isLoginPanelHovered = true"
+      @mouseleave="isLoginPanelHovered = false"
+      @focusin="isLoginPanelFocused = true"
+      @focusout="handleLoginPanelFocusOut"
+    >
+      <form class="login-form" autocomplete="off" @submit.prevent="handleLogin">
         <div>
           <p class="eyebrow">管理后台</p>
           <h2>登录系统</h2>
@@ -321,12 +511,12 @@ onMounted(() => {
 
         <label>
           管理员账号
-          <input v-model="username" autocomplete="username" placeholder="请输入账号" />
+          <input v-model="username" autocomplete="off" placeholder="请输入账号" />
         </label>
 
         <label>
           登录密码
-          <input v-model="password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+          <input v-model="password" autocomplete="off" placeholder="请输入密码" type="password" />
         </label>
 
         <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
@@ -363,7 +553,6 @@ onMounted(() => {
     <section class="main-panel">
       <header class="topbar">
         <div>
-          <p class="eyebrow">当前模块</p>
           <h2>{{ currentMenuTitle }}</h2>
         </div>
         <div class="user-pill">
@@ -387,6 +576,40 @@ onMounted(() => {
             <p>用户端：五栏主界面和对话交互原型</p>
             <p>管理端：后台壳、登录页、新闻热点管理入口</p>
           </div>
+        </div>
+        <div class="dashboard-charts">
+          <section class="chart-card">
+            <div class="chart-head">
+              <h3>配件类型分布</h3>
+              <span>{{ hardwareList.length }} 个配件</span>
+            </div>
+            <div class="bar-list">
+              <div v-for="item in hardwareTypeStats" :key="item.label" class="bar-row">
+                <div class="bar-meta">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.count }}</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" :style="{ width: `${item.percent}%` }"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="chart-card">
+            <div class="chart-head">
+              <h3>内容活跃概览</h3>
+              <span>实时统计</span>
+            </div>
+            <div class="column-chart">
+              <div v-for="item in activityBars" :key="item.label" class="column-item">
+                <div class="column-shell">
+                  <div class="column-fill" :style="{ height: `${Math.max(8, Math.round((item.value / maxActivityValue) * 100))}%` }"></div>
+                </div>
+                <strong>{{ item.value }}</strong>
+                <span>{{ item.label }}</span>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -471,8 +694,30 @@ onMounted(() => {
         </form>
 
         <div class="list-card">
-          <h3>配件列表</h3>
-          <article v-for="item in hardwareList" :key="item.id" class="hardware-row">
+          <div class="section-head">
+            <div>
+              <h3>配件列表</h3>
+              <p class="section-subtitle">共 {{ filteredHardwareList.length }} 个结果</p>
+            </div>
+          </div>
+          <div class="hardware-toolbar">
+            <input v-model="hardwareKeyword" class="hardware-search" placeholder="搜索品牌、型号、接口或规格" @input="resetHardwarePage" />
+            <select v-model="hardwareTypeFilter" class="hardware-filter" @change="resetHardwarePage">
+              <option value="ALL">全部类型</option>
+              <option v-for="item in hardwareTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+            <select v-model="hardwareStatusFilter" class="hardware-filter hardware-status-filter" @change="resetHardwarePage">
+              <option value="ALL">全部状态</option>
+              <option value="ENABLED">启用</option>
+              <option value="DISABLED">停用</option>
+            </select>
+            <select v-model.number="hardwarePageSize" class="hardware-filter hardware-page-size" @change="resetHardwarePage">
+              <option :value="12">每页 12 条</option>
+              <option :value="20">每页 20 条</option>
+              <option :value="50">每页 50 条</option>
+            </select>
+          </div>
+          <article v-for="item in pagedHardwareList" :key="item.id" class="hardware-row">
             <div class="hardware-row-main">
               <strong>{{ hardwareTypeLabel(item.type) }} · {{ item.brand }} {{ item.model }}</strong>
               <p>¥{{ item.price }} · 性能 {{ item.performanceScore }} · {{ item.socketType || item.memoryType || item.formFactor || '通用规格' }}</p>
@@ -483,7 +728,12 @@ onMounted(() => {
               <button class="danger-link" type="button" @click="deleteHardware(item.id)">删除</button>
             </div>
           </article>
-          <div v-if="hardwareList.length === 0" class="empty-box">暂无硬件配件</div>
+          <div v-if="filteredHardwareList.length === 0" class="empty-box">暂无符合条件的配件</div>
+          <div v-if="filteredHardwareList.length > 0" class="pagination-row">
+            <button type="button" :disabled="hardwarePage <= 1" @click="previousHardwarePage">上一页</button>
+            <span>第 {{ Math.min(hardwarePage, hardwareTotalPages) }} / {{ hardwareTotalPages }} 页 · 每页 {{ hardwarePageSize }} 条</span>
+            <button type="button" :disabled="hardwarePage >= hardwareTotalPages" @click="nextHardwarePage">下一页</button>
+          </div>
         </div>
       </section>
 
@@ -532,6 +782,63 @@ onMounted(() => {
         </div>
       </section>
 
+      <section v-else-if="activeMenu === 'community'" class="content-area two-column">
+        <div class="list-card">
+          <div class="section-head">
+            <h3>帖子管理</h3>
+            <button class="ghost-button" type="button" @click="loadCommunityPosts">刷新</button>
+          </div>
+          <article
+            v-for="post in communityPosts"
+            :key="post.id"
+            :class="selectedCommunityPostId === post.id ? 'community-row active' : 'community-row'"
+          >
+            <div class="community-row-main" @click="loadCommunityComments(post.id)">
+              <div class="community-meta">
+                <strong>{{ post.author.nickname || post.author.username }}</strong>
+                <span>{{ formatTime(post.createdAt) }}</span>
+              </div>
+              <p>{{ post.content }}</p>
+              <div v-if="post.buildConfig" class="admin-build-chip">
+                配置：{{ post.buildConfig.title }} · ¥{{ post.buildConfig.totalPrice }} · {{ post.buildConfig.performanceScore }} 分
+              </div>
+              <div v-if="post.imageUrls.length" class="admin-image-strip">
+                <img v-for="image in post.imageUrls" :key="image" :src="image" alt="" />
+              </div>
+              <div class="community-counts">
+                <span>点赞 {{ post.likeCount }}</span>
+                <span>评论 {{ post.commentCount }}</span>
+                <span>收藏 {{ post.favoriteCount }}</span>
+              </div>
+            </div>
+            <button class="danger-link" type="button" @click="deleteCommunityPost(post.id)">删除</button>
+          </article>
+          <div v-if="communityPosts.length === 0" class="empty-box">暂无社区帖子</div>
+        </div>
+
+        <div class="list-card">
+          <h3>评论管理</h3>
+          <div v-if="!selectedCommunityPostId" class="empty-box">选择左侧帖子后查看评论</div>
+          <article v-for="comment in communityComments" :key="comment.id" class="comment-row">
+            <div class="comment-row-main">
+              <div class="community-meta">
+                <strong>{{ comment.author.nickname || comment.author.username }}</strong>
+                <span>{{ formatTime(comment.createdAt) }}</span>
+              </div>
+              <p>{{ comment.content }}</p>
+              <div v-if="comment.imageUrls.length" class="admin-image-strip">
+                <img v-for="image in comment.imageUrls" :key="image" :src="image" alt="" />
+              </div>
+              <div class="community-counts">
+                <span>点赞 {{ comment.likeCount }}</span>
+              </div>
+            </div>
+            <button class="danger-link" type="button" @click="deleteCommunityComment(comment.id)">删除</button>
+          </article>
+          <div v-if="selectedCommunityPostId && communityComments.length === 0" class="empty-box">暂无评论</div>
+        </div>
+      </section>
+
       <section v-else class="content-area">
         <div class="wide-card empty-module">
           <h3>{{ currentMenuTitle }}</h3>
@@ -544,21 +851,29 @@ onMounted(() => {
 
 <style scoped>
 .login-page {
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  display: flex;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: #eef5ff;
+  transition: background 420ms ease;
 }
 
 .login-hero {
+  flex: 1.1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 32px;
+  position: relative;
+  overflow: hidden;
   background:
     radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.38), transparent 25%),
     linear-gradient(145deg, #2459e3 0%, #377dff 54%, #77d3ff 100%);
+  transition:
+    flex 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .hero-card {
@@ -574,6 +889,10 @@ onMounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow: 0 28px 70px rgba(17, 24, 39, 0.14);
   backdrop-filter: blur(28px) saturate(150%);
+  transition:
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .hero-badge,
@@ -610,10 +929,20 @@ onMounted(() => {
 }
 
 .login-panel {
+  flex: 0.9;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 32px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.96), transparent 24%),
+    linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  transition:
+    flex 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 520ms ease;
 }
 
 .login-form {
@@ -624,6 +953,34 @@ onMounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow);
   backdrop-filter: blur(24px) saturate(150%);
+  transition:
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.login-page.engaged .login-hero {
+  flex: 0.94;
+  padding: 22px;
+}
+
+.login-page.engaged .hero-card {
+  transform: translateX(-10px) scale(0.985);
+  border-radius: 42px;
+  box-shadow: 0 18px 44px rgba(17, 24, 39, 0.12);
+}
+
+.login-page.engaged .login-panel {
+  flex: 1.06;
+  padding: 22px 28px;
+}
+
+.login-page.engaged .login-form {
+  transform: scale(1.03) translateX(-4px);
+  border-radius: 34px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 34px 84px rgba(37, 99, 235, 0.16);
 }
 
 .login-form h2 {
@@ -651,10 +1008,19 @@ select {
   width: 100%;
   border: 1px solid rgba(150, 179, 230, 0.42);
   border-radius: 16px;
-  padding: 13px 14px;
+  padding: 13px 16px;
   outline: none;
   color: var(--text);
   background: rgba(248, 251, 255, 0.78);
+}
+
+select {
+  appearance: none;
+  padding-right: 52px;
+  background:
+    linear-gradient(45deg, transparent 50%, #475467 50%) right 28px center / 7px 7px no-repeat,
+    linear-gradient(135deg, #475467 50%, transparent 50%) right 22px center / 7px 7px no-repeat,
+    rgba(248, 251, 255, 0.78);
 }
 
 textarea {
@@ -778,7 +1144,7 @@ textarea {
 }
 
 .topbar h2 {
-  margin: 3px 0 0;
+  margin: 0;
   font-size: 24px;
 }
 
@@ -860,16 +1226,127 @@ textarea {
   gap: 10px;
 }
 
+.dashboard-charts {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.chart-card {
+  min-height: 320px;
+  padding: 24px;
+  border: 1px solid rgba(226, 233, 244, 0.9);
+  border-radius: 30px;
+  background: var(--card);
+  box-shadow: 0 10px 24px rgba(24, 39, 75, 0.04);
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.chart-head h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.chart-head span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.bar-list {
+  display: grid;
+  gap: 14px;
+}
+
+.bar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.bar-meta strong {
+  color: var(--text);
+}
+
+.bar-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef3fb;
+}
+
+.bar-fill {
+  height: 100%;
+  min-width: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #377dff, #74c7ff);
+}
+
+.column-chart {
+  height: 235px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  align-items: end;
+  gap: 18px;
+  padding-top: 8px;
+}
+
+.column-item {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.column-shell {
+  width: 58px;
+  height: 150px;
+  display: flex;
+  align-items: end;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef3fb;
+}
+
+.column-fill {
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #74c7ff, #377dff);
+}
+
+.column-item strong {
+  font-size: 20px;
+  color: var(--text);
+}
+
+.column-item span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .two-column {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .two-column .editor-card,
 .two-column .list-card {
   margin-top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .form-grid {
@@ -898,13 +1375,42 @@ textarea {
   gap: 10px;
 }
 
+.button-row {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 12px;
+}
+
 .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 82px;
+  height: 46px;
+  white-space: nowrap;
   border: none;
   border-radius: 999px;
-  padding: 12px 18px;
+  padding: 0 18px;
   font-weight: 900;
   color: var(--text);
   background: #f4f7fb;
+}
+
+.button-row .primary-button {
+  width: 100%;
+  height: 48px;
+  margin-top: 0;
+  border-radius: 24px;
+}
+
+.button-row .ghost-button {
+  width: 96px;
+  height: 48px;
+  min-width: 96px;
+  border-radius: 24px;
 }
 
 .hardware-row {
@@ -947,6 +1453,36 @@ textarea {
   background: rgba(255, 59, 48, 0.1);
 }
 
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 18px;
+  margin-top: auto;
+}
+
+.pagination-row button {
+  height: 38px;
+  min-width: 84px;
+  border: none;
+  border-radius: 999px;
+  color: var(--blue-dark);
+  font-weight: 900;
+  background: rgba(55, 125, 255, 0.1);
+}
+
+.pagination-row button:disabled {
+  color: #98a2b3;
+  background: #f3f6fb;
+}
+
+.pagination-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .status-chip {
   padding: 6px 10px;
   border-radius: 999px;
@@ -986,6 +1522,141 @@ textarea {
   background: rgba(55, 125, 255, 0.1);
 }
 
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.section-head h3 {
+  margin: 0;
+}
+
+.section-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hardware-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 132px 132px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.hardware-search,
+.hardware-filter {
+  height: 44px;
+  border-radius: 999px;
+}
+
+.hardware-filter {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.community-row,
+.comment-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #f8fbff;
+}
+
+.community-row.active {
+  border-color: rgba(55, 125, 255, 0.34);
+  background: #eef5ff;
+}
+
+.community-row-main,
+.comment-row-main {
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+}
+
+.community-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.community-meta span {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.community-row p,
+.comment-row p {
+  margin: 8px 0 0;
+  color: var(--text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.admin-build-chip {
+  display: inline-flex;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--blue-dark);
+  font-weight: 800;
+  background: rgba(55, 125, 255, 0.1);
+}
+
+.admin-image-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-image-strip img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+}
+
+.community-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.community-counts span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  background: #fff;
+}
+
+.community-row > .danger-link,
+.comment-row > .danger-link {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #ff3b30;
+  font-weight: 900;
+  background: rgba(255, 59, 48, 0.1);
+}
+
 .empty-box {
   padding: 40px;
   text-align: center;
@@ -1000,8 +1671,34 @@ textarea {
 }
 
 @media (max-width: 1100px) {
+  .login-page {
+    flex-direction: column;
+  }
+
+  .login-hero,
+  .login-panel,
+  .login-page.engaged .login-hero,
+  .login-page.engaged .login-panel {
+    flex: none;
+  }
+
+  .login-hero {
+    min-height: 36vh;
+  }
+
+  .hero-card {
+    min-height: auto;
+    padding: 34px;
+  }
+
+  .hero-card h1 {
+    font-size: 40px;
+  }
+
   .stats-grid,
-  .two-column {
+  .two-column,
+  .dashboard-charts,
+  .hardware-toolbar {
     grid-template-columns: 1fr;
   }
 }

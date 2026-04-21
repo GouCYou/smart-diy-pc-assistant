@@ -152,6 +152,7 @@
 		const avatarUrl = payload.avatarUrl == null ? '' : payload.avatarUrl
 		const bio = payload.bio == null || payload.bio.length == 0 ? '这个人还没有写简介。' : payload.bio
 		uni.setStorageSync('app_token', payload.token)
+		uni.setStorageSync('app_user_id', payload.userId)
 		uni.setStorageSync('app_username', payload.username)
 		uni.setStorageSync('app_email', payload.email)
 		uni.setStorageSync('app_nickname', nickname)

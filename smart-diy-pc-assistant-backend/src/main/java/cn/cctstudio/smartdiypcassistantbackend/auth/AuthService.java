@@ -89,9 +89,9 @@ public class AuthService {
     }
 
     private void bootstrapDefaultAdmin() {
-        if (userRepository.findByUsername("root").isPresent()) {
+        if (userRepository.findByUsername("admin").isPresent()) {
             return;
         }
-        userRepository.save(new User("root", "root@smart-diy.local", passwordEncoder.encode("admin"), UserRole.ADMIN));
+        userRepository.save(new User("admin", "admin@smart-diy.local", passwordEncoder.encode("123456"), UserRole.ADMIN));
     }
 }

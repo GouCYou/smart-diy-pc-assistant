@@ -73,7 +73,7 @@
 					<view class="attach-icon-dot"></view>
 				</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
-				<view :class="draft.length > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
+				<view :class="draft.length > 0 || attachedBuildId > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
 					<view class="send-arrow-line"></view>
 					<view class="send-arrow-head send-arrow-head-top"></view>
 					<view class="send-arrow-head send-arrow-head-bottom"></view>
@@ -95,7 +95,7 @@
 
 			<view class="segmented">
 				<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
-					<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">我的配置</text>
+					<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">自定义</text>
 				</view>
 				<view :class="buildSegment == 1 ? 'segment-active' : 'segment'" @click="selectBuildSegment(1)">
 					<text :class="buildSegment == 1 ? 'segment-active-text' : 'segment-text'">AI 生成</text>
@@ -105,17 +105,23 @@
 				</view>
 			</view>
 
+			<view class="section-search">
+				<view class="section-search-icon">
+					<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
+				</view>
+				<input class="section-search-input" v-model="buildSearchKeyword" placeholder="搜索配置名称、备注或配件" placeholder-class="section-search-placeholder" @input="resetBuildPage()" />
+			</view>
+
 			<scroll-view class="build-scroll" scroll-y="true">
-				<view v-if="buildList.length > 0" class="build-list">
-					<view v-for="item in buildList" :key="item.id" class="build-card" @click="openBuildDetail(item)">
+				<view v-if="getFilteredBuildList().length > 0" class="build-list">
+					<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildDetail(item)">
 						<view class="build-card-head">
 							<view class="build-card-main">
 								<text class="build-title">{{ item.title }}</text>
 								<text class="build-meta">{{ getBuildSourceLabel(item.source) }} · {{ formatHistoryTime(item.updatedAt) }}</text>
 							</view>
-							<view :class="item.favorite ? 'favorite-button favorite-button-active' : 'favorite-button'" @click.stop="toggleBuildFavorite(item)">
-								<text :class="item.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ item.favorite ? '★' : '☆' }}</text>
-								<text :class="item.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ item.favorite ? '已收藏' : '收藏' }}</text>
+							<view class="build-card-delete" @click.stop="deleteBuild(item.id)">
+								<text class="build-card-delete-text">删除</text>
 							</view>
 						</view>
 						<view class="build-score-row">
@@ -141,15 +147,24 @@
 								<text class="build-action-icon">⧉</text>
 								<text class="build-action-text">复制</text>
 							</view>
-							<view class="build-action build-action-danger" @click.stop="deleteBuild(item.id)">
-								<text class="build-action-danger-text">⌫</text>
-								<text class="build-action-danger-text">删除</text>
+							<view :class="item.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click.stop="toggleBuildFavorite(item)">
+								<text :class="item.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ item.favorite ? '★' : '☆' }}</text>
+								<text :class="item.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ item.favorite ? '已收藏' : '收藏' }}</text>
 							</view>
+						</view>
+					</view>
+					<view v-if="getBuildPageCount() > 1" class="list-pager">
+						<view :class="getBuildPage() <= 1 ? 'pager-button pager-button-disabled' : 'pager-button'" @click="previousBuildPage">
+							<text :class="getBuildPage() <= 1 ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">上一页</text>
+						</view>
+						<text class="pager-count">{{ getBuildPage() }} / {{ getBuildPageCount() }}</text>
+						<view :class="getBuildPage() >= getBuildPageCount() ? 'pager-button pager-button-disabled' : 'pager-button'" @click="nextBuildPage">
+							<text :class="getBuildPage() >= getBuildPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
 						</view>
 					</view>
 				</view>
 
-				<view v-if="buildList.length == 0" class="empty-state">
+				<view v-if="getFilteredBuildList().length == 0" class="empty-state">
 					<view class="empty-illustration">
 						<view class="empty-grid-row">
 							<view class="empty-grid-cell"></view>
@@ -185,34 +200,83 @@
 				</view>
 			</view>
 
-			<view class="compose-box">
-				<text class="compose-placeholder">分享装机想法、预算困惑或成品照片</text>
-				<view class="compose-tools">
-					<view class="tool-pill" @click="pickImage">
-						<view class="tool-image-icon">
-							<view class="tool-image-sun"></view>
-							<view class="tool-image-hill"></view>
-						</view>
-						<text class="tool-pill-text">图片</text>
-					</view>
-					<view class="tool-pill" @click="attachBuild">
-						<view class="tool-build-icon">
-							<view class="tool-build-dot"></view>
-							<view class="tool-build-dot"></view>
-						</view>
-						<text class="tool-pill-text">配置</text>
-					</view>
+			<view class="section-search">
+				<view class="section-search-icon">
+					<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
 				</view>
+				<input class="section-search-input" v-model="communitySearchKeyword" placeholder="搜索帖子内容、作者或配置" placeholder-class="section-search-placeholder" @input="resetCommunityPage()" />
 			</view>
 
-			<view class="empty-state empty-state-soft">
-				<view class="empty-illustration empty-forum">
-					<view class="forum-bubble"></view>
-					<view class="forum-bubble forum-bubble-small"></view>
+			<scroll-view class="community-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="communityRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshCommunityPosts">
+				<view v-if="getFilteredCommunityPosts().length > 0" class="community-list">
+					<view v-for="post in getPagedCommunityPosts()" :key="post.id" class="post-card" @click="openPostDetail(post.id)">
+						<view class="post-head">
+							<view class="post-avatar">
+								<image v-if="post.author.avatarUrl.length > 0" class="post-avatar-image" :src="post.author.avatarUrl" mode="aspectFill"></image>
+								<text v-if="post.author.avatarUrl.length == 0" class="post-avatar-text">{{ getAuthorAvatarText(post.author.nickname) }}</text>
+							</view>
+							<view class="post-author-main">
+								<text class="post-author-name">{{ post.author.nickname }}</text>
+								<text class="post-time">{{ formatHistoryTime(post.createdAt) }}</text>
+							</view>
+							<view v-if="isMine(post.author.id)" class="post-head-delete" @click.stop="confirmDeletePost(post.id)">
+								<text class="post-head-delete-text">删除</text>
+							</view>
+						</view>
+						<text class="post-content">{{ post.content }}</text>
+						<view v-if="post.imageUrls.length > 0" class="post-image-grid">
+							<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click.stop="previewPostImages(post.imageUrls, image)"></image>
+						</view>
+						<view v-if="post.buildConfig != null && post.buildConfig.id > 0" class="post-build-card" @click.stop="openPostBuildDetail(post.buildConfig.id)">
+							<view class="chat-build-icon">
+								<text class="chat-build-icon-text">DIY</text>
+							</view>
+							<view class="chat-build-main">
+								<text class="chat-build-title">{{ post.buildConfig.title }}</text>
+								<text class="chat-build-desc">¥{{ post.buildConfig.totalPrice }} · 性能 {{ post.buildConfig.performanceScore }} 分</text>
+							</view>
+							<text class="chat-build-arrow">›</text>
+						</view>
+						<view class="post-actions">
+							<view class="post-action" @click.stop="togglePostLike(post.id)">
+								<text :class="post.liked ? 'post-action-icon post-action-icon-active' : 'post-action-icon'">♥</text>
+								<text class="post-action-text">{{ post.likeCount }}</text>
+							</view>
+							<view class="post-action" @click.stop="togglePostFavorite(post.id)">
+								<text :class="post.favorite ? 'post-action-icon post-favorite-icon-active' : 'post-action-icon'">★</text>
+								<text class="post-action-text">{{ post.favoriteCount }}</text>
+							</view>
+							<view class="post-action">
+								<view class="comment-action-icon">
+									<view class="comment-action-dot"></view>
+									<view class="comment-action-dot"></view>
+									<view class="comment-action-dot"></view>
+									<view class="comment-action-tail"></view>
+								</view>
+								<text class="post-action-text">{{ post.commentCount }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-if="getCommunityPageCount() > 1" class="list-pager">
+						<view :class="communityPage <= 1 ? 'pager-button pager-button-disabled' : 'pager-button'" @click="previousCommunityPage">
+							<text :class="communityPage <= 1 ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">上一页</text>
+						</view>
+						<text class="pager-count">{{ communityPage }} / {{ getCommunityPageCount() }}</text>
+						<view :class="communityPage >= getCommunityPageCount() ? 'pager-button pager-button-disabled' : 'pager-button'" @click="nextCommunityPage">
+							<text :class="communityPage >= getCommunityPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
+						</view>
+					</view>
 				</view>
-				<text class="empty-title">还没有社区内容</text>
-				<text class="empty-desc">发布第一条帖子后，这里会展示你的动态和其他用户的装机讨论。</text>
-			</view>
+
+				<view v-if="getFilteredCommunityPosts().length == 0" class="empty-state empty-state-soft">
+					<view class="empty-illustration empty-forum">
+						<view class="forum-bubble"></view>
+						<view class="forum-bubble forum-bubble-small"></view>
+					</view>
+					<text class="empty-title">{{ getCommunityEmptyTitle() }}</text>
+					<text class="empty-desc">{{ getCommunityEmptyDesc() }}</text>
+				</view>
+			</scroll-view>
 		</view>
 
 		<view v-if="activeTab == 3" :class="getPageClass('normal-page')">
@@ -446,7 +510,7 @@
 			</view>
 		</view>
 
-		<view v-if="buildDetailVisible" class="build-form-mask" @click="closeBuildDetail">
+		<view v-if="buildDetailVisible" class="build-form-mask build-detail-mask" @click="closeBuildDetail">
 			<view class="build-detail" @click.stop>
 				<view class="build-form-head">
 					<text class="build-form-title">{{ selectedBuildDetail.title }}</text>
@@ -488,32 +552,245 @@
 			</view>
 		</view>
 
-		<view v-if="chatBuildPickerVisible" class="build-form-mask" @click="closeChatBuildPicker">
-			<view class="part-picker" @click.stop>
+		<view v-if="chatBuildPickerVisible" class="build-form-mask compact-picker-mask" @click="closeChatBuildPicker">
+			<view class="part-picker compact-build-picker" @click.stop>
 				<view class="build-form-head">
-					<text class="build-form-title">选择配置单</text>
-					<view class="build-form-close" @click="closeChatBuildPicker">
-						<view class="close-line"></view>
-						<view class="close-line close-line-two"></view>
+					<text class="build-form-title compact-picker-title">选择关联配置</text>
+					<view class="build-form-close compact-picker-close" @click="closeChatBuildPicker">
+						<view class="close-line compact-picker-close-line"></view>
+						<view class="close-line close-line-two compact-picker-close-line"></view>
 					</view>
 				</view>
-				<scroll-view class="part-option-scroll" scroll-y="true">
-					<view v-for="item in chatAttachBuildList" :key="item.id" class="part-option" @click="attachBuildToChat(item)">
+				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
+					<view v-for="item in chatAttachBuildList" :key="item.id" class="part-option" @click="toggleBuildForChat(item)">
 						<view class="part-option-main">
 							<text class="part-option-title">{{ item.title }}</text>
 							<text class="part-option-spec">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
 						</view>
 						<view class="part-option-side">
-							<text class="part-option-price">添加</text>
+							<view :class="attachedBuildId == item.id ? 'plus-circle-button plus-circle-button-selected' : 'plus-circle-button'">
+								<text :class="attachedBuildId == item.id ? 'plus-circle-text plus-circle-text-selected' : 'plus-circle-text'">{{ attachedBuildId == item.id ? '-' : '+' }}</text>
+							</view>
 						</view>
 					</view>
 					<view v-if="chatAttachBuildList.length == 0" class="part-empty">
-						<text class="part-empty-text">暂无可附加配置</text>
+						<text class="part-empty-text">暂无可关联配置</text>
 					</view>
 				</scroll-view>
 			</view>
 		</view>
 
+		<view v-if="postFormVisible" class="build-form-mask" @click="closePostForm">
+			<view class="post-form" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">发布帖子</text>
+					<view class="build-form-close" @click="closePostForm">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<textarea class="post-form-textarea" v-model="postContent" placeholder="分享装机想法、预算困惑或成品照片" placeholder-class="input-placeholder" />
+				<view v-if="postBuildId > 0" class="post-linked-build" @click="openPostBuildDetail(postBuildId)">
+					<view class="chat-build-icon">
+						<text class="chat-build-icon-text">DIY</text>
+					</view>
+					<view class="chat-build-main">
+						<text class="chat-build-title">{{ postBuildTitle }}</text>
+						<text class="chat-build-desc">已关联配置，点击可查看详情</text>
+					</view>
+					<view class="composer-attachment-close" @click.stop="clearPostBuild">
+						<view class="close-line close-line-small"></view>
+						<view class="close-line close-line-two close-line-small"></view>
+					</view>
+				</view>
+				<view v-if="postImageUrls.length > 0" class="form-image-grid">
+					<view v-for="(image, index) in postImageUrls" :key="image" :class="getPostImageWrapClass(index)" :style="getPostImageDragStyle(index)" @touchstart.stop="startPostImageTouch(index, $event)" @touchmove.stop="movePostImageDrag($event)" @touchend.stop="endPostImageDrag">
+						<image class="form-image" :src="image" mode="aspectFill" @click="previewPostDraftImage(image)"></image>
+						<view v-if="false" class="form-image-order">
+							<text :class="index == 0 ? 'form-image-order-text form-image-order-disabled' : 'form-image-order-text'" @click.stop="movePostImageLeft(index)">‹</text>
+							<text :class="index == postImageUrls.length - 1 ? 'form-image-order-text form-image-order-disabled' : 'form-image-order-text'" @click.stop="movePostImageRight(index)">›</text>
+						</view>
+						<view class="form-image-remove" @click.stop="removePostImage(image)">
+							<view class="close-line close-line-small"></view>
+							<view class="close-line close-line-two close-line-small"></view>
+						</view>
+					</view>
+				</view>
+				<view class="post-form-tools">
+					<view class="tool-pill" @click="pickPostImages">
+						<view class="tool-image-icon">
+							<view class="tool-image-sun"></view>
+							<view class="tool-image-hill"></view>
+						</view>
+						<text class="tool-pill-text">图片 {{ postImageUrls.length }}/9</text>
+					</view>
+					<view class="tool-pill" @click="openPostBuildPicker">
+						<view class="tool-build-icon">
+							<view class="tool-build-dot"></view>
+							<view class="tool-build-dot"></view>
+						</view>
+						<text class="tool-pill-text">配置</text>
+					</view>
+				</view>
+				<view class="build-form-submit" @click="submitPost">
+					<text class="build-form-submit-text">{{ postSubmitting ? '发布中...' : '发布' }}</text>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="postBuildPickerVisible" class="build-form-mask compact-picker-mask" @click="closePostBuildPicker">
+			<view class="part-picker compact-build-picker" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title compact-picker-title">选择关联配置</text>
+					<view class="build-form-close compact-picker-close" @click="closePostBuildPicker">
+						<view class="close-line compact-picker-close-line"></view>
+						<view class="close-line close-line-two compact-picker-close-line"></view>
+					</view>
+				</view>
+				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
+					<view v-for="item in postBuildList" :key="item.id" class="part-option" @click="toggleBuildForPost(item)">
+						<view class="part-option-main">
+							<text class="part-option-title">{{ item.title }}</text>
+							<text class="part-option-spec">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+						</view>
+						<view class="part-option-side">
+							<view :class="postBuildId == item.id ? 'plus-circle-button plus-circle-button-selected' : 'plus-circle-button'">
+								<text :class="postBuildId == item.id ? 'plus-circle-text plus-circle-text-selected' : 'plus-circle-text'">{{ postBuildId == item.id ? '-' : '+' }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-if="postBuildList.length == 0" class="part-empty">
+						<text class="part-empty-text">暂无可关联配置</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
+		<view v-if="false" class="build-form-mask" @click="closePostDetail">
+			<view class="post-detail" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">帖子详情</text>
+					<view class="build-form-close" @click="closePostDetail">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<scroll-view class="post-detail-scroll" scroll-y="true">
+					<view class="post-head">
+						<view class="post-avatar">
+							<image v-if="selectedPost.author.avatarUrl.length > 0" class="post-avatar-image" :src="selectedPost.author.avatarUrl" mode="aspectFill"></image>
+							<text v-if="selectedPost.author.avatarUrl.length == 0" class="post-avatar-text">{{ getAuthorAvatarText(selectedPost.author.nickname) }}</text>
+						</view>
+						<view class="post-author-main">
+							<text class="post-author-name">{{ selectedPost.author.nickname }}</text>
+							<text class="post-time">{{ formatHistoryTime(selectedPost.createdAt) }}</text>
+						</view>
+					</view>
+					<text class="post-content post-detail-content">{{ selectedPost.content }}</text>
+					<view v-if="selectedPost.imageUrls.length > 0" class="post-image-grid">
+						<image v-for="image in selectedPost.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click="previewImage(image)"></image>
+					</view>
+					<view v-if="selectedPost.buildConfig != null && selectedPost.buildConfig.id > 0" class="post-build-card" @click="openPostBuildDetail(selectedPost.buildConfig.id)">
+						<view class="chat-build-icon">
+							<text class="chat-build-icon-text">DIY</text>
+						</view>
+						<view class="chat-build-main">
+							<text class="chat-build-title">{{ selectedPost.buildConfig.title }}</text>
+							<text class="chat-build-desc">¥{{ selectedPost.buildConfig.totalPrice }} · 性能 {{ selectedPost.buildConfig.performanceScore }} 分</text>
+						</view>
+						<text class="chat-build-arrow">›</text>
+					</view>
+					<view class="post-actions post-detail-actions">
+						<view class="post-action" @click="togglePostLike(selectedPost.id)">
+							<text :class="selectedPost.liked ? 'post-action-icon post-action-icon-active' : 'post-action-icon'">♥</text>
+							<text class="post-action-text">{{ selectedPost.likeCount }}</text>
+						</view>
+						<view class="post-action" @click="togglePostFavorite(selectedPost.id)">
+							<text :class="selectedPost.favorite ? 'post-action-icon post-action-icon-active' : 'post-action-icon'">★</text>
+							<text class="post-action-text">{{ selectedPost.favoriteCount }}</text>
+						</view>
+					</view>
+					<view class="comment-list">
+						<text class="comment-title">评论 {{ selectedPost.commentCount }}</text>
+						<view v-for="comment in selectedPost.comments" :key="comment.id" class="comment-card">
+							<view class="post-head comment-head">
+								<view class="comment-avatar">
+									<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="comment.author.avatarUrl" mode="aspectFill"></image>
+									<text v-if="comment.author.avatarUrl.length == 0" class="comment-avatar-text">{{ getAuthorAvatarText(comment.author.nickname) }}</text>
+								</view>
+								<view class="post-author-main">
+									<text class="post-author-name">{{ comment.author.nickname }}</text>
+									<text class="post-time">{{ formatHistoryTime(comment.createdAt) }}</text>
+								</view>
+								<view class="post-action comment-like" @click="toggleCommentLike(comment.id)">
+									<text :class="comment.liked ? 'post-action-icon post-action-icon-active' : 'post-action-icon'">♥</text>
+									<text class="post-action-text">{{ comment.likeCount }}</text>
+								</view>
+							</view>
+							<text class="comment-content">{{ comment.content }}</text>
+							<view v-if="comment.imageUrls.length > 0" class="comment-image-grid">
+								<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="image" mode="aspectFill" @click="previewImage(image)"></image>
+							</view>
+						</view>
+					</view>
+				</scroll-view>
+				<view v-if="commentImageUrls.length > 0" class="comment-draft-images">
+					<view v-for="image in commentImageUrls" :key="image" class="comment-draft-image-wrap">
+						<image class="comment-draft-image" :src="image" mode="aspectFill"></image>
+						<view class="form-image-remove comment-image-remove" @click="removeCommentImage(image)">
+							<view class="close-line close-line-small"></view>
+							<view class="close-line close-line-two close-line-small"></view>
+						</view>
+					</view>
+				</view>
+				<view class="comment-composer">
+					<view class="comment-image-button" @click="pickCommentImages">
+						<view class="tool-image-icon">
+							<view class="tool-image-sun"></view>
+							<view class="tool-image-hill"></view>
+						</view>
+					</view>
+					<input class="comment-input" v-model="commentText" placeholder="写评论" placeholder-class="input-placeholder" />
+					<view class="comment-send" @click="submitComment">
+						<text class="comment-send-text">{{ commentSubmitting ? '...' : '发送' }}</text>
+					</view>
+				</view>
+			</view>
+		</view>
+		<view v-if="imagePreviewVisible" class="inline-image-preview" @click="closeImagePreview">
+			<view class="inline-preview-top">
+				<view class="inline-preview-back" @click.stop="closeImagePreview">
+					<view class="back-chevron">
+						<view class="back-chevron-line back-chevron-line-top inline-preview-chevron-line"></view>
+						<view class="back-chevron-line back-chevron-line-bottom inline-preview-chevron-line"></view>
+					</view>
+				</view>
+				<text class="inline-preview-count">{{ imagePreviewIndex + 1 }}/{{ imagePreviewUrls.length }}</text>
+				<view class="inline-preview-back inline-preview-placeholder"></view>
+			</view>
+			<movable-area class="inline-preview-area" :scale-area="true" @click.stop @wheel.stop="handleImagePreviewWheel">
+				<movable-view class="inline-preview-view" direction="all" :scale="true" :scale-min="0.5" :scale-max="4" :scale-value="imagePreviewScale">
+					<image class="inline-preview-image" :src="imagePreviewCurrent" mode="aspectFit"></image>
+				</movable-view>
+			</movable-area>
+			<view v-if="imagePreviewUrls.length > 1" class="inline-preview-bottom">
+				<view :class="imagePreviewIndex == 0 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="previousPreviewImage">
+					<text class="inline-preview-switch-text">上一张</text>
+				</view>
+				<view :class="imagePreviewIndex == imagePreviewUrls.length - 1 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="nextPreviewImage">
+					<text class="inline-preview-switch-text">下一张</text>
+				</view>
+			</view>
+		</view>
+		<view v-if="uploadProgressVisible" class="upload-progress-mask">
+			<view class="upload-progress-card">
+				<text class="upload-progress-title">{{ uploadProgressTitle }}</text>
+				<view class="upload-progress-track">
+					<view class="upload-progress-fill" :style="'width: ' + uploadProgressPercent + '%'"></view>
+				</view>
+				<text class="upload-progress-text">{{ uploadProgressPercent }}%</text>
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -580,6 +857,40 @@
 		updatedAt : string
 	}
 
+	type AuthorItem = {
+		id : number
+		username : string
+		nickname : string
+		avatarUrl : string
+	}
+
+	type CommunityCommentItem = {
+		id : number
+		postId : number
+		author : AuthorItem
+		content : string
+		imageUrls : string[]
+		buildConfig : BuildConfigItem
+		likeCount : number
+		liked : boolean
+		createdAt : string
+	}
+
+	type CommunityPostItem = {
+		id : number
+		author : AuthorItem
+		content : string
+		imageUrls : string[]
+		buildConfig : BuildConfigItem
+		likeCount : number
+		commentCount : number
+		favoriteCount : number
+		liked : boolean
+		favorite : boolean
+		createdAt : string
+		comments : CommunityCommentItem[]
+	}
+
 	const apiBaseUrl = 'http://localhost:8080'
 	const activeTab = ref(0)
 	const historyOpen = ref(false)
@@ -588,6 +899,10 @@
 	const draft = ref('')
 	const buildSegment = ref(0)
 	const buildList = ref([] as BuildConfigItem[])
+	const buildSearchKeyword = ref('')
+	const buildCustomPage = ref(1)
+	const buildAiPage = ref(1)
+	const buildFavoritePage = ref(1)
 	const buildLoading = ref(false)
 	const buildFormVisible = ref(false)
 	const buildSaving = ref(false)
@@ -634,11 +949,45 @@
 	const logoutPressed = ref(false)
 	const newConversationPressed = ref(false)
 	const token = ref('')
+	const currentUserId = ref(0)
 	const currentUsername = ref('')
 	const currentEmail = ref('')
 	const currentNickname = ref('')
 	const currentAvatarUrl = ref('')
 	const currentBio = ref('')
+	const communityPosts = ref([] as CommunityPostItem[])
+	const communitySearchKeyword = ref('')
+	const communityPage = ref(1)
+	const communityLoading = ref(false)
+	const communityRefreshing = ref(false)
+	const postFormVisible = ref(false)
+	const postSubmitting = ref(false)
+	const postContent = ref('')
+	const postImageUrls = ref([] as string[])
+	const postImageSortActive = ref(false)
+	const draggingPostImageIndex = ref(-1)
+	const postImageDragStartX = ref(0)
+	const postImageDragStartY = ref(0)
+	const postImageDragOffsetX = ref(0)
+	const postImageDragOffsetY = ref(0)
+	const postImageLongPressTimer = ref(0)
+	const postBuildId = ref(0)
+	const postBuildTitle = ref('')
+	const postBuildPickerVisible = ref(false)
+	const postBuildList = ref([] as BuildConfigItem[])
+	const postDetailVisible = ref(false)
+	const selectedPost = ref(createEmptyPost())
+	const commentText = ref('')
+	const commentImageUrls = ref([] as string[])
+	const commentSubmitting = ref(false)
+	const imagePreviewVisible = ref(false)
+	const imagePreviewUrls = ref([] as string[])
+	const imagePreviewIndex = ref(0)
+	const imagePreviewCurrent = ref('')
+	const imagePreviewScale = ref(1)
+	const uploadProgressVisible = ref(false)
+	const uploadProgressTitle = ref('')
+	const uploadProgressPercent = ref(0)
 
 	const promptChips = [
 		'预算 6000 元，主玩 2K 游戏',
@@ -668,6 +1017,9 @@
 	onShow(() => {
 		loadAuth()
 		if (token.value.length > 0) {
+			if (currentUserId.value == 0) {
+				loadProfile()
+			}
 			loadConversations()
 			startHistoryRefreshTimer()
 		} else {
@@ -679,12 +1031,220 @@
 		if (activeTab.value == 1) {
 			loadBuildConfigs()
 		}
+		if (activeTab.value == 2) {
+			loadCommunityPosts()
+		}
 	})
 	onHide(() => {
 		stopHistoryRefreshTimer()
 	})
 
+	function createEmptyBuildConfig() : BuildConfigItem {
+		return {
+			id: 0,
+			title: '',
+			note: '',
+			totalPrice: 0,
+			performanceScore: 0,
+			compatibilityStatus: '',
+			compatibilityMessages: [] as string[],
+			parts: [] as HardwarePartItem[],
+			summary: '',
+			content: '',
+			source: '',
+			favorite: false,
+			updatedAt: ''
+		} as BuildConfigItem
+	}
+
+	function createEmptyAuthor() : AuthorItem {
+		return {
+			id: 0,
+			username: '',
+			nickname: '用户',
+			avatarUrl: ''
+		} as AuthorItem
+	}
+
+	function createEmptyPost() : CommunityPostItem {
+		return {
+			id: 0,
+			author: createEmptyAuthor(),
+			content: '',
+			imageUrls: [] as string[],
+			buildConfig: createEmptyBuildConfig(),
+			likeCount: 0,
+			commentCount: 0,
+			favoriteCount: 0,
+			liked: false,
+			favorite: false,
+			createdAt: '',
+			comments: [] as CommunityCommentItem[]
+		} as CommunityPostItem
+	}
+
+	function normalizeSearchKeyword(value : string) : string {
+		return value.trim().toLowerCase()
+	}
+
+	function textMatchesKeyword(value : string, keyword : string) : boolean {
+		return value.toLowerCase().indexOf(keyword) >= 0
+	}
+
+	function resetBuildPage() {
+		setBuildPage(1)
+	}
+
+	function getBuildPage() : number {
+		let page = buildCustomPage.value
+		if (buildSegment.value == 1) {
+			page = buildAiPage.value
+		}
+		if (buildSegment.value == 2) {
+			page = buildFavoritePage.value
+		}
+		const pageCount = getBuildPageCount()
+		if (page > pageCount) {
+			return pageCount
+		}
+		if (page < 1) {
+			return 1
+		}
+		return page
+	}
+
+	function setBuildPage(page : number) {
+		const pageCount = getBuildPageCount()
+		let nextPage = page
+		if (nextPage < 1) {
+			nextPage = 1
+		}
+		if (nextPage > pageCount) {
+			nextPage = pageCount
+		}
+		if (buildSegment.value == 1) {
+			buildAiPage.value = nextPage
+			return
+		}
+		if (buildSegment.value == 2) {
+			buildFavoritePage.value = nextPage
+			return
+		}
+		buildCustomPage.value = nextPage
+	}
+
+	function clampBuildPage() {
+		setBuildPage(getBuildPage())
+	}
+
+	function previousBuildPage() {
+		setBuildPage(getBuildPage() - 1)
+	}
+
+	function nextBuildPage() {
+		setBuildPage(getBuildPage() + 1)
+	}
+
+	function getBuildPageCount() : number {
+		const total = getFilteredBuildList().length
+		if (total == 0) {
+			return 1
+		}
+		return Math.ceil(total / 5)
+	}
+
+	function getPagedBuildList() : BuildConfigItem[] {
+		const list = getFilteredBuildList()
+		const page = getBuildPage()
+		const start = (page - 1) * 5
+		return list.slice(start, start + 5)
+	}
+
+	function getFilteredBuildList() : BuildConfigItem[] {
+		const keyword = normalizeSearchKeyword(buildSearchKeyword.value)
+		if (keyword.length == 0) {
+			return buildList.value
+		}
+		return buildList.value.filter((item : BuildConfigItem) : boolean => {
+			if (textMatchesKeyword(item.title, keyword) || textMatchesKeyword(item.note, keyword) || textMatchesKeyword(item.summary, keyword) || textMatchesKeyword(item.content, keyword) || textMatchesKeyword(getBuildSourceLabel(item.source), keyword)) {
+				return true
+			}
+			for (let i = 0; i < item.parts.length; i++) {
+				const part = item.parts[i]
+				if (textMatchesKeyword(getHardwareTypeLabel(part.type), keyword) || textMatchesKeyword(part.brand, keyword) || textMatchesKeyword(part.model, keyword) || textMatchesKeyword(part.socketType, keyword) || textMatchesKeyword(part.memoryType, keyword) || textMatchesKeyword(part.formFactor, keyword) || textMatchesKeyword(part.specs, keyword)) {
+					return true
+				}
+			}
+			return false
+		})
+	}
+
+	function resetCommunityPage() {
+		communityPage.value = 1
+	}
+
+	function clampCommunityPage() {
+		const pageCount = getCommunityPageCount()
+		if (communityPage.value > pageCount) {
+			communityPage.value = pageCount
+		}
+		if (communityPage.value < 1) {
+			communityPage.value = 1
+		}
+	}
+
+	function previousCommunityPage() {
+		if (communityPage.value <= 1) {
+			return
+		}
+		communityPage.value = communityPage.value - 1
+	}
+
+	function nextCommunityPage() {
+		const pageCount = getCommunityPageCount()
+		if (communityPage.value >= pageCount) {
+			return
+		}
+		communityPage.value = communityPage.value + 1
+	}
+
+	function getCommunityPageCount() : number {
+		const total = getFilteredCommunityPosts().length
+		if (total == 0) {
+			return 1
+		}
+		return Math.ceil(total / 5)
+	}
+
+	function getPagedCommunityPosts() : CommunityPostItem[] {
+		const list = getFilteredCommunityPosts()
+		clampCommunityPage()
+		const start = (communityPage.value - 1) * 5
+		return list.slice(start, start + 5)
+	}
+
+	function getFilteredCommunityPosts() : CommunityPostItem[] {
+		const keyword = normalizeSearchKeyword(communitySearchKeyword.value)
+		if (keyword.length == 0) {
+			return communityPosts.value
+		}
+		return communityPosts.value.filter((post : CommunityPostItem) : boolean => {
+			if (textMatchesKeyword(post.content, keyword) || textMatchesKeyword(post.author.nickname, keyword) || textMatchesKeyword(post.author.username, keyword)) {
+				return true
+			}
+			if (post.buildConfig != null && post.buildConfig.id > 0) {
+				if (textMatchesKeyword(post.buildConfig.title, keyword) || textMatchesKeyword(post.buildConfig.note, keyword) || textMatchesKeyword(post.buildConfig.summary, keyword) || textMatchesKeyword(post.buildConfig.content, keyword)) {
+					return true
+				}
+			}
+			return false
+		})
+	}
+
 	function getBuildEmptyTitle() : string {
+		if (normalizeSearchKeyword(buildSearchKeyword.value).length > 0) {
+			return '没有找到配置'
+		}
 		if (buildSegment.value == 1) {
 			return '还没有 AI 生成记录'
 		}
@@ -695,6 +1255,9 @@
 	}
 
 	function getBuildEmptyDesc() : string {
+		if (normalizeSearchKeyword(buildSearchKeyword.value).length > 0) {
+			return '换个关键词试试，配置名称、备注和配件型号都可以搜。'
+		}
 		if (buildSegment.value == 1) {
 			return '从对话页描述你的预算和用途，生成后的方案会收纳在这里。'
 		}
@@ -702,6 +1265,20 @@
 			return '看到喜欢的配置后可以收藏，方便之后对比和调整。'
 		}
 		return '你可以从零开始选择配件，也可以先让 AI 生成一份方案再调整。'
+	}
+
+	function getCommunityEmptyTitle() : string {
+		if (normalizeSearchKeyword(communitySearchKeyword.value).length > 0) {
+			return '没有找到帖子'
+		}
+		return '还没有社区内容'
+	}
+
+	function getCommunityEmptyDesc() : string {
+		if (normalizeSearchKeyword(communitySearchKeyword.value).length > 0) {
+			return '换个关键词试试，帖子内容、作者和关联配置都可以搜。'
+		}
+		return '发布第一条帖子后，这里会展示你的动态和其他用户的装机讨论。'
 	}
 
 	function getPageClass(baseClass : string) : string {
@@ -729,6 +1306,9 @@
 		}
 		if (index == 1) {
 			loadBuildConfigs()
+		}
+		if (index == 2) {
+			loadCommunityPosts()
 		}
 		setTimeout(() => {
 			pageMotionClass.value = ''
@@ -758,7 +1338,10 @@
 	}
 
 	function submitMessage() {
-		const text = draft.value.trim()
+		let text = draft.value.trim()
+		if (text.length == 0 && attachedBuildId.value > 0) {
+			text = '帮我看看这套配置怎么样？'
+		}
 		if (text.length == 0) {
 			return
 		}
@@ -773,13 +1356,16 @@
 		if (chatLoading.value) {
 			return
 		}
+		const sentBuildId = attachedBuildId.value
+		const sentBuildTitle = attachedBuildTitle.value
 		chatMessages.value.push({
 			role: 'user',
 			content: text,
-			buildConfigId: 0,
-			buildConfigTitle: ''
+			buildConfigId: sentBuildId,
+			buildConfigTitle: sentBuildTitle
 		})
 		draft.value = ''
+		clearAttachedBuild()
 		chatLoading.value = true
 		uni.request({
 			url: apiBaseUrl + '/api/ai/chat',
@@ -790,7 +1376,7 @@
 			},
 			data: {
 				conversationId: currentConversationId.value > 0 ? currentConversationId.value : null,
-				buildConfigId: attachedBuildId.value > 0 ? attachedBuildId.value : null,
+				buildConfigId: sentBuildId > 0 ? sentBuildId : null,
 				message: text
 			},
 			success: (res) => {
@@ -918,9 +1504,18 @@
 		attachedBuildTitle.value = item.title
 		chatBuildPickerVisible.value = false
 		uni.showToast({
-			title: '已附加配置单',
+			title: '已关联配置',
 			icon: 'none'
 		})
+	}
+
+	function toggleBuildForChat(item : BuildConfigItem) {
+		if (attachedBuildId.value == item.id) {
+			clearAttachedBuild()
+			chatBuildPickerVisible.value = false
+			return
+		}
+		attachBuildToChat(item)
 	}
 
 	function clearAttachedBuild() {
@@ -1044,24 +1639,763 @@
 	}
 
 	function publishPost() {
-		uni.showToast({
-			title: '后续接入发帖页',
-			icon: 'none'
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		postContent.value = ''
+		postImageUrls.value = []
+		postBuildId.value = 0
+		postBuildTitle.value = ''
+		postFormVisible.value = true
+	}
+
+	function closePostForm() {
+		if (postSubmitting.value) {
+			return
+		}
+		postFormVisible.value = false
+		postBuildPickerVisible.value = false
+	}
+
+	function loadCommunityPosts() {
+		loadCommunityPostsWithForce(false)
+	}
+
+	function refreshCommunityPosts() {
+		if (token.value.length == 0) {
+			communityRefreshing.value = false
+			return
+		}
+		communityRefreshing.value = true
+		loadCommunityPostsWithForce(true)
+	}
+
+	function loadCommunityPostsWithForce(force : boolean) {
+		if (token.value.length == 0) {
+			communityPosts.value = []
+			resetCommunityPage()
+			communityRefreshing.value = false
+			return
+		}
+		if (communityLoading.value && !force) {
+			return
+		}
+		communityLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const posts = body.data as CommunityPostItem[]
+					for (let i = 0; i < posts.length; i++) {
+						posts[i] = normalizeCommunityPost(posts[i])
+					}
+					communityPosts.value = posts
+					clampCommunityPage()
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					return
+				}
+			},
+			complete: () => {
+				communityLoading.value = false
+				communityRefreshing.value = false
+			}
 		})
 	}
 
-	function pickImage() {
-		uni.showToast({
-			title: '后续接入图片选择和七牛云上传',
-			icon: 'none'
+	function submitPost() {
+		if (postSubmitting.value) {
+			return
+		}
+		const content = postContent.value.trim()
+		const draftImages = postImageUrls.value.slice()
+		const draftBuildId = postBuildId.value
+		if (content.length == 0) {
+			uni.showToast({
+				title: '先写点内容',
+				icon: 'none'
+			})
+			return
+		}
+		postSubmitting.value = true
+		postFormVisible.value = false
+		postBuildPickerVisible.value = false
+		uploadProgressVisible.value = true
+		uploadProgressTitle.value = '正在发布'
+		uploadProgressPercent.value = 0
+		uploadImagesBeforeSubmit(draftImages, 'post', (uploadedUrls : string[]) => {
+			createCommunityPost(content, uploadedUrls, draftBuildId)
+		}, () => {
+			postSubmitting.value = false
+			uploadProgressVisible.value = false
 		})
 	}
 
-	function attachBuild() {
-		uni.showToast({
-			title: '暂无可关联配置',
-			icon: 'none'
+	function createCommunityPost(content : string, uploadedImageUrls : string[], buildConfigId : number) {
+		const payload = {
+			content: content,
+			imageUrls: uploadedImageUrls,
+			buildConfigId: buildConfigId > 0 ? buildConfigId : null
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value,
+				'Content-Type': 'application/json'
+			},
+			data: payload,
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					uploadProgressTitle.value = '发布成功'
+					uploadProgressPercent.value = 100
+					postFormVisible.value = false
+					postContent.value = ''
+					postImageUrls.value = []
+					postBuildId.value = 0
+					postBuildTitle.value = ''
+					loadCommunityPosts()
+					uni.showToast({
+						title: '已发布',
+						icon: 'none'
+					})
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '发布失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				postSubmitting.value = false
+				setTimeout(() => {
+					uploadProgressVisible.value = false
+				}, 500)
+			}
 		})
+	}
+
+	function pickPostImages() {
+		if (postImageUrls.value.length >= 9) {
+			uni.showToast({
+				title: '最多添加 9 张图片',
+				icon: 'none'
+			})
+			return
+		}
+		chooseDraftImages('post', 9 - postImageUrls.value.length)
+	}
+
+	function pickCommentImages() {
+		if (commentImageUrls.value.length >= 9) {
+			uni.showToast({
+				title: '最多添加 9 张图片',
+				icon: 'none'
+			})
+			return
+		}
+		chooseDraftImages('comment', 9 - commentImageUrls.value.length)
+	}
+
+	function chooseDraftImages(target : string, count : number) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.chooseImage({
+			count: count,
+			sizeType: ['compressed'],
+			sourceType: ['album', 'camera'],
+			success: (chooseRes) => {
+				const paths = chooseRes.tempFilePaths as string[]
+				for (let i = 0; i < paths.length; i++) {
+					if (target == 'post') {
+						if (postImageUrls.value.length < 9) {
+							postImageUrls.value.push(paths[i])
+						}
+					} else {
+						if (commentImageUrls.value.length < 9) {
+							commentImageUrls.value.push(paths[i])
+						}
+					}
+				}
+			}
+		})
+	}
+
+	function uploadImagesBeforeSubmit(images : string[], target : string, complete : (urls : string[]) => void, fail : () => void) {
+		if (images.length == 0) {
+			complete([] as string[])
+			return
+		}
+		const uploaded = [] as string[]
+		uploadDraftImageAt(images, target, 0, uploaded, complete, fail)
+	}
+
+	function uploadDraftImageAt(images : string[], target : string, index : number, uploaded : string[], complete : (urls : string[]) => void, fail : () => void) {
+		if (index >= images.length) {
+			uploadProgressTitle.value = target == 'post' ? '正在发布' : '上传成功'
+			uploadProgressPercent.value = target == 'post' ? 95 : 100
+			complete(uploaded)
+			return
+		}
+		uploadProgressTitle.value = target == 'post' ? '正在发布' : '正在发送'
+		uploadProgressPercent.value = Math.floor(index * 100 / images.length)
+		uploadCommunityImage(images[index], target, (url : string) => {
+			uploaded.push(url)
+			uploadProgressPercent.value = Math.floor((index + 1) * 100 / images.length)
+			uploadDraftImageAt(images, target, index + 1, uploaded, complete, fail)
+		}, fail)
+	}
+
+	function uploadCommunityImage(filePath : string, target : string, complete : (url : string) => void, fail : () => void) {
+		uni.uploadFile({
+			url: apiBaseUrl + '/api/files/upload',
+			filePath: filePath,
+			name: 'file',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (uploadRes) => {
+				let body = null as any
+				try {
+					body = JSON.parse(uploadRes.data as string) as any
+				} catch (error) {
+					body = null
+				}
+				if (body != null && body.code == 0 && body.data != null) {
+					const url = normalizeMediaUrl((body.data as any).url as string)
+					complete(url)
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '上传失败',
+					icon: 'none'
+				})
+				fail()
+			},
+			fail: () => {
+				fail()
+				uni.showToast({
+					title: '图片上传失败',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function removePostImage(image : string) {
+		postImageUrls.value = postImageUrls.value.filter((item) : boolean => item != image)
+	}
+
+	function movePostImageLeft(index : number) {
+		if (index <= 0 || index >= postImageUrls.value.length) {
+			return
+		}
+		const next = postImageUrls.value.slice()
+		const current = next[index]
+		next[index] = next[index - 1]
+		next[index - 1] = current
+		postImageUrls.value = next
+	}
+
+	function movePostImageRight(index : number) {
+		if (index < 0 || index >= postImageUrls.value.length - 1) {
+			return
+		}
+		const next = postImageUrls.value.slice()
+		const current = next[index]
+		next[index] = next[index + 1]
+		next[index + 1] = current
+		postImageUrls.value = next
+	}
+
+	function startPostImageSort(index : number, event : TouchEvent) {
+		postImageSortActive.value = true
+		draggingPostImageIndex.value = index
+		if (event.touches.length > 0) {
+			postImageDragStartX.value = event.touches[0].clientX
+			postImageDragStartY.value = event.touches[0].clientY
+		}
+	}
+
+	function startPostImageTouch(index : number, event : TouchEvent) {
+		if (event.touches.length > 0) {
+			if (postImageLongPressTimer.value > 0) {
+				clearTimeout(postImageLongPressTimer.value)
+			}
+			postImageSortActive.value = false
+			draggingPostImageIndex.value = index
+			postImageDragStartX.value = event.touches[0].clientX
+			postImageDragStartY.value = event.touches[0].clientY
+			postImageDragOffsetX.value = 0
+			postImageDragOffsetY.value = 0
+			postImageLongPressTimer.value = setTimeout(() => {
+				if (draggingPostImageIndex.value == index) {
+					postImageSortActive.value = true
+				}
+			}, 360)
+		}
+	}
+
+	function movePostImageDrag(event : TouchEvent) {
+		if (!postImageSortActive.value || draggingPostImageIndex.value < 0 || event.touches.length == 0) {
+			return
+		}
+		const distanceX = event.touches[0].clientX - postImageDragStartX.value
+		const distanceY = event.touches[0].clientY - postImageDragStartY.value
+		postImageDragOffsetX.value = distanceX
+		postImageDragOffsetY.value = distanceY
+		const absX = Math.abs(distanceX)
+		const absY = Math.abs(distanceY)
+		if (absX < 36 && absY < 48) {
+			return
+		}
+		const from = draggingPostImageIndex.value
+		let to = from
+		if (absY > absX && absY >= 48) {
+			to = from + (distanceY > 0 ? 3 : -3)
+			if (to < 0) {
+				to = 0
+			}
+			if (to > postImageUrls.value.length - 1) {
+				to = postImageUrls.value.length - 1
+			}
+		} else {
+			if (distanceX > 0 && from < postImageUrls.value.length - 1) {
+				to = from + 1
+			}
+			if (distanceX < 0 && from > 0) {
+				to = from - 1
+			}
+		}
+		if (to == from) {
+			return
+		}
+		swapPostImages(from, to)
+		draggingPostImageIndex.value = to
+		postImageDragStartX.value = event.touches[0].clientX
+		postImageDragStartY.value = event.touches[0].clientY
+		postImageDragOffsetX.value = 0
+		postImageDragOffsetY.value = 0
+	}
+
+	function endPostImageDrag() {
+		if (postImageLongPressTimer.value > 0) {
+			clearTimeout(postImageLongPressTimer.value)
+			postImageLongPressTimer.value = 0
+		}
+		draggingPostImageIndex.value = -1
+		postImageDragOffsetX.value = 0
+		postImageDragOffsetY.value = 0
+		setTimeout(() => {
+			postImageSortActive.value = false
+		}, 160)
+	}
+
+	function swapPostImages(from : number, to : number) {
+		const next = postImageUrls.value.slice()
+		const current = next[from]
+		next[from] = next[to]
+		next[to] = current
+		postImageUrls.value = next
+	}
+
+	function getPostImageWrapClass(index : number) : string {
+		if (!postImageSortActive.value) {
+			return 'form-image-wrap'
+		}
+		if (draggingPostImageIndex.value == index) {
+			return 'form-image-wrap form-image-wrap-dragging'
+		}
+		return 'form-image-wrap form-image-wrap-sorting'
+	}
+
+	function getPostImageDragStyle(index : number) : string {
+		if (!postImageSortActive.value || draggingPostImageIndex.value != index) {
+			return ''
+		}
+		return 'transform: translate(' + postImageDragOffsetX.value + 'px, ' + postImageDragOffsetY.value + 'px) scale(1.16); z-index: 20;'
+	}
+
+	function removeCommentImage(image : string) {
+		commentImageUrls.value = commentImageUrls.value.filter((item) : boolean => item != image)
+	}
+
+	function normalizeMediaUrl(url : string) : string {
+		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
+			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
+		}
+		return url
+	}
+
+	function previewPostDraftImage(image : string) {
+		openImagePreview(postImageUrls.value, image)
+	}
+
+	function previewPostImages(images : string[], image : string) {
+		openImagePreview(images, image)
+	}
+
+	function previewImage(image : string) {
+		openImagePreview([image], image)
+	}
+
+	function openImagePreview(images : string[], current : string) {
+		imagePreviewUrls.value = images
+		imagePreviewIndex.value = 0
+		for (let i = 0; i < images.length; i++) {
+			if (images[i] == current) {
+				imagePreviewIndex.value = i
+				break
+			}
+		}
+		imagePreviewCurrent.value = current
+		imagePreviewScale.value = 1
+		imagePreviewVisible.value = true
+	}
+
+	function closeImagePreview() {
+		imagePreviewVisible.value = false
+		imagePreviewScale.value = 1
+	}
+
+	function previousPreviewImage() {
+		if (imagePreviewIndex.value <= 0) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value - 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function nextPreviewImage() {
+		if (imagePreviewIndex.value >= imagePreviewUrls.value.length - 1) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value + 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function handleImagePreviewWheel(event : any) {
+		const delta = event.deltaY as number
+		if (delta == 0) {
+			return
+		}
+		let nextScale = imagePreviewScale.value + (delta < 0 ? 0.16 : -0.16)
+		if (nextScale < 0.5) {
+			nextScale = 0.5
+		}
+		if (nextScale > 4) {
+			nextScale = 4
+		}
+		imagePreviewScale.value = nextScale
+	}
+
+	function openPostBuildPicker() {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		postBuildPickerVisible.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs?segment=all',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					postBuildList.value = body.data as BuildConfigItem[]
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			}
+		})
+	}
+
+	function closePostBuildPicker() {
+		postBuildPickerVisible.value = false
+	}
+
+	function attachBuildToPost(item : BuildConfigItem) {
+		postBuildId.value = item.id
+		postBuildTitle.value = item.title
+		postBuildPickerVisible.value = false
+	}
+
+	function toggleBuildForPost(item : BuildConfigItem) {
+		if (postBuildId.value == item.id) {
+			clearPostBuild()
+			postBuildPickerVisible.value = false
+			return
+		}
+		attachBuildToPost(item)
+	}
+
+	function clearPostBuild() {
+		postBuildId.value = 0
+		postBuildTitle.value = ''
+	}
+
+	function openPostDetail(id : number) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.setStorageSync('current_post_id', id)
+		uni.navigateTo({
+			url: '/pages/post/detail',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
+	function closePostDetail() {
+		postDetailVisible.value = false
+		commentText.value = ''
+		commentImageUrls.value = []
+	}
+
+	function openPostBuildDetail(buildConfigId : number) {
+		openChatBuildDetail(buildConfigId)
+	}
+
+	function togglePostLike(id : number) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts/' + id + '/like',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					updateCommunityPost(normalizeCommunityPost(body.data as CommunityPostItem))
+				}
+			}
+		})
+	}
+
+	function togglePostFavorite(id : number) {
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts/' + id + '/favorite',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					updateCommunityPost(normalizeCommunityPost(body.data as CommunityPostItem))
+				}
+			}
+		})
+	}
+
+	function confirmDeletePost(id : number) {
+		uni.showModal({
+			title: '删除帖子',
+			content: '删除后无法恢复，确定删除吗？',
+			confirmText: '删除',
+			cancelText: '取消',
+			confirmColor: '#ff3b30',
+			success: (res) => {
+				if (res.confirm) {
+					deleteCommunityPost(id)
+				}
+			}
+		})
+	}
+
+	function deleteCommunityPost(id : number) {
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts/' + id,
+			method: 'DELETE',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0) {
+					communityPosts.value = communityPosts.value.filter((item) : boolean => item.id != id)
+					clampCommunityPage()
+					if (selectedPost.value.id == id) {
+						selectedPost.value = createEmptyPost()
+						postDetailVisible.value = false
+					}
+					uni.showToast({
+						title: '已删除',
+						icon: 'none'
+					})
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '删除失败',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function updateCommunityPost(post : CommunityPostItem) {
+		for (let i = 0; i < communityPosts.value.length; i++) {
+			if (communityPosts.value[i].id == post.id) {
+				const current = communityPosts.value[i]
+				post.comments = current.comments
+				communityPosts.value.splice(i, 1, post)
+				break
+			}
+		}
+		if (selectedPost.value.id == post.id) {
+			const comments = selectedPost.value.comments
+			selectedPost.value = post
+			selectedPost.value.comments = comments
+		}
+	}
+
+	function isMine(authorId : number) : boolean {
+		return currentUserId.value > 0 && authorId == currentUserId.value
+	}
+
+	function normalizeCommunityPost(post : CommunityPostItem) : CommunityPostItem {
+		if (post.author.avatarUrl.length > 0) {
+			post.author.avatarUrl = normalizeMediaUrl(post.author.avatarUrl)
+		}
+		for (let i = 0; i < post.imageUrls.length; i++) {
+			post.imageUrls[i] = normalizeMediaUrl(post.imageUrls[i])
+		}
+		return post
+	}
+
+	function submitComment() {
+		if (commentSubmitting.value) {
+			return
+		}
+		if (selectedPost.value.id == 0) {
+			return
+		}
+		const content = commentText.value.trim()
+		if (content.length == 0) {
+			uni.showToast({
+				title: '先写点评论',
+				icon: 'none'
+			})
+			return
+		}
+		commentSubmitting.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts/' + selectedPost.value.id + '/comments',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value,
+				'Content-Type': 'application/json'
+			},
+			data: {
+				content: content,
+				imageUrls: commentImageUrls.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					selectedPost.value.comments.push(body.data as CommunityCommentItem)
+					selectedPost.value.commentCount = selectedPost.value.commentCount + 1
+					commentText.value = ''
+					commentImageUrls.value = []
+					syncSelectedPostToList()
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '评论失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时连接不到后端服务',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				commentSubmitting.value = false
+			}
+		})
+	}
+
+	function toggleCommentLike(id : number) {
+		uni.request({
+			url: apiBaseUrl + '/api/community/comments/' + id + '/like',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const updated = body.data as CommunityCommentItem
+					for (let i = 0; i < selectedPost.value.comments.length; i++) {
+						if (selectedPost.value.comments[i].id == updated.id) {
+							selectedPost.value.comments.splice(i, 1, updated)
+							break
+						}
+					}
+				}
+			}
+		})
+	}
+
+	function syncSelectedPostToList() {
+		for (let i = 0; i < communityPosts.value.length; i++) {
+			if (communityPosts.value[i].id == selectedPost.value.id) {
+				communityPosts.value.splice(i, 1, selectedPost.value)
+				break
+			}
+		}
+	}
+
+	function getAuthorAvatarText(name : string) : string {
+		if (name.length > 0) {
+			return name.substring(0, 1)
+		}
+		return '用'
 	}
 
 	function login() {
@@ -1134,6 +2468,7 @@
 
 	function loadAuth() {
 		const savedToken = uni.getStorageSync('app_token')
+		const savedUserId = uni.getStorageSync('app_user_id')
 		const savedUsername = uni.getStorageSync('app_username')
 		const savedEmail = uni.getStorageSync('app_email')
 		const savedNickname = uni.getStorageSync('app_nickname')
@@ -1141,6 +2476,9 @@
 		const savedBio = uni.getStorageSync('app_bio')
 		if (savedToken != null) {
 			token.value = savedToken as string
+		}
+		if (savedUserId != null) {
+			currentUserId.value = savedUserId as number
 		}
 		if (savedUsername != null) {
 			currentUsername.value = savedUsername as string
@@ -1163,11 +2501,13 @@
 	}
 
 	function saveProfile(payload : UserProfilePayload) {
+		currentUserId.value = payload.userId
 		currentUsername.value = payload.username
 		currentEmail.value = payload.email
 		currentNickname.value = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
 		currentAvatarUrl.value = normalizeAvatarUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
 		currentBio.value = payload.bio == null || payload.bio.length == 0 ? '这个人还没有写简介。' : payload.bio
+		uni.setStorageSync('app_user_id', currentUserId.value)
 		uni.setStorageSync('app_username', currentUsername.value)
 		uni.setStorageSync('app_email', currentEmail.value)
 		uni.setStorageSync('app_nickname', currentNickname.value)
@@ -1185,6 +2525,7 @@
 	function clearAuth() {
 		token.value = ''
 		currentConversationId.value = 0
+		currentUserId.value = 0
 		conversationList.value = []
 		chatMessages.value = []
 		currentUsername.value = ''
@@ -1199,8 +2540,16 @@
 		partPickerVisible.value = false
 		buildDetailVisible.value = false
 		chatBuildPickerVisible.value = false
+		communityPosts.value = []
+		postFormVisible.value = false
+		postBuildPickerVisible.value = false
+		postDetailVisible.value = false
+		postImageUrls.value = []
+		commentImageUrls.value = []
+		selectedPost.value = createEmptyPost()
 		clearAttachedBuild()
 		uni.removeStorageSync('app_token')
+		uni.removeStorageSync('app_user_id')
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
 		uni.removeStorageSync('app_nickname')
@@ -1236,6 +2585,7 @@
 	function loadBuildConfigs() {
 		if (token.value.length == 0) {
 			buildList.value = []
+			resetBuildPage()
 			return
 		}
 		buildLoading.value = true
@@ -1249,6 +2599,7 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					buildList.value = body.data as BuildConfigItem[]
+					clampBuildPage()
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -1660,6 +3011,7 @@
 				const body = res.data as any
 				if (body != null && body.code == 0) {
 					buildList.value = buildList.value.filter((item) : boolean => item.id != id)
+					clampBuildPage()
 					uni.showToast({
 						title: '配置已删除',
 						icon: 'none'
@@ -1907,6 +3259,9 @@
 	}
 
 	function handleTouchStart(event : TouchEvent) {
+		if (imagePreviewVisible.value) {
+			return
+		}
 		if (event.touches.length > 0) {
 			touchStartX.value = event.touches[0].clientX
 			touchStartY.value = event.touches[0].clientY
@@ -1914,6 +3269,9 @@
 	}
 
 	function handleTouchEnd(event : TouchEvent) {
+		if (imagePreviewVisible.value) {
+			return
+		}
 		if (event.changedTouches.length == 0) {
 			return
 		}
@@ -2917,6 +4275,10 @@
 		justify-content: flex-end;
 	}
 
+	.build-detail-mask {
+		z-index: 96;
+	}
+
 	.build-form {
 		border-radius: 30px;
 		background-color: #ffffff;
@@ -3235,6 +4597,65 @@
 		color: #98a2b3;
 	}
 
+	.compact-picker-mask {
+		background-color: rgba(15, 23, 42, 0.32);
+	}
+
+	.compact-build-picker {
+		border-radius: 28px;
+		padding: 18px;
+		padding-bottom: 20px;
+		margin-left: 8px;
+		margin-right: 8px;
+		margin-bottom: 8px;
+		border-width: 0;
+	}
+
+	.compact-picker-title {
+		font-size: 18px;
+		line-height: 25px;
+	}
+
+	.compact-picker-close {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #111827;
+	}
+
+	.compact-picker-close-line {
+		background-color: #ffffff;
+	}
+
+	.compact-picker-scroll {
+		height: 156px;
+	}
+
+	.compact-build-picker .part-option {
+		min-height: 62px;
+		border-radius: 16px;
+		background-color: #f6f7fb;
+		border-width: 0;
+		padding: 11px;
+		margin-bottom: 10px;
+	}
+
+	.compact-build-picker .part-option-title {
+		font-size: 14px;
+		line-height: 20px;
+	}
+
+	.compact-build-picker .part-option-spec {
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 17px;
+	}
+
+	.compact-build-picker .part-option-side {
+		align-items: center;
+		justify-content: center;
+	}
+
 	.build-detail-metrics {
 		flex-direction: row;
 		align-items: center;
@@ -3363,12 +4784,96 @@
 		font-weight: 700;
 	}
 
+	.section-search {
+		height: 46px;
+		border-radius: 23px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding-left: 14px;
+		padding-right: 14px;
+		margin-bottom: 14px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.section-search-icon {
+		width: 20px;
+		height: 20px;
+		margin-right: 8px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.section-search-image {
+		width: 20px;
+		height: 20px;
+	}
+
+	.section-search-input {
+		flex: 1;
+		height: 44px;
+		font-size: 14px;
+		color: #111827;
+	}
+
+	.section-search-placeholder {
+		color: #98a2b3;
+	}
+
 	.build-scroll {
-		height: 525px;
+		height: 465px;
 	}
 
 	.build-list {
 		padding-bottom: 18px;
+	}
+
+	.list-pager {
+		height: 46px;
+		border-radius: 23px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-top: 4px;
+		margin-bottom: 12px;
+	}
+
+	.pager-button {
+		height: 32px;
+		border-radius: 16px;
+		background-color: #eef5ff;
+		padding-left: 14px;
+		padding-right: 14px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.pager-button-disabled {
+		background-color: #f3f6fb;
+	}
+
+	.pager-button-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #007aff;
+	}
+
+	.pager-button-text-disabled {
+		color: #b9c1ce;
+	}
+
+	.pager-count {
+		width: 72px;
+		text-align: center;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
 	}
 
 	.build-card {
@@ -3389,6 +4894,23 @@
 	.build-card-main {
 		flex: 1;
 		padding-right: 12px;
+	}
+
+	.build-card-delete {
+		height: 32px;
+		border-radius: 16px;
+		background-color: #fff1f0;
+		padding-left: 12px;
+		padding-right: 12px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-card-delete-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #ff3b30;
 	}
 
 	.build-title {
@@ -3422,8 +4944,9 @@
 
 	.favorite-text {
 		font-size: 12px;
+		line-height: 17px;
 		font-weight: 800;
-		color: #667085;
+		color: #344054;
 	}
 
 	.favorite-icon {
@@ -3435,11 +4958,15 @@
 	}
 
 	.favorite-icon-active {
-		color: #ff3b30;
+		color: #ffb800;
+	}
+
+	.build-action-icon.favorite-icon-active {
+		color: #ffb800;
 	}
 
 	.favorite-text-active {
-		color: #ff3b30;
+		color: #ffb800;
 	}
 
 	.build-score-row {
@@ -3545,14 +5072,13 @@
 	}
 
 	.build-action {
-		height: 38px;
-		border-radius: 19px;
+		width: 70px;
+		height: 32px;
+		border-radius: 16px;
 		flex-direction: row;
 		align-items: center;
 		justify-content: center;
-		padding-left: 14px;
-		padding-right: 14px;
-		margin-right: 10px;
+		margin-right: 8px;
 	}
 
 	.build-action-soft {
@@ -3563,23 +5089,33 @@
 		background-color: #fff1f0;
 	}
 
+	.build-action-favorite {
+		background-color: #f3f6fb;
+	}
+
+	.build-action-favorite-active {
+		background-color: #fff8e6;
+	}
+
 	.build-action-text {
-		font-size: 13px;
-		font-weight: 900;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
 		color: #344054;
 	}
 
 	.build-action-icon {
-		font-size: 13px;
-		line-height: 18px;
-		font-weight: 900;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
 		color: #344054;
 		margin-right: 4px;
 	}
 
 	.build-action-danger-text {
-		font-size: 13px;
-		font-weight: 900;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
 		color: #ff3b30;
 	}
 
@@ -3774,6 +5310,663 @@
 		font-size: 13px;
 		font-weight: 700;
 		color: #344054;
+	}
+
+	.community-scroll {
+		height: 590px;
+	}
+
+	.community-list {
+		padding-bottom: 22px;
+	}
+
+	.post-card {
+		border-radius: 28px;
+		background-color: #ffffff;
+		padding: 18px;
+		margin-bottom: 14px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.post-head {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.post-avatar {
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+		overflow: hidden;
+	}
+
+	.post-avatar-image {
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+	}
+
+	.post-avatar-text {
+		font-size: 16px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.post-author-main {
+		flex: 1;
+	}
+
+	.post-author-name {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.post-time {
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+	}
+
+	.post-content {
+		margin-top: 14px;
+		font-size: 15px;
+		line-height: 23px;
+		color: #111827;
+	}
+
+	.post-image-grid,
+	.form-image-grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 12px;
+	}
+
+	.post-image {
+		width: 86px;
+		height: 86px;
+		border-radius: 16px;
+		margin-right: 8px;
+		margin-bottom: 8px;
+		background-color: #f3f6fb;
+	}
+
+	.post-build-card,
+	.post-linked-build {
+		min-height: 70px;
+		border-radius: 22px;
+		background-color: #f6f9ff;
+		border-width: 1px;
+		border-color: #dbeafe;
+		margin-top: 12px;
+		padding: 12px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.post-actions {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 14px;
+	}
+
+	.post-action {
+		width: 52px;
+		height: 32px;
+		border-radius: 16px;
+		background-color: #f6f7fb;
+		margin-right: 8px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.post-action-icon {
+		font-size: 13px;
+		line-height: 18px;
+		color: #98a2b3;
+		margin-right: 4px;
+	}
+
+	.post-action-icon-active {
+		color: #ff3b30;
+	}
+
+	.post-favorite-icon-active {
+		color: #007aff;
+	}
+
+	.post-action-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.post-head-delete {
+		height: 34px;
+		border-radius: 17px;
+		background-color: #fff1f0;
+		padding-left: 11px;
+		padding-right: 11px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.post-head-delete-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #ff3b30;
+	}
+
+	.post-form,
+	.post-detail {
+		border-radius: 30px;
+		background-color: #ffffff;
+		padding: 20px;
+		padding-bottom: 22px;
+		margin-left: 10px;
+		margin-right: 10px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: #edf0f5;
+		animation-name: buildFormIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	.post-form-textarea {
+		height: 150px;
+		border-radius: 22px;
+		background-color: #f6f7fb;
+		padding: 16px;
+		font-size: 15px;
+		line-height: 22px;
+		color: #111827;
+	}
+
+	.post-form-tools {
+		flex-direction: row;
+		margin-top: 14px;
+		margin-bottom: 12px;
+	}
+
+	.form-image-wrap {
+		position: relative;
+		width: 88px;
+		height: 88px;
+		border-radius: 18px;
+		margin-right: 8px;
+		margin-bottom: 8px;
+		overflow: hidden;
+	}
+
+	.form-image {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 88px;
+		height: 88px;
+		border-radius: 18px;
+		background-color: #f3f6fb;
+	}
+
+	.form-image-wrap-sorting {
+		animation-name: imageShake;
+		animation-duration: 150ms;
+		animation-iteration-count: infinite;
+		animation-timing-function: ease-in-out;
+	}
+
+	.form-image-wrap-dragging {
+		opacity: 0.86;
+		z-index: 20;
+	}
+
+	@keyframes imageShake {
+		0% { transform: rotate(-1deg); }
+		50% { transform: rotate(1deg); }
+		100% { transform: rotate(-1deg); }
+	}
+
+	.form-image-remove {
+		position: absolute;
+		right: 5px;
+		top: 5px;
+		width: 24px;
+		height: 24px;
+		border-radius: 12px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		z-index: 3;
+	}
+
+	.form-image-order {
+		position: absolute;
+		left: 6px;
+		right: 6px;
+		bottom: 6px;
+		height: 24px;
+		border-radius: 12px;
+		background-color: rgba(17, 24, 39, 0.72);
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding-left: 9px;
+		padding-right: 9px;
+	}
+
+	.form-image-order-text {
+		font-size: 20px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.form-image-order-disabled {
+		color: rgba(255, 255, 255, 0.32);
+	}
+
+	.comment-action-icon {
+		position: relative;
+		width: 18px;
+		height: 14px;
+		border-radius: 8px;
+		background-color: #8b95a5;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 6px;
+	}
+
+	.comment-action-dot {
+		width: 3px;
+		height: 3px;
+		border-radius: 2px;
+		background-color: #ffffff;
+		margin-left: 1px;
+		margin-right: 1px;
+	}
+
+	.comment-action-tail {
+		position: absolute;
+		width: 6px;
+		height: 6px;
+		border-radius: 2px;
+		background-color: #8b95a5;
+		left: 3px;
+		bottom: -3px;
+		transform: rotate(45deg);
+	}
+
+	.close-line-small {
+		width: 11px;
+		background-color: #ffffff;
+	}
+
+	.plus-circle-button {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.plus-circle-button-selected {
+		background-color: #eff4ff;
+		border-width: 1px;
+		border-color: #d7e4ff;
+	}
+
+	.plus-circle-text {
+		font-size: 22px;
+		line-height: 26px;
+		font-weight: 600;
+		color: #ffffff;
+	}
+
+	.plus-circle-text-selected {
+		color: #0b1220;
+	}
+
+	.inline-image-preview {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(5, 7, 13, 0.84);
+		z-index: 140;
+	}
+
+	.inline-preview-top {
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		top: 32px;
+		height: 42px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		z-index: 142;
+	}
+
+	.inline-preview-back {
+		position: relative;
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.86);
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-placeholder {
+		background-color: transparent;
+	}
+
+	.back-chevron {
+		position: relative;
+		width: 16px;
+		height: 16px;
+	}
+
+	.back-chevron-line {
+		position: absolute;
+		left: 2px;
+		width: 10px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #ffffff;
+	}
+
+	.inline-preview-chevron-line {
+		background-color: #ffffff;
+	}
+
+	.back-chevron-line-top {
+		top: 4px;
+		transform: rotate(-45deg);
+	}
+
+	.back-chevron-line-bottom {
+		bottom: 4px;
+		transform: rotate(45deg);
+	}
+
+	.inline-preview-count {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #ffffff;
+		text-shadow: 0 1px 8px rgba(17, 24, 39, 0.42);
+	}
+
+	.inline-preview-area,
+	.inline-preview-view {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-view {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-image {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-bottom {
+		position: fixed;
+		left: 24px;
+		right: 24px;
+		bottom: 28px;
+		flex-direction: row;
+		justify-content: space-between;
+		z-index: 142;
+	}
+
+	.inline-preview-switch {
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.78);
+		padding-left: 18px;
+		padding-right: 18px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-switch-disabled {
+		opacity: 0.35;
+	}
+
+	.inline-preview-switch-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #ffffff;
+	}
+
+	.upload-progress-mask {
+		position: fixed;
+		left: 24px;
+		right: 24px;
+		top: 46px;
+		height: 104px;
+		background-color: transparent;
+		z-index: 150;
+		align-items: center;
+		pointer-events: none;
+	}
+
+	.upload-progress-card {
+		width: 232px;
+		border-radius: 0;
+		background-color: transparent;
+		padding: 0;
+		border-width: 0;
+	}
+
+	.upload-progress-title {
+		font-size: 15px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #111827;
+		text-align: center;
+	}
+
+	.upload-progress-track {
+		height: 5px;
+		border-radius: 3px;
+		background-color: #eef2f7;
+		margin-top: 10px;
+		overflow: hidden;
+	}
+
+	.upload-progress-fill {
+		height: 5px;
+		border-radius: 3px;
+		background-color: #111827;
+	}
+
+	.upload-progress-text {
+		margin-top: 7px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
+		text-align: center;
+	}
+
+	.post-detail-scroll {
+		height: 470px;
+	}
+
+	.post-detail-content {
+		margin-top: 16px;
+	}
+
+	.post-detail-actions {
+		margin-bottom: 16px;
+	}
+
+	.comment-list {
+		margin-top: 10px;
+	}
+
+	.comment-title {
+		font-size: 16px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #111827;
+		margin-bottom: 10px;
+	}
+
+	.comment-card {
+		border-radius: 22px;
+		background-color: #f8fafc;
+		padding: 13px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.comment-head {
+		margin-bottom: 8px;
+	}
+
+	.comment-avatar {
+		width: 32px;
+		height: 32px;
+		border-radius: 16px;
+		background-color: #111827;
+		align-items: center;
+		justify-content: center;
+		margin-right: 8px;
+		overflow: hidden;
+	}
+
+	.comment-avatar-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.comment-avatar-image {
+		width: 32px;
+		height: 32px;
+		border-radius: 16px;
+	}
+
+	.comment-like {
+		margin-right: 0;
+	}
+
+	.comment-content {
+		font-size: 14px;
+		line-height: 21px;
+		color: #111827;
+	}
+
+	.comment-image-grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 8px;
+	}
+
+	.comment-image {
+		width: 74px;
+		height: 74px;
+		border-radius: 16px;
+		margin-right: 7px;
+		margin-bottom: 7px;
+		background-color: #f3f6fb;
+	}
+
+	.comment-draft-images {
+		flex-direction: row;
+		padding-top: 8px;
+		padding-bottom: 8px;
+	}
+
+	.comment-draft-image-wrap {
+		position: relative;
+		width: 52px;
+		height: 52px;
+		margin-right: 8px;
+	}
+
+	.comment-draft-image {
+		width: 52px;
+		height: 52px;
+		border-radius: 14px;
+		background-color: #f3f6fb;
+	}
+
+	.comment-image-remove {
+		width: 20px;
+		height: 20px;
+		border-radius: 10px;
+	}
+
+	.comment-composer {
+		min-height: 48px;
+		border-radius: 24px;
+		background-color: #f6f7fb;
+		flex-direction: row;
+		align-items: center;
+		padding: 5px;
+		margin-top: 8px;
+	}
+
+	.comment-image-button {
+		width: 38px;
+		height: 38px;
+		border-radius: 19px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		margin-right: 4px;
+	}
+
+	.comment-input {
+		flex: 1;
+		height: 38px;
+		font-size: 14px;
+		color: #111827;
+		padding-left: 10px;
+		padding-right: 10px;
+	}
+
+	.comment-send {
+		height: 38px;
+		border-radius: 19px;
+		background-color: #111827;
+		padding-left: 14px;
+		padding-right: 14px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.comment-send-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
 	}
 
 	.empty-forum {

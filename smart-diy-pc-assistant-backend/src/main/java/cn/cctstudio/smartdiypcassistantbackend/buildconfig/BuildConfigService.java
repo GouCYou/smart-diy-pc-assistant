@@ -46,6 +46,13 @@ public class BuildConfigService {
         return toResponse(findOwned(id, userId));
     }
 
+    @Transactional(readOnly = true)
+    public BuildConfigResponse getPublic(Long id) {
+        return buildConfigRepository.findById(id)
+                .map(this::toResponse)
+                .orElse(null);
+    }
+
     @Transactional
     public BuildConfigResponse create(Long userId, BuildConfigRequest request) {
         BuildConfig config = new BuildConfig(userId, "", "", "", 0, 0, "WARN", "", "", "", BuildConfigSource.MANUAL);

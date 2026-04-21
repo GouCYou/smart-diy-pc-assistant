@@ -1,0 +1,218 @@
+<template>
+	<view class="preview-page">
+		<view class="preview-top">
+			<view class="preview-back" @click="goBack">
+				<view class="back-chevron">
+					<view class="back-chevron-line back-chevron-line-top"></view>
+					<view class="back-chevron-line back-chevron-line-bottom"></view>
+				</view>
+			</view>
+			<text class="preview-count">{{ currentIndex + 1 }}/{{ images.length }}</text>
+			<view class="preview-back preview-back-placeholder"></view>
+		</view>
+
+		<movable-area class="preview-area" :scale-area="true" @wheel.stop="handlePreviewWheel">
+			<movable-view class="preview-view" direction="all" :scale="true" :scale-min="0.5" :scale-max="4" :scale-value="previewScale">
+				<image class="preview-image" :src="currentImage" mode="aspectFit"></image>
+			</movable-view>
+		</movable-area>
+
+		<view v-if="images.length > 1" class="preview-bottom">
+			<view :class="currentIndex == 0 ? 'preview-switch preview-switch-disabled' : 'preview-switch'" @click="previousImage">
+				<text class="preview-switch-text">上一张</text>
+			</view>
+			<view :class="currentIndex == images.length - 1 ? 'preview-switch preview-switch-disabled' : 'preview-switch'" @click="nextImage">
+				<text class="preview-switch-text">下一张</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	const images = ref([] as string[])
+	const currentIndex = ref(0)
+	const currentImage = ref('')
+	const previewScale = ref(1)
+
+	loadPreviewImages()
+	onShow(() => {
+		loadPreviewImages()
+	})
+
+	function loadPreviewImages() {
+		const savedImages = uni.getStorageSync('preview_images')
+		const savedCurrent = uni.getStorageSync('preview_current')
+		if (savedImages != null) {
+			images.value = savedImages as string[]
+		}
+		if (images.value.length == 0 && savedCurrent != null) {
+			images.value = [savedCurrent as string]
+		}
+		let current = ''
+		if (savedCurrent != null) {
+			current = savedCurrent as string
+		}
+		currentIndex.value = 0
+		for (let i = 0; i < images.value.length; i++) {
+			if (images.value[i] == current) {
+				currentIndex.value = i
+				break
+			}
+		}
+		if (images.value.length > 0) {
+			currentImage.value = images.value[currentIndex.value]
+		}
+		previewScale.value = 1
+	}
+
+	function previousImage() {
+		if (currentIndex.value <= 0) {
+			return
+		}
+		currentIndex.value = currentIndex.value - 1
+		currentImage.value = images.value[currentIndex.value]
+		previewScale.value = 1
+	}
+
+	function nextImage() {
+		if (currentIndex.value >= images.value.length - 1) {
+			return
+		}
+		currentIndex.value = currentIndex.value + 1
+		currentImage.value = images.value[currentIndex.value]
+		previewScale.value = 1
+	}
+
+	function handlePreviewWheel(event : any) {
+		const delta = event.deltaY as number
+		if (delta == 0) {
+			return
+		}
+		let nextScale = previewScale.value + (delta < 0 ? 0.16 : -0.16)
+		if (nextScale < 0.5) {
+			nextScale = 0.5
+		}
+		if (nextScale > 4) {
+			nextScale = 4
+		}
+		previewScale.value = nextScale
+	}
+
+	function goBack() {
+		uni.navigateBack({
+			animationType: 'fade-out',
+			animationDuration: 180
+		})
+	}
+</script>
+
+<style>
+	.preview-page {
+		min-height: 100vh;
+		background-color: rgba(5, 7, 13, 0.42);
+	}
+
+	.preview-top {
+		height: 88px;
+		padding-top: 32px;
+		padding-left: 18px;
+		padding-right: 18px;
+		box-sizing: border-box;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.preview-back {
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.74);
+		align-items: center;
+		justify-content: center;
+	}
+
+	.preview-back-placeholder {
+		background-color: transparent;
+	}
+
+	.back-chevron {
+		position: relative;
+		width: 16px;
+		height: 16px;
+	}
+
+	.back-chevron-line {
+		position: absolute;
+		left: 2px;
+		width: 10px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #ffffff;
+	}
+
+	.back-chevron-line-top {
+		top: 4px;
+		transform: rotate(-45deg);
+	}
+
+	.back-chevron-line-bottom {
+		bottom: 4px;
+		transform: rotate(45deg);
+	}
+
+	.preview-count {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 800;
+		color: rgba(255, 255, 255, 0.82);
+	}
+
+	.preview-area {
+		width: 100%;
+		height: 670px;
+		overflow: hidden;
+	}
+
+	.preview-view {
+		width: 100%;
+		height: 670px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.preview-image {
+		width: 100%;
+		height: 670px;
+	}
+
+	.preview-bottom {
+		position: fixed;
+		left: 24px;
+		right: 24px;
+		bottom: 28px;
+		flex-direction: row;
+		justify-content: space-between;
+	}
+
+	.preview-switch {
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(255, 255, 255, 0.14);
+		padding-left: 18px;
+		padding-right: 18px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.preview-switch-disabled {
+		opacity: 0.35;
+	}
+
+	.preview-switch-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #ffffff;
+	}
+</style>

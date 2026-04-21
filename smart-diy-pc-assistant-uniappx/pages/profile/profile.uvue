@@ -64,6 +64,7 @@
 
 	const apiBaseUrl = 'http://localhost:8080'
 	const token = ref('')
+	const userId = ref(0)
 	const username = ref('')
 	const email = ref('')
 	const nickname = ref('')
@@ -92,6 +93,7 @@
 
 	function loadLocalProfile() {
 		const savedToken = uni.getStorageSync('app_token')
+		const savedUserId = uni.getStorageSync('app_user_id')
 		const savedUsername = uni.getStorageSync('app_username')
 		const savedEmail = uni.getStorageSync('app_email')
 		const savedNickname = uni.getStorageSync('app_nickname')
@@ -99,6 +101,9 @@
 		const savedBio = uni.getStorageSync('app_bio')
 		if (savedToken != null) {
 			token.value = savedToken as string
+		}
+		if (savedUserId != null) {
+			userId.value = savedUserId as number
 		}
 		if (savedUsername != null) {
 			username.value = savedUsername as string
@@ -277,11 +282,13 @@
 
 	function applyProfile(payload : UserProfilePayload) {
 		username.value = payload.username
+		userId.value = payload.userId
 		email.value = payload.email
 		nickname.value = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
 		avatarUrl.value = normalizeAvatarUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
 		avatarPreviewUrl.value = avatarUrl.value
 		bio.value = payload.bio == null ? '' : payload.bio
+		uni.setStorageSync('app_user_id', userId.value)
 		uni.setStorageSync('app_username', username.value)
 		uni.setStorageSync('app_email', email.value)
 		uni.setStorageSync('app_nickname', nickname.value)
@@ -297,7 +304,9 @@
 	}
 
 	function clearAuth() {
+		userId.value = 0
 		uni.removeStorageSync('app_token')
+		uni.removeStorageSync('app_user_id')
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
 		uni.removeStorageSync('app_nickname')
