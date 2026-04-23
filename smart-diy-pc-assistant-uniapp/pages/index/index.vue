@@ -213,7 +213,10 @@
 						<view class="post-head">
 							<view class="post-avatar">
 								<image v-if="post.author.avatarUrl.length > 0" class="post-avatar-image" :src="post.author.avatarUrl" mode="aspectFill"></image>
-								<text v-if="post.author.avatarUrl.length == 0" class="post-avatar-text">{{ getAuthorAvatarText(post.author.nickname) }}</text>
+								<view v-else class="avatar-placeholder">
+									<view class="avatar-placeholder-head"></view>
+									<view class="avatar-placeholder-body"></view>
+								</view>
 							</view>
 							<view class="post-author-main">
 								<text class="post-author-name">{{ post.author.nickname }}</text>
@@ -303,7 +306,10 @@
 			<view class="profile-card" @click="handleProfileCardClick">
 				<view class="profile-avatar">
 					<image v-if="currentAvatarUrl.length > 0" class="profile-avatar-image" :src="currentAvatarUrl" mode="aspectFill"></image>
-					<text v-if="currentAvatarUrl.length == 0" class="profile-avatar-text">{{ getProfileAvatarText() }}</text>
+					<view v-else class="avatar-placeholder avatar-placeholder-large">
+						<view class="avatar-placeholder-head"></view>
+						<view class="avatar-placeholder-body"></view>
+					</view>
 				</view>
 				<view class="profile-copy">
 					<text class="profile-title">{{ token.length > 0 ? currentNickname : '登录 / 注册' }}</text>
@@ -679,7 +685,10 @@
 					<view class="post-head">
 						<view class="post-avatar">
 							<image v-if="selectedPost.author.avatarUrl.length > 0" class="post-avatar-image" :src="selectedPost.author.avatarUrl" mode="aspectFill"></image>
-							<text v-if="selectedPost.author.avatarUrl.length == 0" class="post-avatar-text">{{ getAuthorAvatarText(selectedPost.author.nickname) }}</text>
+							<view v-else class="avatar-placeholder">
+								<view class="avatar-placeholder-head"></view>
+								<view class="avatar-placeholder-body"></view>
+							</view>
 						</view>
 						<view class="post-author-main">
 							<text class="post-author-name">{{ selectedPost.author.nickname }}</text>
@@ -716,7 +725,10 @@
 							<view class="post-head comment-head">
 								<view class="comment-avatar">
 									<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="comment.author.avatarUrl" mode="aspectFill"></image>
-									<text v-if="comment.author.avatarUrl.length == 0" class="comment-avatar-text">{{ getAuthorAvatarText(comment.author.nickname) }}</text>
+									<view v-else class="avatar-placeholder avatar-placeholder-small">
+										<view class="avatar-placeholder-head"></view>
+										<view class="avatar-placeholder-body"></view>
+									</view>
 								</view>
 								<view class="post-author-main">
 									<text class="post-author-name">{{ comment.author.nickname }}</text>
@@ -794,7 +806,11 @@
 	</view>
 </template>
 
-<script setup lang="uts">
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { onHide, onShow } from '@dcloudio/uni-app'
+	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
+
 	type ChatMessage = {
 		role : string
 		content : string
@@ -813,6 +829,7 @@
 		username : string
 		email : string
 		nickname : string
+		avatarKey : string
 		avatarUrl : string
 		bio : string
 		role : string
@@ -891,7 +908,7 @@
 		comments : CommunityCommentItem[]
 	}
 
-	const apiBaseUrl = 'http://localhost:8080'
+	const apiBaseUrl = API_BASE_URL
 	const activeTab = ref(0)
 	const historyOpen = ref(false)
 	const touchStartX = ref(0)
@@ -1663,21 +1680,11 @@
 	}
 
 	function refreshCommunityPosts() {
-		if (token.value.length == 0) {
-			communityRefreshing.value = false
-			return
-		}
 		communityRefreshing.value = true
 		loadCommunityPostsWithForce(true)
 	}
 
 	function loadCommunityPostsWithForce(force : boolean) {
-		if (token.value.length == 0) {
-			communityPosts.value = []
-			resetCommunityPage()
-			communityRefreshing.value = false
-			return
-		}
 		if (communityLoading.value && !force) {
 			return
 		}
@@ -1685,9 +1692,7 @@
 		uni.request({
 			url: apiBaseUrl + '/api/community/posts',
 			method: 'GET',
-			header: {
-				'Authorization': 'Bearer ' + token.value
-			},
+			header: getAuthHeader(),
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
@@ -1739,10 +1744,10 @@
 		})
 	}
 
-	function createCommunityPost(content : string, uploadedImageUrls : string[], buildConfigId : number) {
+	function createCommunityPost(content : string, uploadedImageKeys : string[], buildConfigId : number) {
 		const payload = {
 			content: content,
-			imageUrls: uploadedImageUrls,
+			imageKeys: uploadedImageKeys,
 			buildConfigId: buildConfigId > 0 ? buildConfigId : null
 		}
 		uni.request({
@@ -1868,7 +1873,7 @@
 		}, fail)
 	}
 
-	function uploadCommunityImage(filePath : string, target : string, complete : (url : string) => void, fail : () => void) {
+	function uploadCommunityImage(filePath : string, target : string, complete : (key : string) => void, fail : () => void) {
 		uni.uploadFile({
 			url: apiBaseUrl + '/api/files/upload',
 			filePath: filePath,
@@ -1884,8 +1889,8 @@
 					body = null
 				}
 				if (body != null && body.code == 0 && body.data != null) {
-					const url = normalizeMediaUrl((body.data as any).url as string)
-					complete(url)
+					const key = (body.data as any).key as string
+					complete(key)
 					return
 				}
 				uni.showToast({
@@ -2043,10 +2048,7 @@
 	}
 
 	function normalizeMediaUrl(url : string) : string {
-		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
-			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
-		}
-		return url
+		return normalizeRemoteMediaUrl(url)
 	}
 
 	function previewPostDraftImage(image : string) {
@@ -2164,10 +2166,6 @@
 	}
 
 	function openPostDetail(id : number) {
-		if (token.value.length == 0) {
-			openAuthPage()
-			return
-		}
 		uni.setStorageSync('current_post_id', id)
 		uni.navigateTo({
 			url: '/pages/post/detail',
@@ -2302,6 +2300,9 @@
 	}
 
 	function submitComment() {
+		if (!requireLogin()) {
+			return
+		}
 		if (commentSubmitting.value) {
 			return
 		}
@@ -2317,50 +2318,57 @@
 			return
 		}
 		commentSubmitting.value = true
-		uni.request({
-			url: apiBaseUrl + '/api/community/posts/' + selectedPost.value.id + '/comments',
-			method: 'POST',
-			header: {
-				'Authorization': 'Bearer ' + token.value,
-				'Content-Type': 'application/json'
-			},
-			data: {
-				content: content,
-				imageUrls: commentImageUrls.value
-			},
-			success: (res) => {
-				const body = res.data as any
-				if (body != null && body.code == 0 && body.data != null) {
-					selectedPost.value.comments.push(body.data as CommunityCommentItem)
-					selectedPost.value.commentCount = selectedPost.value.commentCount + 1
-					commentText.value = ''
-					commentImageUrls.value = []
-					syncSelectedPostToList()
-					return
+		uploadImagesBeforeSubmit(commentImageUrls.value, 'comment', (uploadedImageKeys : string[]) => {
+			uni.request({
+				url: apiBaseUrl + '/api/community/posts/' + selectedPost.value.id + '/comments',
+				method: 'POST',
+				header: {
+					'Authorization': 'Bearer ' + token.value,
+					'Content-Type': 'application/json'
+				},
+				data: {
+					content: content,
+					imageKeys: uploadedImageKeys
+				},
+				success: (res) => {
+					const body = res.data as any
+					if (body != null && body.code == 0 && body.data != null) {
+						selectedPost.value.comments.push(body.data as CommunityCommentItem)
+						selectedPost.value.commentCount = selectedPost.value.commentCount + 1
+						commentText.value = ''
+						commentImageUrls.value = []
+						syncSelectedPostToList()
+						return
+					}
+					if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+						clearAuth()
+						openAuthPage()
+						return
+					}
+					uni.showToast({
+						title: body != null && body.message != null ? body.message as string : '评论失败',
+						icon: 'none'
+					})
+				},
+				fail: () => {
+					uni.showToast({
+						title: '暂时连接不到后端服务',
+						icon: 'none'
+					})
+				},
+				complete: () => {
+					commentSubmitting.value = false
 				}
-				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
-					clearAuth()
-					openAuthPage()
-					return
-				}
-				uni.showToast({
-					title: body != null && body.message != null ? body.message as string : '评论失败',
-					icon: 'none'
-				})
-			},
-			fail: () => {
-				uni.showToast({
-					title: '暂时连接不到后端服务',
-					icon: 'none'
-				})
-			},
-			complete: () => {
-				commentSubmitting.value = false
-			}
+			})
+		}, () => {
+			commentSubmitting.value = false
 		})
 	}
 
 	function toggleCommentLike(id : number) {
+		if (!requireLogin()) {
+			return
+		}
 		uni.request({
 			url: apiBaseUrl + '/api/community/comments/' + id + '/like',
 			method: 'POST',
@@ -2447,6 +2455,21 @@
 		})
 	}
 
+	function requireLogin() : boolean {
+		if (token.value.length > 0) {
+			return true
+		}
+		openAuthPage()
+		return false
+	}
+
+	function getAuthHeader() : any {
+		if (token.value.length == 0) {
+			return {}
+		}
+		return { 'Authorization': 'Bearer ' + token.value }
+	}
+
 	function openProfileEditor() {
 		if (token.value.length == 0) {
 			openAuthPage()
@@ -2472,7 +2495,7 @@
 		const savedUsername = uni.getStorageSync('app_username')
 		const savedEmail = uni.getStorageSync('app_email')
 		const savedNickname = uni.getStorageSync('app_nickname')
-		const savedAvatarUrl = uni.getStorageSync('app_avatar_url')
+		const savedAvatarKey = uni.getStorageSync('app_avatar_key')
 		const savedBio = uni.getStorageSync('app_bio')
 		if (savedToken != null) {
 			token.value = savedToken as string
@@ -2489,8 +2512,8 @@
 		if (savedNickname != null) {
 			currentNickname.value = savedNickname as string
 		}
-		if (savedAvatarUrl != null) {
-			currentAvatarUrl.value = savedAvatarUrl as string
+		if (savedAvatarKey != null) {
+			currentAvatarUrl.value = ''
 		}
 		if (savedBio != null) {
 			currentBio.value = savedBio as string
@@ -2511,15 +2534,12 @@
 		uni.setStorageSync('app_username', currentUsername.value)
 		uni.setStorageSync('app_email', currentEmail.value)
 		uni.setStorageSync('app_nickname', currentNickname.value)
-		uni.setStorageSync('app_avatar_url', currentAvatarUrl.value)
+		uni.setStorageSync('app_avatar_key', payload.avatarKey == null ? '' : payload.avatarKey)
 		uni.setStorageSync('app_bio', currentBio.value)
 	}
 
 	function normalizeAvatarUrl(url : string) : string {
-		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
-			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
-		}
-		return url
+		return normalizeRemoteMediaUrl(url)
 	}
 
 	function clearAuth() {
@@ -2553,7 +2573,7 @@
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
 		uni.removeStorageSync('app_nickname')
-		uni.removeStorageSync('app_avatar_url')
+		uni.removeStorageSync('app_avatar_key')
 		uni.removeStorageSync('app_bio')
 	}
 
@@ -2942,7 +2962,10 @@
 	}
 
 	function openChatBuildDetail(buildConfigId : number) {
-		if (buildConfigId <= 0 || token.value.length == 0) {
+		if (buildConfigId <= 0) {
+			return
+		}
+		if (!requireLogin()) {
 			return
 		}
 		uni.request({
@@ -3301,8 +3324,41 @@
 </script>
 
 <style>
+	view,
+	uni-view,
+	scroll-view,
+	uni-scroll-view,
+	movable-area,
+	uni-movable-area,
+	movable-view,
+	uni-movable-view {
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+	}
+
+	.app-shell .chat-nav,
+	.app-shell .composer,
+	.app-shell .tabbar,
+	.app-shell .post-head,
+	.app-shell .page-head-row,
+	.app-shell .post-actions,
+	.app-shell .build-card-head,
+	.app-shell .build-score-row,
+	.app-shell .build-actions,
+	.app-shell .menu-item,
+	.app-shell .profile-card,
+	.app-shell .zero-stats,
+	.app-shell .segmented,
+	.app-shell .section-search {
+		display: flex;
+		flex-direction: row;
+	}
+
 	.app-shell {
 		min-height: 100vh;
+		width: 100vw;
+		max-width: none;
 		background-color: #f6f7fb;
 		position: relative;
 		overflow: hidden;
@@ -3353,6 +3409,8 @@
 
 	.status-space {
 		height: 36px;
+		min-height: 36px;
+		flex-shrink: 0;
 	}
 
 	.chat-page {
@@ -3361,10 +3419,13 @@
 	}
 
 	.chat-nav {
+		display: flex;
 		position: fixed;
 		left: 18px;
 		right: 18px;
 		top: 36px;
+		width: auto;
+		max-width: none;
 		height: 48px;
 		flex-direction: row;
 		align-items: center;
@@ -3373,10 +3434,27 @@
 		z-index: 30;
 	}
 
+	.chat-nav .nav-button:first-child {
+		position: absolute;
+		left: 0;
+		top: 5px;
+	}
+
+	.chat-nav .nav-button:last-child {
+		position: absolute;
+		right: 0;
+		top: 5px;
+	}
+
 	.nav-title {
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 12px;
 		font-size: 17px;
 		font-weight: 700;
 		color: #111827;
+		text-align: center;
 	}
 
 	.nav-button {
@@ -3408,6 +3486,22 @@
 		background-color: #007aff;
 	}
 
+	.chat-nav .nav-button:last-child::before,
+	.chat-nav .nav-button:last-child::after {
+		content: '';
+		position: absolute;
+		left: 11px;
+		top: 18px;
+		width: 16px;
+		height: 2px;
+		border-radius: 2px;
+		background-color: #1f2937;
+	}
+
+	.chat-nav .nav-button:last-child::after {
+		transform: rotate(90deg);
+	}
+
 	@keyframes plusButtonSpin {
 		from {
 			transform: scale(0.92) rotate(0deg);
@@ -3431,6 +3525,9 @@
 	}
 
 	.plus-line {
+		position: absolute;
+		left: 11px;
+		top: 18px;
 		width: 16px;
 		height: 2px;
 		border-radius: 2px;
@@ -3438,7 +3535,6 @@
 	}
 
 	.plus-line-vertical {
-		position: absolute;
 		transform: rotate(90deg);
 	}
 
@@ -3448,6 +3544,8 @@
 		right: 18px;
 		top: 92px;
 		bottom: 160px;
+		width: auto;
+		max-width: none;
 		margin-top: 0;
 		z-index: 1;
 	}
@@ -3791,10 +3889,13 @@
 	}
 
 	.composer {
+		display: flex;
 		position: fixed;
 		left: 18px;
 		right: 18px;
 		bottom: 98px;
+		width: auto;
+		max-width: none;
 		min-height: 56px;
 		border-radius: 28px;
 		background-color: #ffffff;
@@ -3813,6 +3914,8 @@
 		left: 30px;
 		right: 30px;
 		bottom: 162px;
+		width: auto;
+		max-width: none;
 		min-height: 38px;
 		border-radius: 19px;
 		background-color: #ffffff;
@@ -4716,6 +4819,7 @@
 
 	.page-head {
 		margin-bottom: 18px;
+		flex-shrink: 0;
 	}
 
 	.page-head-row {
@@ -4795,6 +4899,7 @@
 		margin-bottom: 14px;
 		flex-direction: row;
 		align-items: center;
+		flex-shrink: 0;
 	}
 
 	.section-search-icon {
@@ -5314,6 +5419,7 @@
 
 	.community-scroll {
 		height: 590px;
+		flex-shrink: 1;
 	}
 
 	.community-list {
@@ -5338,7 +5444,7 @@
 		width: 42px;
 		height: 42px;
 		border-radius: 21px;
-		background-color: #111827;
+		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		margin-right: 10px;
@@ -5349,13 +5455,6 @@
 		width: 42px;
 		height: 42px;
 		border-radius: 21px;
-	}
-
-	.post-avatar-text {
-		font-size: 16px;
-		line-height: 22px;
-		font-weight: 900;
-		color: #ffffff;
 	}
 
 	.post-author-main {
@@ -5655,6 +5754,8 @@
 		left: 18px;
 		right: 18px;
 		top: 32px;
+		width: auto;
+		max-width: none;
 		height: 42px;
 		flex-direction: row;
 		align-items: center;
@@ -5734,6 +5835,8 @@
 		left: 24px;
 		right: 24px;
 		bottom: 28px;
+		width: auto;
+		max-width: none;
 		flex-direction: row;
 		justify-content: space-between;
 		z-index: 142;
@@ -5765,6 +5868,8 @@
 		left: 24px;
 		right: 24px;
 		top: 46px;
+		width: auto;
+		max-width: none;
 		height: 104px;
 		background-color: transparent;
 		z-index: 150;
@@ -5852,18 +5957,11 @@
 		width: 32px;
 		height: 32px;
 		border-radius: 16px;
-		background-color: #111827;
+		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		margin-right: 8px;
 		overflow: hidden;
-	}
-
-	.comment-avatar-text {
-		font-size: 13px;
-		line-height: 18px;
-		font-weight: 900;
-		color: #ffffff;
 	}
 
 	.comment-avatar-image {
@@ -6025,7 +6123,7 @@
 		width: 64px;
 		height: 64px;
 		border-radius: 32px;
-		background-color: #111827;
+		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		margin-right: 14px;
@@ -6042,15 +6140,41 @@
 		z-index: 2;
 	}
 
-	.profile-avatar-text {
-		font-size: 24px;
-		line-height: 32px;
-		font-weight: 900;
-		color: #ffffff;
-	}
-
 	.profile-copy {
 		flex: 1;
+	}
+
+	.avatar-placeholder {
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.avatar-placeholder-head {
+		width: 32%;
+		height: 32%;
+		border-radius: 999px;
+		background-color: #98a2b3;
+		margin-bottom: 3px;
+	}
+
+	.avatar-placeholder-body {
+		width: 54%;
+		height: 28%;
+		border-radius: 999px 999px 0 0;
+		background-color: #98a2b3;
+	}
+
+	.avatar-placeholder-large .avatar-placeholder-head {
+		margin-bottom: 4px;
+	}
+
+	.avatar-placeholder-small .avatar-placeholder-head {
+		margin-bottom: 2px;
 	}
 
 	.profile-title {
@@ -6148,10 +6272,13 @@
 	}
 
 	.tabbar {
+		display: flex;
 		position: fixed;
 		left: 18px;
 		right: 18px;
 		bottom: 14px;
+		width: auto;
+		max-width: none;
 		height: 72px;
 		border-radius: 27px;
 		background-color: rgba(255, 255, 255, 0.96);

@@ -40,19 +40,23 @@
 	</view>
 </template>
 
-<script setup lang="uts">
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { API_BASE_URL } from '../../common/api'
+
 	type AuthPayload = {
 		userId : number
 		username : string
 		email : string
 		nickname : string
+		avatarKey : string
 		avatarUrl : string
 		bio : string
 		role : string
 		token : string
 	}
 
-	const apiBaseUrl = 'http://localhost:8080'
+	const apiBaseUrl = API_BASE_URL
 	const authMode = ref('login')
 	const username = ref('')
 	const email = ref('')
@@ -78,10 +82,18 @@
 		}
 		pageLeaving.value = true
 		setTimeout(() => {
-			uni.navigateBack({
-				animationType: 'slide-out-bottom',
-				animationDuration: 260
-			})
+			const pages = getCurrentPages()
+			if (pages.length > 1) {
+				uni.navigateBack({
+					animationType: 'slide-out-bottom',
+					animationDuration: 260,
+					fail: () => {
+						uni.reLaunch({ url: '/pages/index/index' })
+					}
+				})
+				return
+			}
+			uni.reLaunch({ url: '/pages/index/index' })
 		}, 250)
 	}
 
@@ -149,21 +161,30 @@
 
 	function saveAuth(payload : AuthPayload) {
 		const nickname = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
-		const avatarUrl = payload.avatarUrl == null ? '' : payload.avatarUrl
+		const avatarKey = payload.avatarKey == null ? '' : payload.avatarKey
 		const bio = payload.bio == null || payload.bio.length == 0 ? '这个人还没有写简介。' : payload.bio
 		uni.setStorageSync('app_token', payload.token)
 		uni.setStorageSync('app_user_id', payload.userId)
 		uni.setStorageSync('app_username', payload.username)
 		uni.setStorageSync('app_email', payload.email)
 		uni.setStorageSync('app_nickname', nickname)
-		uni.setStorageSync('app_avatar_url', avatarUrl)
+		uni.setStorageSync('app_avatar_key', avatarKey)
 		uni.setStorageSync('app_bio', bio)
 	}
 </script>
 
 <style>
+	view,
+	uni-view {
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+	}
+
 	.auth-page {
 		min-height: 100vh;
+		width: 100vw;
+		max-width: none;
 		background-color: #f6f7fb;
 		padding-left: 22px;
 		padding-right: 22px;
@@ -207,6 +228,7 @@
 	}
 
 	.auth-nav {
+		position: relative;
 		height: 48px;
 		flex-direction: row;
 		align-items: center;
@@ -221,6 +243,7 @@
 
 	.nav-button {
 		position: relative;
+		z-index: 2;
 		border-radius: 19px;
 		background-color: #ffffff;
 		align-items: center;
@@ -257,15 +280,29 @@
 	}
 
 	.nav-title {
+		position: absolute;
+		pointer-events: none;
+		left: 0;
+		right: 0;
+		top: 12px;
 		font-size: 17px;
+		line-height: 24px;
 		font-weight: 800;
 		color: #111827;
+		text-align: center;
 	}
 
 	.hero {
 		align-items: center;
-		padding-top: 54px;
+		padding-top: 78px;
 		padding-bottom: 30px;
+	}
+
+	@media screen and (max-height: 700px) {
+		.hero {
+			padding-top: 58px;
+			padding-bottom: 24px;
+		}
 	}
 
 	.ai-mark {

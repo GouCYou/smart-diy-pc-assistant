@@ -4,7 +4,7 @@
 			"path": "pages/index/index",
 			"style": {
 				"navigationStyle": "custom",
-				"navigationBarTitleText": "智能DIY助手"
+				"navigationBarTitleText": "智能 DIY 装机"
 			}
 		},
 		{
@@ -27,19 +27,11 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "帖子详情"
 			}
-		},
-		{
-			"path": "pages/image/preview",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "图片预览",
-				"backgroundColor": "transparent"
-			}
 		}
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "智能DIY助手",
+		"navigationBarTitleText": "智能 DIY 装机",
 		"navigationBarBackgroundColor": "#F5F7FB",
 		"backgroundColor": "#F5F7FB"
 	},

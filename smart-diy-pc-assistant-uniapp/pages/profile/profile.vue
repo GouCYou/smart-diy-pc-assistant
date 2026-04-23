@@ -14,10 +14,13 @@
 			</view>
 		</view>
 
-			<view class="avatar-area">
+		<view class="avatar-area">
 			<view class="avatar-preview" @click="chooseAvatar">
 				<image v-if="avatarPreviewUrl.length > 0" class="avatar-image" :src="avatarPreviewUrl" mode="aspectFill"></image>
-				<text v-if="avatarPreviewUrl.length == 0" class="avatar-text">{{ nickname.length > 0 ? nickname.substring(0, 1) : '我' }}</text>
+				<view v-else class="avatar-placeholder">
+					<view class="avatar-placeholder-head"></view>
+					<view class="avatar-placeholder-body"></view>
+				</view>
 			</view>
 			<view class="avatar-action" @click="chooseAvatar">
 				<text class="avatar-action-text">{{ uploadingAvatar ? '上传中...' : '更换头像' }}</text>
@@ -45,12 +48,16 @@
 	</view>
 </template>
 
-<script setup lang="uts">
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { API_BASE_URL, normalizeMediaUrl } from '../../common/api'
+
 	type UserProfilePayload = {
 		userId : number
 		username : string
 		email : string
 		nickname : string
+		avatarKey : string
 		avatarUrl : string
 		bio : string
 		role : string
@@ -62,12 +69,13 @@
 		domain : string
 	}
 
-	const apiBaseUrl = 'http://localhost:8080'
+	const apiBaseUrl = API_BASE_URL
 	const token = ref('')
 	const userId = ref(0)
 	const username = ref('')
 	const email = ref('')
 	const nickname = ref('')
+	const avatarKey = ref('')
 	const avatarUrl = ref('')
 	const avatarPreviewUrl = ref('')
 	const bio = ref('')
@@ -84,10 +92,18 @@
 		}
 		pageLeaving.value = true
 		setTimeout(() => {
-			uni.navigateBack({
-				animationType: 'slide-out-right',
-				animationDuration: 260
-			})
+			const pages = getCurrentPages()
+			if (pages.length > 1) {
+				uni.navigateBack({
+					animationType: 'slide-out-right',
+					animationDuration: 260,
+					fail: () => {
+						uni.reLaunch({ url: '/pages/index/index' })
+					}
+				})
+				return
+			}
+			uni.reLaunch({ url: '/pages/index/index' })
 		}, 250)
 	}
 
@@ -97,7 +113,7 @@
 		const savedUsername = uni.getStorageSync('app_username')
 		const savedEmail = uni.getStorageSync('app_email')
 		const savedNickname = uni.getStorageSync('app_nickname')
-		const savedAvatarUrl = uni.getStorageSync('app_avatar_url')
+		const savedAvatarKey = uni.getStorageSync('app_avatar_key')
 		const savedBio = uni.getStorageSync('app_bio')
 		if (savedToken != null) {
 			token.value = savedToken as string
@@ -114,9 +130,8 @@
 		if (savedNickname != null) {
 			nickname.value = savedNickname as string
 		}
-		if (savedAvatarUrl != null) {
-			avatarUrl.value = savedAvatarUrl as string
-			avatarPreviewUrl.value = avatarUrl.value
+		if (savedAvatarKey != null) {
+			avatarKey.value = savedAvatarKey as string
 		}
 		if (savedBio != null) {
 			bio.value = savedBio as string
@@ -189,7 +204,8 @@
 					}
 					if (body != null && body.code == 0 && body.data != null) {
 						const upload = body.data as FileUploadPayload
-						avatarUrl.value = upload.url
+						avatarKey.value = upload.key
+						avatarUrl.value = normalizeMediaUrl(upload.url)
 						avatarPreviewUrl.value = avatarUrl.value
 						uni.showToast({
 							title: '头像已上传，请保存资料',
@@ -243,7 +259,7 @@
 			},
 			data: {
 				nickname: nickname.value,
-				avatarUrl: avatarUrl.value,
+				avatarKey: avatarKey.value,
 				bio: bio.value
 			},
 			success: (res) => {
@@ -285,22 +301,16 @@
 		userId.value = payload.userId
 		email.value = payload.email
 		nickname.value = payload.nickname == null || payload.nickname.length == 0 ? payload.username : payload.nickname
-		avatarUrl.value = normalizeAvatarUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
+		avatarKey.value = payload.avatarKey == null ? '' : payload.avatarKey
+		avatarUrl.value = normalizeMediaUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
 		avatarPreviewUrl.value = avatarUrl.value
 		bio.value = payload.bio == null ? '' : payload.bio
 		uni.setStorageSync('app_user_id', userId.value)
 		uni.setStorageSync('app_username', username.value)
 		uni.setStorageSync('app_email', email.value)
 		uni.setStorageSync('app_nickname', nickname.value)
-		uni.setStorageSync('app_avatar_url', avatarUrl.value)
+		uni.setStorageSync('app_avatar_key', avatarKey.value)
 		uni.setStorageSync('app_bio', bio.value)
-	}
-
-	function normalizeAvatarUrl(url : string) : string {
-		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
-			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
-		}
-		return url
 	}
 
 	function clearAuth() {
@@ -310,14 +320,23 @@
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
 		uni.removeStorageSync('app_nickname')
-		uni.removeStorageSync('app_avatar_url')
+		uni.removeStorageSync('app_avatar_key')
 		uni.removeStorageSync('app_bio')
 	}
 </script>
 
 <style>
+	view,
+	uni-view {
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+	}
+
 	.profile-page {
 		min-height: 100vh;
+		width: 100vw;
+		max-width: none;
 		background-color: #f6f7fb;
 		padding-left: 20px;
 		padding-right: 20px;
@@ -361,6 +380,7 @@
 	}
 
 	.profile-nav {
+		position: relative;
 		height: 48px;
 		flex-direction: row;
 		align-items: center;
@@ -369,6 +389,7 @@
 
 	.nav-button {
 		position: relative;
+		z-index: 2;
 		width: 38px;
 		height: 38px;
 		border-radius: 19px;
@@ -407,12 +428,21 @@
 	}
 
 	.nav-title {
+		position: absolute;
+		pointer-events: none;
+		left: 0;
+		right: 0;
+		top: 12px;
 		font-size: 17px;
+		line-height: 24px;
 		font-weight: 800;
 		color: #111827;
+		text-align: center;
 	}
 
 	.save-nav {
+		position: relative;
+		z-index: 2;
 		height: 38px;
 		padding-left: 15px;
 		padding-right: 15px;
@@ -438,7 +468,7 @@
 		width: 92px;
 		height: 92px;
 		border-radius: 46px;
-		background-color: #111827;
+		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		overflow: hidden;
@@ -450,10 +480,29 @@
 		border-radius: 46px;
 	}
 
-	.avatar-text {
-		font-size: 34px;
-		font-weight: 900;
-		color: #ffffff;
+	.avatar-placeholder {
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.avatar-placeholder-head {
+		width: 32%;
+		height: 32%;
+		border-radius: 999px;
+		background-color: #98a2b3;
+		margin-bottom: 5px;
+	}
+
+	.avatar-placeholder-body {
+		width: 54%;
+		height: 28%;
+		border-radius: 999px 999px 0 0;
+		background-color: #98a2b3;
 	}
 
 	.avatar-action {

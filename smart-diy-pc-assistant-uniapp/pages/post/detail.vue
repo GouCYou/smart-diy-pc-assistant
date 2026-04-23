@@ -17,7 +17,10 @@
 				<view class="post-head">
 					<view class="post-avatar">
 						<image v-if="post.author.avatarUrl.length > 0" class="post-avatar-image" :src="normalizeMediaUrl(post.author.avatarUrl)" mode="aspectFill"></image>
-						<text v-if="post.author.avatarUrl.length == 0" class="post-avatar-text">{{ getAuthorAvatarText(post.author.nickname) }}</text>
+						<view v-else class="avatar-placeholder">
+							<view class="avatar-placeholder-head"></view>
+							<view class="avatar-placeholder-body"></view>
+						</view>
 					</view>
 					<view class="post-author-main">
 						<text class="post-author-name">{{ post.author.nickname }}</text>
@@ -82,7 +85,10 @@
 					<view class="comment-top">
 						<view class="comment-avatar">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="normalizeMediaUrl(comment.author.avatarUrl)" mode="aspectFill"></image>
-							<text v-if="comment.author.avatarUrl.length == 0" class="comment-avatar-text">{{ getAuthorAvatarText(comment.author.nickname) }}</text>
+							<view v-else class="avatar-placeholder avatar-placeholder-small">
+								<view class="avatar-placeholder-head"></view>
+								<view class="avatar-placeholder-body"></view>
+							</view>
 						</view>
 						<view class="comment-main">
 							<text class="comment-author">{{ comment.author.nickname }}</text>
@@ -264,7 +270,11 @@
 	</view>
 </template>
 
-<script setup lang="uts">
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { onShow } from '@dcloudio/uni-app'
+	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
+
 	type AuthorItem = {
 		id : number
 		username : string
@@ -333,7 +343,7 @@
 		comments : CommunityCommentItem[]
 	}
 
-	const apiBaseUrl = 'http://localhost:8080'
+	const apiBaseUrl = API_BASE_URL
 	const token = ref('')
 	const currentUserId = ref(0)
 	const postId = ref(0)
@@ -429,9 +439,6 @@
 		if (savedPostId != null) {
 			postId.value = savedPostId as number
 		}
-		if (token.value.length == 0) {
-			uni.redirectTo({ url: '/pages/auth/auth' })
-		}
 	}
 
 	function loadCurrentUserId() {
@@ -454,14 +461,14 @@
 	}
 
 	function loadPostDetail() {
-		if (loading.value || token.value.length == 0 || postId.value == 0) {
+		if (loading.value || postId.value == 0) {
 			return
 		}
 		loading.value = true
 		uni.request({
 			url: apiBaseUrl + '/api/community/posts/' + postId.value,
 			method: 'GET',
-			header: { 'Authorization': 'Bearer ' + token.value },
+			header: getAuthHeader(),
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
@@ -471,7 +478,6 @@
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
 					clearAuth()
-					uni.redirectTo({ url: '/pages/auth/auth' })
 				}
 			},
 			fail: () => {
@@ -517,6 +523,29 @@
 		}, 250)
 	}
 
+	function openAuthPage() {
+		uni.navigateTo({
+			url: '/pages/auth/auth',
+			animationType: 'slide-in-bottom',
+			animationDuration: 260
+		})
+	}
+
+	function requireLogin() : boolean {
+		if (token.value.length > 0) {
+			return true
+		}
+		openAuthPage()
+		return false
+	}
+
+	function getAuthHeader() : any {
+		if (token.value.length == 0) {
+			return {}
+		}
+		return { 'Authorization': 'Bearer ' + token.value }
+	}
+
 	function openBuildDetail(buildConfig : BuildConfigItem) {
 		selectedBuildDetail.value = buildConfig
 		buildDetailVisible.value = true
@@ -527,6 +556,9 @@
 	}
 
 	function togglePostLike() {
+		if (!requireLogin()) {
+			return
+		}
 		if (post.value.id == 0) {
 			return
 		}
@@ -547,6 +579,9 @@
 	}
 
 	function togglePostFavorite() {
+		if (!requireLogin()) {
+			return
+		}
 		if (post.value.id == 0) {
 			return
 		}
@@ -602,6 +637,9 @@
 	}
 
 	function submitComment() {
+		if (!requireLogin()) {
+			return
+		}
 		if (commentSubmitting.value || post.value.id == 0) {
 			return
 		}
@@ -622,7 +660,7 @@
 		})
 	}
 
-	function createComment(content : string, uploadedImageUrls : string[]) {
+	function createComment(content : string, uploadedImageKeys : string[]) {
 		uni.request({
 			url: apiBaseUrl + '/api/community/posts/' + post.value.id + '/comments',
 			method: 'POST',
@@ -632,13 +670,13 @@
 			},
 			data: {
 				content: content,
-				imageUrls: uploadedImageUrls,
+				imageKeys: uploadedImageKeys,
 				buildConfigId: commentBuildId.value > 0 ? commentBuildId.value : null
 			},
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					if (uploadedImageUrls.length > 0) {
+					if (uploadedImageKeys.length > 0) {
 						uploadProgressTitle.value = '上传成功'
 						uploadProgressPercent.value = 100
 					}
@@ -672,6 +710,9 @@
 	}
 
 	function toggleCommentLike(id : number) {
+		if (!requireLogin()) {
+			return
+		}
 		uni.request({
 			url: apiBaseUrl + '/api/community/comments/' + id + '/like',
 			method: 'POST',
@@ -798,6 +839,9 @@
 	}
 
 	function pickCommentImages() {
+		if (!requireLogin()) {
+			return
+		}
 		if (commentImageUrls.value.length >= 9) {
 			uni.showToast({ title: '最多添加 9 张图片', icon: 'none' })
 			return
@@ -842,7 +886,7 @@
 		}, fail)
 	}
 
-	function uploadCommentImage(filePath : string, complete : (url : string) => void, fail : () => void) {
+	function uploadCommentImage(filePath : string, complete : (key : string) => void, fail : () => void) {
 		uni.uploadFile({
 			url: apiBaseUrl + '/api/files/upload',
 			filePath: filePath,
@@ -856,7 +900,7 @@
 					body = null
 				}
 				if (body != null && body.code == 0 && body.data != null) {
-					complete(normalizeMediaUrl((body.data as any).url as string))
+					complete((body.data as any).key as string)
 					return
 				}
 				uni.showToast({ title: body != null && body.message != null ? body.message as string : '上传失败', icon: 'none' })
@@ -1004,6 +1048,9 @@
 	}
 
 	function openCommentBuildPicker() {
+		if (!requireLogin()) {
+			return
+		}
 		commentBuildPickerVisible.value = true
 		uni.request({
 			url: apiBaseUrl + '/api/build-configs?segment=all',
@@ -1109,10 +1156,7 @@
 	}
 
 	function normalizeMediaUrl(url : string) : string {
-		if (url.indexOf('https://tdqa7oru4.sabkt.gdipper.com') == 0) {
-			return url.replace('https://tdqa7oru4.sabkt.gdipper.com', 'http://tdqa7oru4.sabkt.gdipper.com')
-		}
-		return url
+		return normalizeRemoteMediaUrl(url)
 	}
 
 	function formatTime(value : string) : string {
@@ -1156,14 +1200,29 @@
 		uni.removeStorageSync('app_username')
 		uni.removeStorageSync('app_email')
 		uni.removeStorageSync('app_nickname')
-		uni.removeStorageSync('app_avatar_url')
+		uni.removeStorageSync('app_avatar_key')
 		uni.removeStorageSync('app_bio')
 	}
 </script>
 
 <style>
+	view,
+	uni-view,
+	scroll-view,
+	uni-scroll-view,
+	movable-area,
+	uni-movable-area,
+	movable-view,
+	uni-movable-view {
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+	}
+
 	.post-page {
 		min-height: 100vh;
+		width: 100vw;
+		max-width: none;
 		background-color: #f6f7fb;
 		padding-left: 20px;
 		padding-right: 20px;
@@ -1274,7 +1333,7 @@
 		width: 42px;
 		height: 42px;
 		border-radius: 21px;
-		background-color: #111827;
+		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		margin-right: 10px;
@@ -1300,21 +1359,38 @@
 		border-radius: 17px;
 	}
 
-	.post-avatar-text,
-	.comment-avatar-text {
-		font-size: 16px;
-		line-height: 22px;
-		font-weight: 900;
-		color: #ffffff;
-	}
-
-	.comment-avatar-text {
-		font-size: 13px;
-	}
-
 	.post-author-main,
 	.comment-main {
 		flex: 1;
+	}
+
+	.avatar-placeholder {
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.avatar-placeholder-head {
+		width: 32%;
+		height: 32%;
+		border-radius: 999px;
+		background-color: #98a2b3;
+		margin-bottom: 3px;
+	}
+
+	.avatar-placeholder-body {
+		width: 54%;
+		height: 28%;
+		border-radius: 999px 999px 0 0;
+		background-color: #98a2b3;
+	}
+
+	.avatar-placeholder-small .avatar-placeholder-head {
+		margin-bottom: 2px;
 	}
 
 	.post-author-name,
@@ -1448,6 +1524,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 78px;
+		width: auto;
+		max-width: none;
 		margin-top: 0;
 		z-index: 22;
 	}
@@ -1709,6 +1787,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 78px;
+		width: auto;
+		max-width: none;
 		min-height: 66px;
 		border-radius: 22px;
 		background-color: #ffffff;
@@ -1813,6 +1893,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 18px;
+		width: auto;
+		max-width: none;
 		min-height: 52px;
 		border-radius: 26px;
 		background-color: #ffffff;
@@ -2138,6 +2220,8 @@
 		left: 18px;
 		right: 18px;
 		top: 32px;
+		width: auto;
+		max-width: none;
 		height: 42px;
 		flex-direction: row;
 		align-items: center;
@@ -2196,6 +2280,8 @@
 		left: 24px;
 		right: 24px;
 		bottom: 28px;
+		width: auto;
+		max-width: none;
 		flex-direction: row;
 		justify-content: space-between;
 		z-index: 82;
@@ -2227,6 +2313,8 @@
 		left: 24px;
 		right: 24px;
 		top: 46px;
+		width: auto;
+		max-width: none;
 		height: 104px;
 		background-color: transparent;
 		z-index: 90;
