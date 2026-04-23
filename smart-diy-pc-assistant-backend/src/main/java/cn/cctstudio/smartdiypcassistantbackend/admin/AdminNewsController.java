@@ -7,6 +7,7 @@ import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -40,5 +41,11 @@ public class AdminNewsController {
     @PutMapping("/{id}")
     public ApiResponse<NewsResponse> update(@PathVariable Long id, @Valid @RequestBody NewsRequest request) {
         return ApiResponse.ok(newsService.update(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        newsService.delete(id);
+        return ApiResponse.ok();
     }
 }

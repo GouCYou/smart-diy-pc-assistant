@@ -30,7 +30,7 @@ public class CommunityController {
 
     @GetMapping("/posts")
     public ApiResponse<List<CommunityPostResponse>> list(@AuthenticationPrincipal UserPrincipal principal) {
-        return ApiResponse.ok(communityService.list(principal.userId()));
+        return ApiResponse.ok(communityService.list(currentUserId(principal)));
     }
 
     @PostMapping("/posts")
@@ -46,7 +46,7 @@ public class CommunityController {
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id
     ) {
-        return ApiResponse.ok(communityService.detail(principal.userId(), id));
+        return ApiResponse.ok(communityService.detail(currentUserId(principal), id));
     }
 
     @PostMapping("/posts/{id}/like")
@@ -79,7 +79,7 @@ public class CommunityController {
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id
     ) {
-        return ApiResponse.ok(communityService.listComments(principal.userId(), id));
+        return ApiResponse.ok(communityService.listComments(currentUserId(principal), id));
     }
 
     @PostMapping("/posts/{id}/comments")
@@ -106,5 +106,9 @@ public class CommunityController {
     ) {
         communityService.deleteOwnComment(principal.userId(), id);
         return ApiResponse.ok();
+    }
+
+    private Long currentUserId(UserPrincipal principal) {
+        return principal == null ? null : principal.userId();
     }
 }

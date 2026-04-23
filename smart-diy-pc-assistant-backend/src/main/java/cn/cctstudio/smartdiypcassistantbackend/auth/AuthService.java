@@ -5,6 +5,7 @@ import cn.cctstudio.smartdiypcassistantbackend.auth.dto.LoginRequest;
 import cn.cctstudio.smartdiypcassistantbackend.auth.dto.LoginResponse;
 import cn.cctstudio.smartdiypcassistantbackend.auth.dto.RegisterRequest;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
+import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
 import cn.cctstudio.smartdiypcassistantbackend.security.JwtService;
 import cn.cctstudio.smartdiypcassistantbackend.security.UserPrincipal;
 import cn.cctstudio.smartdiypcassistantbackend.user.User;
@@ -20,11 +21,18 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final MediaUrlService mediaUrlService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService,
+            MediaUrlService mediaUrlService
+    ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.mediaUrlService = mediaUrlService;
     }
 
     @Transactional
@@ -32,9 +40,9 @@ public class AuthService {
         bootstrapDefaultAdmin();
         String account = request.username().trim();
         User user = userRepository.findByUsernameOrEmail(account, account.toLowerCase())
-                .orElseThrow(() -> new BusinessException(401, "账号或密码错误"));
+                .orElseThrow(() -> new BusinessException(401, "Invalid username or password"));
         if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            throw new BusinessException(401, "账号或密码错误");
+            throw new BusinessException(401, "Invalid username or password");
         }
         return createLoginResponse(user);
     }
@@ -45,10 +53,10 @@ public class AuthService {
         String username = request.username().trim();
         String email = request.email().trim().toLowerCase();
         if (userRepository.findByUsername(username).isPresent()) {
-            throw new BusinessException("用户名已被使用");
+            throw new BusinessException("Username already exists");
         }
         if (userRepository.findByEmail(email).isPresent()) {
-            throw new BusinessException("邮箱已被绑定");
+            throw new BusinessException("Email already bound");
         }
         User user = userRepository.save(new User(
                 username,
@@ -62,13 +70,14 @@ public class AuthService {
     @Transactional(readOnly = true)
     public CurrentUserResponse currentUser(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(401, "登录状态已失效"));
+                .orElseThrow(() -> new BusinessException(401, "Login state expired"));
         return new CurrentUserResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
                 user.getNickname(),
-                user.getAvatarUrl(),
+                user.getAvatarKey(),
+                mediaUrlService.toPublicUrl(user.getAvatarKey()),
                 user.getBio(),
                 user.getRole().name()
         );
@@ -81,7 +90,8 @@ public class AuthService {
                 user.getUsername(),
                 user.getEmail(),
                 user.getNickname(),
-                user.getAvatarUrl(),
+                user.getAvatarKey(),
+                mediaUrlService.toPublicUrl(user.getAvatarKey()),
                 user.getBio(),
                 user.getRole().name(),
                 jwtService.createToken(principal)

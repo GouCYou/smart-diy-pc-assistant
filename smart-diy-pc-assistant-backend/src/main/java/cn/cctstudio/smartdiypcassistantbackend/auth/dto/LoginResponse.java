@@ -5,6 +5,7 @@ public record LoginResponse(
         String username,
         String email,
         String nickname,
+        String avatarKey,
         String avatarUrl,
         String bio,
         String role,

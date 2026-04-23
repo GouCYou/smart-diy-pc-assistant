@@ -85,7 +85,7 @@
 			const pages = getCurrentPages()
 			if (pages.length > 1) {
 				uni.navigateBack({
-					animationType: 'slide-out-bottom',
+					animationType: 'slide-out-right',
 					animationDuration: 260,
 					fail: () => {
 						uni.reLaunch({ url: '/pages/index/index' })
@@ -188,43 +188,48 @@
 		background-color: #f6f7fb;
 		padding-left: 22px;
 		padding-right: 22px;
+		padding-bottom: constant(safe-area-inset-bottom);
+		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
-		animation-name: pageRiseIn;
+		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
 	}
 
 	.auth-page-leave {
-		animation-name: pageSinkOut;
+		animation-name: appPageOut;
 		animation-duration: 260ms;
 		animation-timing-function: ease-in;
 		animation-fill-mode: forwards;
 	}
 
-	@keyframes pageRiseIn {
+	@keyframes appPageIn {
 		from {
 			opacity: 0;
-			transform: translateY(24px);
+			transform: translateX(28px);
 		}
 		to {
 			opacity: 1;
-			transform: translateY(0);
+			transform: translateX(0);
 		}
 	}
 
-	@keyframes pageSinkOut {
+	@keyframes appPageOut {
 		from {
 			opacity: 1;
-			transform: translateY(0);
+			transform: translateX(0);
 		}
 		to {
 			opacity: 0;
-			transform: translateY(18px);
+			transform: translateX(28px);
 		}
 	}
 
 	.status-space {
-		height: 36px;
+		height: 44px;
+		height: calc(44px + constant(safe-area-inset-top));
+		height: calc(44px + env(safe-area-inset-top));
+		height: calc(20px + var(--status-bar-height));
 	}
 
 	.auth-nav {

@@ -39,7 +39,11 @@
 
 				<view v-if="post.buildConfig != null && post.buildConfig.id > 0" class="build-card" @click="openBuildDetail(post.buildConfig)">
 					<view class="build-icon">
-						<text class="build-icon-text">DIY</text>
+						<view class="build-card-mark">
+							<view class="build-card-head"></view>
+							<view class="build-card-row"></view>
+							<view class="build-card-row build-card-row-short"></view>
+						</view>
 					</view>
 					<view class="build-main">
 						<text class="build-title">{{ post.buildConfig.title }}</text>
@@ -108,7 +112,11 @@
 					</view>
 					<view v-if="comment.buildConfig != null && comment.buildConfig.id > 0" class="comment-build-card" @click="openBuildDetail(comment.buildConfig)">
 						<view class="comment-build-icon">
-							<text class="comment-build-icon-text">DIY</text>
+							<view class="comment-build-card-mark">
+								<view class="comment-build-card-head"></view>
+								<view class="comment-build-card-row"></view>
+								<view class="comment-build-card-row comment-build-card-row-short"></view>
+							</view>
 						</view>
 						<view class="comment-build-main">
 							<text class="comment-build-title">{{ comment.buildConfig.title }}</text>
@@ -133,6 +141,7 @@
 					<text class="comment-empty-desc">说说你的看法，或者补充装机建议。</text>
 				</view>
 			</view>
+			<view class="post-bottom-spacer"></view>
 		</scroll-view>
 
 		<view v-if="commentImageUrls.length > 0" class="comment-draft-images">
@@ -151,7 +160,11 @@
 
 		<view v-if="commentBuildId > 0" :class="commentImageUrls.length > 0 ? 'comment-linked-build comment-linked-build-raised' : 'comment-linked-build'" @click="openBuildDetail(commentBuildDetail)">
 			<view class="comment-build-icon">
-				<text class="comment-build-icon-text">DIY</text>
+				<view class="comment-build-card-mark">
+					<view class="comment-build-card-head"></view>
+					<view class="comment-build-card-row"></view>
+					<view class="comment-build-card-row comment-build-card-row-short"></view>
+				</view>
 			</view>
 			<view class="comment-build-main">
 				<text class="comment-build-title">{{ commentBuildTitle }}</text>
@@ -172,8 +185,11 @@
 			</view>
 			<input class="comment-input" v-model="commentText" placeholder="写评论" placeholder-class="input-placeholder" />
 			<view :class="commentBuildId > 0 ? 'comment-attach-button comment-attach-button-active' : 'comment-attach-button'" @click="openCommentBuildPicker">
-				<view class="comment-attach-icon-line"></view>
-				<view class="comment-attach-icon-dot"></view>
+				<view class="comment-build-symbol">
+					<view class="comment-build-symbol-head"></view>
+					<view class="comment-build-symbol-row"></view>
+					<view class="comment-build-symbol-row comment-build-symbol-row-short"></view>
+				</view>
 			</view>
 			<view class="comment-send" @click="submitComment">
 				<text class="comment-send-text">{{ commentSubmitting ? '...' : '发送' }}</text>
@@ -272,7 +288,7 @@
 
 <script setup lang="ts">
 	import { ref } from 'vue'
-	import { onShow } from '@dcloudio/uni-app'
+	import { onHide, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
 
 	type AuthorItem = {
@@ -377,14 +393,23 @@
 	const uploadProgressVisible = ref(false)
 	const uploadProgressTitle = ref('')
 	const uploadProgressPercent = ref(0)
+	const backendReconnectPending = ref(false)
+	let backendReconnectTimer : number = 0
+	let backendProbeRunning = false
 
 	loadLocalState()
 	loadCurrentUserId()
 	loadPostDetail()
 	onShow(() => {
 		loadLocalState()
+		if (backendReconnectPending.value) {
+			startBackendReconnectTimer()
+		}
 		loadCurrentUserId()
 		loadPostDetail()
+	})
+	onHide(() => {
+		stopBackendReconnectTimer()
 	})
 
 	function createEmptyAuthor() : AuthorItem {
@@ -472,6 +497,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
 					post.value = normalizePost(body.data as CommunityPostItem)
 					clampCommentPage()
 					return
@@ -481,6 +507,7 @@
 				}
 			},
 			fail: () => {
+				scheduleBackendReconnect()
 				uni.showToast({ title: '暂时连接不到后端服务', icon: 'none' })
 			},
 			complete: () => {
@@ -516,17 +543,25 @@
 		}
 		pageLeaving.value = true
 		setTimeout(() => {
-			uni.navigateBack({
-				animationType: 'slide-out-right',
-				animationDuration: 260
-			})
+			const pages = getCurrentPages()
+			if (pages.length > 1) {
+				uni.navigateBack({
+					animationType: 'slide-out-right',
+					animationDuration: 260,
+					fail: () => {
+						uni.reLaunch({ url: '/pages/index/index' })
+					}
+				})
+				return
+			}
+			uni.reLaunch({ url: '/pages/index/index' })
 		}, 250)
 	}
 
 	function openAuthPage() {
 		uni.navigateTo({
 			url: '/pages/auth/auth',
-			animationType: 'slide-in-bottom',
+			animationType: 'slide-in-right',
 			animationDuration: 260
 		})
 	}
@@ -544,6 +579,53 @@
 			return {}
 		}
 		return { 'Authorization': 'Bearer ' + token.value }
+	}
+
+	function scheduleBackendReconnect() {
+		backendReconnectPending.value = true
+		startBackendReconnectTimer()
+	}
+
+	function startBackendReconnectTimer() {
+		if (backendReconnectTimer != 0) {
+			return
+		}
+		probeBackendAndReload()
+		backendReconnectTimer = setInterval(() => {
+			probeBackendAndReload()
+		}, 3000)
+	}
+
+	function stopBackendReconnectTimer() {
+		if (backendReconnectTimer == 0) {
+			return
+		}
+		clearInterval(backendReconnectTimer)
+		backendReconnectTimer = 0
+	}
+
+	function probeBackendAndReload() {
+		if (!backendReconnectPending.value || backendProbeRunning) {
+			return
+		}
+		backendProbeRunning = true
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts',
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				if (res.statusCode >= 200 && res.statusCode < 500) {
+					backendReconnectPending.value = false
+					stopBackendReconnectTimer()
+					loadLocalState()
+					loadCurrentUserId()
+					loadPostDetail()
+				}
+			},
+			complete: () => {
+				backendProbeRunning = false
+			}
+		})
 	}
 
 	function openBuildDetail(buildConfig : BuildConfigItem) {
@@ -1227,33 +1309,37 @@
 		padding-left: 20px;
 		padding-right: 20px;
 		box-sizing: border-box;
-		animation-name: postSlideIn;
+		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
 	}
 
 	.post-page-leave {
-		animation-name: postSlideOut;
+		animation-name: appPageOut;
 		animation-duration: 260ms;
 		animation-timing-function: ease-in;
 		animation-fill-mode: forwards;
 	}
 
-	@keyframes postSlideIn {
+	@keyframes appPageIn {
 		from { opacity: 0; transform: translateX(28px); }
 		to { opacity: 1; transform: translateX(0); }
 	}
 
-	@keyframes postSlideOut {
+	@keyframes appPageOut {
 		from { opacity: 1; transform: translateX(0); }
 		to { opacity: 0; transform: translateX(28px); }
 	}
 
 	.status-space {
-		height: 28px;
+		height: 44px;
+		height: calc(44px + constant(safe-area-inset-top));
+		height: calc(44px + env(safe-area-inset-top));
+		height: calc(20px + var(--status-bar-height));
 	}
 
 	.post-nav {
+		position: relative;
 		height: 58px;
 		flex-direction: row;
 		align-items: center;
@@ -1263,35 +1349,50 @@
 	.nav-button,
 	.nav-spacer {
 		position: relative;
-		width: 40px;
-		height: 40px;
-		border-radius: 20px;
+		width: 38px;
+		height: 38px;
+		border-radius: 19px;
 		background-color: #ffffff;
 		align-items: center;
 		justify-content: center;
+		border-width: 1px;
+		border-color: #eef2f7;
+	}
+
+	.nav-button {
+		z-index: 2;
 	}
 
 	.nav-spacer {
 		background-color: transparent;
+		border-color: transparent;
 	}
 
 	.nav-title {
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 16px;
 		font-size: 18px;
 		line-height: 25px;
 		font-weight: 900;
 		color: #111827;
+		text-align: center;
+		pointer-events: none;
 	}
 
 	.back-chevron {
-		position: relative;
+		position: absolute;
 		width: 16px;
 		height: 16px;
+		left: 12px;
+		top: 11px;
 	}
 
 	.back-chevron-line {
 		position: absolute;
 		left: 2px;
-		width: 10px;
+		width: 11px;
 		height: 2px;
 		border-radius: 2px;
 		background-color: #111827;
@@ -1303,13 +1404,18 @@
 	}
 
 	.back-chevron-line-bottom {
-		bottom: 4px;
+		top: 10px;
 		transform: rotate(45deg);
 	}
 
 	.post-scroll {
-		height: 690px;
-		padding-bottom: 84px;
+		height: calc(100vh - 180px);
+	}
+
+	.post-bottom-spacer {
+		height: 22px;
+		height: calc(22px + constant(safe-area-inset-bottom));
+		height: calc(22px + env(safe-area-inset-bottom));
 	}
 
 	.post-card,
@@ -1467,11 +1573,31 @@
 		margin-right: 10px;
 	}
 
-	.build-icon-text {
-		font-size: 13px;
-		line-height: 18px;
-		font-weight: 900;
-		color: #ffffff;
+	.build-card-mark {
+		width: 22px;
+		height: 26px;
+		border-radius: 7px;
+		background-color: #ffffff;
+		padding: 4px;
+	}
+
+	.build-card-head {
+		width: 14px;
+		height: 5px;
+		border-radius: 3px;
+		background-color: #007aff;
+	}
+
+	.build-card-row {
+		width: 14px;
+		height: 3px;
+		border-radius: 2px;
+		background-color: #111827;
+		margin-top: 4px;
+	}
+
+	.build-card-row-short {
+		width: 10px;
 	}
 
 	.build-main {
@@ -1524,6 +1650,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 78px;
+		bottom: calc(78px + constant(safe-area-inset-bottom));
+		bottom: calc(78px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		margin-top: 0;
@@ -1532,6 +1660,8 @@
 
 	.comment-linked-build-raised {
 		bottom: 150px;
+		bottom: calc(150px + constant(safe-area-inset-bottom));
+		bottom: calc(150px + env(safe-area-inset-bottom));
 	}
 
 	.comment-build-icon {
@@ -1544,11 +1674,31 @@
 		margin-right: 9px;
 	}
 
-	.comment-build-icon-text {
-		font-size: 11px;
-		line-height: 15px;
-		font-weight: 900;
-		color: #ffffff;
+	.comment-build-card-mark {
+		width: 18px;
+		height: 22px;
+		border-radius: 6px;
+		background-color: #ffffff;
+		padding: 3px;
+	}
+
+	.comment-build-card-head {
+		width: 10px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #007aff;
+	}
+
+	.comment-build-card-row {
+		width: 10px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #111827;
+		margin-top: 3px;
+	}
+
+	.comment-build-card-row-short {
+		width: 7px;
 	}
 
 	.comment-build-main {
@@ -1787,6 +1937,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 78px;
+		bottom: calc(78px + constant(safe-area-inset-bottom));
+		bottom: calc(78px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		min-height: 66px;
@@ -1893,6 +2045,8 @@
 		left: 20px;
 		right: 20px;
 		bottom: 18px;
+		bottom: calc(18px + constant(safe-area-inset-bottom));
+		bottom: calc(18px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		min-height: 52px;
@@ -1916,6 +2070,10 @@
 		margin-right: 4px;
 	}
 
+	.comment-image-button .tool-image-icon {
+		left: 0.67px;
+	}
+
 	.comment-attach-button {
 		position: relative;
 		width: 40px;
@@ -1931,28 +2089,48 @@
 		background-color: #eef5ff;
 	}
 
-	.comment-attach-icon-line {
-		width: 15px;
-		height: 3px;
-		border-radius: 3px;
+	.comment-build-symbol {
+		width: 18px;
+		height: 22px;
+		border-radius: 6px;
+		border-width: 2px;
+		border-color: #667085;
+		padding: 3px;
+	}
+
+	.comment-build-symbol-head {
+		width: 10px;
+		height: 4px;
+		border-radius: 2px;
 		background-color: #667085;
 	}
 
-	.comment-attach-icon-dot {
-		position: absolute;
+	.comment-build-symbol-row {
+		width: 10px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #667085;
+		margin-top: 3px;
+	}
+
+	.comment-build-symbol-row-short {
 		width: 7px;
-		height: 7px;
-		border-radius: 4px;
+	}
+
+	.comment-attach-button-active .comment-build-symbol {
+		border-color: #007aff;
+	}
+
+	.comment-attach-button-active .comment-build-symbol-head,
+	.comment-attach-button-active .comment-build-symbol-row {
 		background-color: #007aff;
-		right: 11px;
-		top: 11px;
 	}
 
 	.tool-image-icon {
 		position: relative;
-		width: 16px;
-		height: 14px;
-		border-radius: 4px;
+		width: 18px;
+		height: 16px;
+		border-radius: 5px;
 		border-width: 2px;
 		border-color: #007aff;
 		overflow: hidden;
@@ -1960,8 +2138,8 @@
 
 	.tool-image-sun {
 		position: absolute;
-		right: 2px;
-		top: 2px;
+		right: 3px;
+		top: 3px;
 		width: 4px;
 		height: 4px;
 		border-radius: 2px;
@@ -1970,30 +2148,40 @@
 
 	.tool-image-hill {
 		position: absolute;
-		left: 2px;
-		bottom: -1px;
+		left: 3px;
+		bottom: 1px;
 		width: 12px;
-		height: 7px;
-		border-radius: 7px;
+		height: 6px;
+		border-radius: 6px;
 		background-color: #007aff;
 	}
 
-	.tool-build-icon {
-		width: 18px;
+	.tool-build-symbol {
+		width: 15px;
 		height: 18px;
-		flex-direction: row;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		align-content: space-between;
+		border-radius: 5px;
+		border-width: 2px;
+		border-color: #007aff;
+		padding: 2px;
 	}
 
-	.tool-build-dot {
+	.tool-build-symbol-head {
 		width: 7px;
-		height: 7px;
-		border-radius: 3px;
-		background-color: #34c759;
-		margin-right: 2px;
-		margin-bottom: 2px;
+		height: 3px;
+		border-radius: 2px;
+		background-color: #007aff;
+	}
+
+	.tool-build-symbol-row {
+		width: 7px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #007aff;
+		margin-top: 2px;
+	}
+
+	.tool-build-symbol-row-short {
+		width: 5px;
 	}
 
 	.comment-input {
@@ -2219,7 +2407,10 @@
 		position: fixed;
 		left: 18px;
 		right: 18px;
-		top: 32px;
+		top: 44px;
+		top: calc(44px + constant(safe-area-inset-top));
+		top: calc(44px + env(safe-area-inset-top));
+		top: calc(20px + var(--status-bar-height));
 		width: auto;
 		max-width: none;
 		height: 42px;
@@ -2280,6 +2471,8 @@
 		left: 24px;
 		right: 24px;
 		bottom: 28px;
+		bottom: calc(28px + constant(safe-area-inset-bottom));
+		bottom: calc(28px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		flex-direction: row;
@@ -2312,7 +2505,10 @@
 		position: fixed;
 		left: 24px;
 		right: 24px;
-		top: 46px;
+		top: 58px;
+		top: calc(58px + constant(safe-area-inset-top));
+		top: calc(58px + env(safe-area-inset-top));
+		top: calc(34px + var(--status-bar-height));
 		width: auto;
 		max-width: none;
 		height: 104px;

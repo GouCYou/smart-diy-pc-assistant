@@ -340,20 +340,22 @@
 		background-color: #f6f7fb;
 		padding-left: 20px;
 		padding-right: 20px;
+		padding-bottom: constant(safe-area-inset-bottom);
+		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
-		animation-name: profileSlideIn;
+		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
 	}
 
 	.profile-page-leave {
-		animation-name: profileSlideOut;
+		animation-name: appPageOut;
 		animation-duration: 260ms;
 		animation-timing-function: ease-in;
 		animation-fill-mode: forwards;
 	}
 
-	@keyframes profileSlideIn {
+	@keyframes appPageIn {
 		from {
 			opacity: 0;
 			transform: translateX(28px);
@@ -364,19 +366,22 @@
 		}
 	}
 
-	@keyframes profileSlideOut {
+	@keyframes appPageOut {
 		from {
 			opacity: 1;
 			transform: translateX(0);
 		}
 		to {
 			opacity: 0;
-			transform: translateX(24px);
+			transform: translateX(28px);
 		}
 	}
 
 	.status-space {
-		height: 36px;
+		height: 44px;
+		height: calc(44px + constant(safe-area-inset-top));
+		height: calc(44px + env(safe-area-inset-top));
+		height: calc(20px + var(--status-bar-height));
 	}
 
 	.profile-nav {

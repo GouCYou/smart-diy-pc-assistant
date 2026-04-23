@@ -39,8 +39,12 @@
 							<text :class="message.role == 'user' ? 'message-text message-text-user' : 'message-text'">{{ message.content }}</text>
 						</view>
 						<view v-if="message.buildConfigId > 0" class="chat-build-card" @click="openChatBuildDetail(message.buildConfigId)">
-							<view class="chat-build-icon">
-								<text class="chat-build-icon-text">AI</text>
+							<view class="build-link-icon">
+								<view class="build-link-card">
+									<view class="build-link-card-head"></view>
+									<view class="build-link-card-row"></view>
+									<view class="build-link-card-row build-link-card-row-short"></view>
+								</view>
 							</view>
 							<view class="chat-build-main">
 								<text class="chat-build-title">{{ message.buildConfigTitle }}</text>
@@ -69,8 +73,11 @@
 			</view>
 			<view class="composer">
 				<view :class="attachedBuildId > 0 ? 'attach-button attach-button-active' : 'attach-button'" @click="openChatBuildPicker">
-					<view class="attach-icon-line"></view>
-					<view class="attach-icon-dot"></view>
+					<view class="build-link-mini">
+						<view class="build-link-mini-head"></view>
+						<view class="build-link-mini-row"></view>
+						<view class="build-link-mini-row build-link-mini-row-short"></view>
+					</view>
 				</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
 				<view :class="draft.length > 0 || attachedBuildId > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
@@ -231,8 +238,12 @@
 							<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click.stop="previewPostImages(post.imageUrls, image)"></image>
 						</view>
 						<view v-if="post.buildConfig != null && post.buildConfig.id > 0" class="post-build-card" @click.stop="openPostBuildDetail(post.buildConfig.id)">
-							<view class="chat-build-icon">
-								<text class="chat-build-icon-text">DIY</text>
+							<view class="build-link-icon">
+								<view class="build-link-card">
+									<view class="build-link-card-head"></view>
+									<view class="build-link-card-row"></view>
+									<view class="build-link-card-row build-link-card-row-short"></view>
+								</view>
 							</view>
 							<view class="chat-build-main">
 								<text class="chat-build-title">{{ post.buildConfig.title }}</text>
@@ -284,20 +295,89 @@
 
 		<view v-if="activeTab == 3" :class="getPageClass('normal-page')">
 			<view class="status-space"></view>
-			<view class="page-head">
+			<view class="page-head page-head-row">
 				<view class="page-head-main">
 					<text class="page-title page-title-inset">热点</text>
 				</view>
+				<view class="news-sort-switch">
+					<view :class="newsSort == 'latest' ? 'news-sort-item news-sort-item-active' : 'news-sort-item'" @click="setNewsSort('latest')">
+						<text :class="newsSort == 'latest' ? 'news-sort-text news-sort-text-active' : 'news-sort-text'">最新</text>
+					</view>
+					<view :class="newsSort == 'likes' ? 'news-sort-item news-sort-item-active' : 'news-sort-item'" @click="setNewsSort('likes')">
+						<text :class="newsSort == 'likes' ? 'news-sort-text news-sort-text-active' : 'news-sort-text'">热度</text>
+					</view>
+				</view>
 			</view>
 
-			<view class="empty-state">
+			<view class="section-search news-search">
+				<view class="section-search-icon">
+					<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
+				</view>
+				<input class="section-search-input" v-model="newsSearchKeyword" placeholder="搜索新闻标题、标签或内容" placeholder-class="section-search-placeholder" @input="resetNewsPage()" />
+			</view>
+
+			<scroll-view v-if="getFilteredNewsList().length > 0" class="news-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="newsRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshNews">
+				<view class="news-feed">
+					<view v-for="(item, index) in getPagedNewsList()" :key="item.id" :class="index == 0 && newsPage == 1 ? 'tech-news-card tech-news-card-featured' : 'tech-news-card'" @click="openNewsDetail(item.id)">
+						<view class="tech-news-cover-wrap">
+							<image v-if="item.coverUrl.length > 0" class="tech-news-cover" :src="item.coverUrl" mode="aspectFill"></image>
+							<view v-else class="tech-news-cover tech-news-cover-empty">
+								<text class="tech-news-cover-text">TECH</text>
+							</view>
+							<view class="tech-news-badge">
+								<text class="tech-news-badge-text">{{ item.tag || '科技新闻' }}</text>
+							</view>
+						</view>
+						<view class="tech-news-body">
+							<text class="tech-news-title">{{ item.title }}</text>
+							<text class="tech-news-summary">{{ item.summary }}</text>
+							<view class="tech-news-meta">
+								<text class="tech-news-meta-text">{{ formatHistoryTime(item.createdAt) }}</text>
+								<text class="tech-news-meta-dot">·</text>
+								<text class="tech-news-meta-text">{{ item.viewCount }} 浏览</text>
+							</view>
+							<view class="tech-news-actions">
+								<view class="tech-news-action" @click.stop="toggleNewsLike(item.id)">
+									<text :class="item.liked ? 'tech-news-action-icon tech-news-like-active' : 'tech-news-action-icon'">♥</text>
+									<text class="tech-news-action-text">{{ item.likeCount }}</text>
+								</view>
+								<view class="tech-news-action" @click.stop="toggleNewsFavorite(item.id)">
+									<text :class="item.favorite ? 'tech-news-action-icon tech-news-fav-active' : 'tech-news-action-icon'">★</text>
+									<text class="tech-news-action-text">{{ item.favoriteCount }}</text>
+								</view>
+								<view class="tech-news-action">
+									<view class="comment-action-icon">
+										<view class="comment-action-dot"></view>
+										<view class="comment-action-dot"></view>
+										<view class="comment-action-dot"></view>
+										<view class="comment-action-tail"></view>
+									</view>
+									<text class="tech-news-action-text">{{ item.commentCount }}</text>
+								</view>
+							</view>
+						</view>
+					</view>
+					<view v-if="getNewsPageCount() > 1" class="list-pager">
+						<view :class="newsPage <= 1 ? 'pager-button pager-button-disabled' : 'pager-button'" @click="previousNewsPage">
+							<text :class="newsPage <= 1 ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">上一页</text>
+						</view>
+						<text class="pager-count">{{ newsPage }} / {{ getNewsPageCount() }}</text>
+						<view :class="newsPage >= getNewsPageCount() ? 'pager-button pager-button-disabled' : 'pager-button'" @click="nextNewsPage">
+							<text :class="newsPage >= getNewsPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
+						</view>
+					</view>
+					<view class="news-bottom-spacer"></view>
+				</view>
+			</scroll-view>
+
+			<view v-if="getFilteredNewsList().length == 0 && !newsLoading" class="empty-state empty-state-news">
 				<view class="empty-illustration empty-news">
 					<view class="news-line news-line-long"></view>
 					<view class="news-line"></view>
 					<view class="news-line news-line-short"></view>
 				</view>
-				<text class="empty-title">暂无新闻热点</text>
-				<text class="empty-desc">有新的硬件资讯时，会在这里集中展示。</text>
+				<text class="empty-title">{{ getNewsEmptyTitle() }}</text>
+				<text class="empty-desc">{{ getNewsEmptyDesc() }}</text>
 			</view>
 		</view>
 
@@ -367,8 +447,12 @@
 			</view>
 			<view :class="activeTab == 2 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(2)">
 				<view class="tab-glyph discover-glyph">
-					<view :class="activeTab == 2 ? 'discover-circle discover-circle-active' : 'discover-circle'"></view>
-					<view :class="activeTab == 2 ? 'discover-needle discover-needle-active' : 'discover-needle'"></view>
+					<view :class="activeTab == 2 ? 'discover-compass discover-compass-active' : 'discover-compass'">
+						<view :class="activeTab == 2 ? 'discover-ring discover-ring-active' : 'discover-ring'"></view>
+						<view :class="activeTab == 2 ? 'discover-needle discover-needle-active' : 'discover-needle'"></view>
+						<view class="discover-needle-tail"></view>
+						<view :class="activeTab == 2 ? 'discover-center discover-center-active' : 'discover-center'"></view>
+					</view>
 				</view>
 				<text :class="activeTab == 2 ? 'tab-label tab-label-active' : 'tab-label'">发现</text>
 			</view>
@@ -597,8 +681,12 @@
 				</view>
 				<textarea class="post-form-textarea" v-model="postContent" placeholder="分享装机想法、预算困惑或成品照片" placeholder-class="input-placeholder" />
 				<view v-if="postBuildId > 0" class="post-linked-build" @click="openPostBuildDetail(postBuildId)">
-					<view class="chat-build-icon">
-						<text class="chat-build-icon-text">DIY</text>
+					<view class="build-link-icon">
+						<view class="build-link-card">
+							<view class="build-link-card-head"></view>
+							<view class="build-link-card-row"></view>
+							<view class="build-link-card-row build-link-card-row-short"></view>
+						</view>
 					</view>
 					<view class="chat-build-main">
 						<text class="chat-build-title">{{ postBuildTitle }}</text>
@@ -631,9 +719,10 @@
 						<text class="tool-pill-text">图片 {{ postImageUrls.length }}/9</text>
 					</view>
 					<view class="tool-pill" @click="openPostBuildPicker">
-						<view class="tool-build-icon">
-							<view class="tool-build-dot"></view>
-							<view class="tool-build-dot"></view>
+						<view class="tool-build-symbol">
+							<view class="tool-build-symbol-head"></view>
+							<view class="tool-build-symbol-row"></view>
+							<view class="tool-build-symbol-row tool-build-symbol-row-short"></view>
 						</view>
 						<text class="tool-pill-text">配置</text>
 					</view>
@@ -700,8 +789,12 @@
 						<image v-for="image in selectedPost.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click="previewImage(image)"></image>
 					</view>
 					<view v-if="selectedPost.buildConfig != null && selectedPost.buildConfig.id > 0" class="post-build-card" @click="openPostBuildDetail(selectedPost.buildConfig.id)">
-						<view class="chat-build-icon">
-							<text class="chat-build-icon-text">DIY</text>
+						<view class="build-link-icon">
+							<view class="build-link-card">
+								<view class="build-link-card-head"></view>
+								<view class="build-link-card-row"></view>
+								<view class="build-link-card-row build-link-card-row-short"></view>
+							</view>
 						</view>
 						<view class="chat-build-main">
 							<text class="chat-build-title">{{ selectedPost.buildConfig.title }}</text>
@@ -908,6 +1001,36 @@
 		comments : CommunityCommentItem[]
 	}
 
+	type NewsCommentItem = {
+		id : number
+		newsId : number
+		author : AuthorItem
+		content : string
+		likeCount : number
+		liked : boolean
+		createdAt : string
+	}
+
+	type NewsItem = {
+		id : number
+		title : string
+		summary : string
+		tag : string
+		content : string
+		coverKey : string
+		coverUrl : string
+		viewCount : number
+		likeCount : number
+		commentCount : number
+		favoriteCount : number
+		liked : boolean
+		favorite : boolean
+		status : string
+		createdAt : string
+		updatedAt : string
+		comments : NewsCommentItem[]
+	}
+
 	const apiBaseUrl = API_BASE_URL
 	const activeTab = ref(0)
 	const historyOpen = ref(false)
@@ -977,6 +1100,12 @@
 	const communityPage = ref(1)
 	const communityLoading = ref(false)
 	const communityRefreshing = ref(false)
+	const newsList = ref([] as NewsItem[])
+	const newsSearchKeyword = ref('')
+	const newsSort = ref('latest')
+	const newsPage = ref(1)
+	const newsLoading = ref(false)
+	const newsRefreshing = ref(false)
 	const postFormVisible = ref(false)
 	const postSubmitting = ref(false)
 	const postContent = ref('')
@@ -1025,6 +1154,9 @@
 	] as HardwareTypeOption[]
 
 	let historyRefreshTimer : number = 0
+	let backendReconnectTimer : number = 0
+	let backendProbeRunning = false
+	const backendReconnectPending = ref(false)
 
 	loadAuth()
 	if (token.value.length > 0) {
@@ -1033,6 +1165,9 @@
 	}
 	onShow(() => {
 		loadAuth()
+		if (backendReconnectPending.value) {
+			startBackendReconnectTimer()
+		}
 		if (token.value.length > 0) {
 			if (currentUserId.value == 0) {
 				loadProfile()
@@ -1051,9 +1186,13 @@
 		if (activeTab.value == 2) {
 			loadCommunityPosts()
 		}
+		if (activeTab.value == 3) {
+			loadNews()
+		}
 	})
 	onHide(() => {
 		stopHistoryRefreshTimer()
+		stopBackendReconnectTimer()
 	})
 
 	function createEmptyBuildConfig() : BuildConfigItem {
@@ -1258,6 +1397,85 @@
 		})
 	}
 
+	function setNewsSort(value : string) {
+		if (newsSort.value == value) {
+			return
+		}
+		newsSort.value = value
+		newsPage.value = 1
+		loadNewsWithForce(true)
+	}
+
+	function getFilteredNewsList() : NewsItem[] {
+		const keyword = normalizeSearchKeyword(newsSearchKeyword.value)
+		if (keyword.length == 0) {
+			return newsList.value
+		}
+		return newsList.value.filter((item : NewsItem) : boolean => {
+			return textMatchesKeyword(item.title, keyword)
+				|| textMatchesKeyword(item.summary, keyword)
+				|| textMatchesKeyword(item.tag, keyword)
+				|| textMatchesKeyword(item.content, keyword)
+		})
+	}
+
+	function resetNewsPage() {
+		newsPage.value = 1
+	}
+
+	function clampNewsPage() {
+		const pageCount = getNewsPageCount()
+		if (newsPage.value > pageCount) {
+			newsPage.value = pageCount
+		}
+		if (newsPage.value < 1) {
+			newsPage.value = 1
+		}
+	}
+
+	function previousNewsPage() {
+		if (newsPage.value <= 1) {
+			return
+		}
+		newsPage.value = newsPage.value - 1
+	}
+
+	function nextNewsPage() {
+		const pageCount = getNewsPageCount()
+		if (newsPage.value >= pageCount) {
+			return
+		}
+		newsPage.value = newsPage.value + 1
+	}
+
+	function getNewsPageCount() : number {
+		const list = getFilteredNewsList()
+		if (list.length == 0) {
+			return 1
+		}
+		return Math.ceil(list.length / 6)
+	}
+
+	function getPagedNewsList() : NewsItem[] {
+		clampNewsPage()
+		const start = (newsPage.value - 1) * 6
+		return getFilteredNewsList().slice(start, start + 6)
+	}
+
+	function getNewsEmptyTitle() : string {
+		if (normalizeSearchKeyword(newsSearchKeyword.value).length > 0) {
+			return '没有找到新闻'
+		}
+		return '暂无新闻热点'
+	}
+
+	function getNewsEmptyDesc() : string {
+		if (normalizeSearchKeyword(newsSearchKeyword.value).length > 0) {
+			return '换个关键词试试，新闻标题、标签和正文都可以搜。'
+		}
+		return '有新的硬件资讯时，会在这里集中展示。'
+	}
+
 	function getBuildEmptyTitle() : string {
 		if (normalizeSearchKeyword(buildSearchKeyword.value).length > 0) {
 			return '没有找到配置'
@@ -1326,6 +1544,9 @@
 		}
 		if (index == 2) {
 			loadCommunityPosts()
+		}
+		if (index == 3) {
+			loadNews()
 		}
 		setTimeout(() => {
 			pageMotionClass.value = ''
@@ -1440,6 +1661,7 @@
 				})
 			},
 			fail: () => {
+				scheduleBackendReconnect()
 				chatMessages.value.push({
 					role: 'assistant',
 					content: '暂时连接不到后端服务，请确认后端已经启动。',
@@ -1684,6 +1906,50 @@
 		loadCommunityPostsWithForce(true)
 	}
 
+	function loadNews() {
+		loadNewsWithForce(false)
+	}
+
+	function refreshNews() {
+		newsRefreshing.value = true
+		loadNewsWithForce(true)
+	}
+
+	function loadNewsWithForce(force : boolean) {
+		if (newsLoading.value && !force) {
+			return
+		}
+		newsLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/news?sort=' + newsSort.value,
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
+					const list = body.data as NewsItem[]
+					for (let i = 0; i < list.length; i++) {
+						list[i] = normalizeNewsItem(list[i])
+					}
+					newsList.value = list
+					clampNewsPage()
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
+			},
+			complete: () => {
+				newsLoading.value = false
+				newsRefreshing.value = false
+			}
+		})
+	}
+
 	function loadCommunityPostsWithForce(force : boolean) {
 		if (communityLoading.value && !force) {
 			return
@@ -1696,6 +1962,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
 					const posts = body.data as CommunityPostItem[]
 					for (let i = 0; i < posts.length; i++) {
 						posts[i] = normalizeCommunityPost(posts[i])
@@ -1708,6 +1975,9 @@
 					clearAuth()
 					return
 				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
 			},
 			complete: () => {
 				communityLoading.value = false
@@ -2285,6 +2555,77 @@
 		}
 	}
 
+	function openNewsDetail(id : number) {
+		uni.setStorageSync('current_news_id', id)
+		uni.navigateTo({
+			url: '/pages/news/detail',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
+	function toggleNewsLike(id : number) {
+		if (!requireLogin()) {
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/news/' + id + '/like',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					updateNewsItem(normalizeNewsItem(body.data as NewsItem))
+				}
+			}
+		})
+	}
+
+	function toggleNewsFavorite(id : number) {
+		if (!requireLogin()) {
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/news/' + id + '/favorite',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					updateNewsItem(normalizeNewsItem(body.data as NewsItem))
+				}
+			}
+		})
+	}
+
+	function updateNewsItem(news : NewsItem) {
+		for (let i = 0; i < newsList.value.length; i++) {
+			if (newsList.value[i].id == news.id) {
+				const current = newsList.value[i]
+				news.comments = current.comments
+				newsList.value.splice(i, 1, news)
+				break
+			}
+		}
+	}
+
+	function normalizeNewsItem(news : NewsItem) : NewsItem {
+		if (news.tag == null || news.tag.length == 0) {
+			news.tag = '科技新闻'
+		}
+		if (news.coverUrl != null && news.coverUrl.length > 0) {
+			news.coverUrl = normalizeMediaUrl(news.coverUrl)
+		}
+		if (news.comments == null) {
+			news.comments = [] as NewsCommentItem[]
+		}
+		return news
+	}
+
 	function isMine(authorId : number) : boolean {
 		return currentUserId.value > 0 && authorId == currentUserId.value
 	}
@@ -2450,7 +2791,7 @@
 	function openAuthPage() {
 		uni.navigateTo({
 			url: '/pages/auth/auth',
-			animationType: 'slide-in-bottom',
+			animationType: 'slide-in-right',
 			animationDuration: 260
 		})
 	}
@@ -2555,6 +2896,10 @@
 		currentBio.value = ''
 		buildList.value = []
 		selectedHardwareParts.value = []
+		for (let i = 0; i < newsList.value.length; i++) {
+			newsList.value[i].liked = false
+			newsList.value[i].favorite = false
+		}
 		buildEditingId.value = 0
 		buildFormVisible.value = false
 		partPickerVisible.value = false
@@ -2590,6 +2935,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
 					saveProfile(body.data as UserProfilePayload)
 					return
 				}
@@ -2598,6 +2944,7 @@
 				}
 			},
 			fail: () => {
+				scheduleBackendReconnect()
 			}
 		})
 	}
@@ -2618,6 +2965,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
 					buildList.value = body.data as BuildConfigItem[]
 					clampBuildPage()
 					return
@@ -2625,6 +2973,9 @@
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
 					clearAuth()
 				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
 			},
 			complete: () => {
 				buildLoading.value = false
@@ -3091,12 +3442,16 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
 					conversationList.value = body.data as ConversationSummary[]
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
 					clearAuth()
 				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
 			},
 			complete: () => {
 				if (fromRefresh) {
@@ -3264,6 +3619,73 @@
 		historyRefreshTimer = 0
 	}
 
+	function scheduleBackendReconnect() {
+		backendReconnectPending.value = true
+		startBackendReconnectTimer()
+	}
+
+	function startBackendReconnectTimer() {
+		if (backendReconnectTimer != 0) {
+			return
+		}
+		probeBackendAndReload()
+		backendReconnectTimer = setInterval(() => {
+			probeBackendAndReload()
+		}, 3000)
+	}
+
+	function stopBackendReconnectTimer() {
+		if (backendReconnectTimer == 0) {
+			return
+		}
+		clearInterval(backendReconnectTimer)
+		backendReconnectTimer = 0
+	}
+
+	function probeBackendAndReload() {
+		if (!backendReconnectPending.value || backendProbeRunning) {
+			return
+		}
+		backendProbeRunning = true
+		uni.request({
+			url: apiBaseUrl + '/api/community/posts',
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				if (res.statusCode >= 200 && res.statusCode < 500) {
+					backendReconnectPending.value = false
+					stopBackendReconnectTimer()
+					reloadAfterBackendReconnect()
+				}
+			},
+			complete: () => {
+				backendProbeRunning = false
+			}
+		})
+	}
+
+	function reloadAfterBackendReconnect() {
+		loadAuth()
+		if (token.value.length > 0) {
+			loadConversations()
+			if (currentUserId.value == 0 || activeTab.value == 4) {
+				loadProfile()
+			}
+		}
+		if (activeTab.value == 1) {
+			loadBuildConfigs()
+		}
+		if (activeTab.value == 2) {
+			loadCommunityPosts()
+		}
+		if (activeTab.value == 3) {
+			loadNews()
+		}
+		if (historyOpen.value) {
+			loadConversations()
+		}
+	}
+
 	function formatHistoryTime(value : string) : string {
 		if (value.length >= 16) {
 			return value.substring(5, 16).replace('T', ' ')
@@ -3370,6 +3792,8 @@
 		padding-left: 18px;
 		padding-right: 18px;
 		padding-bottom: 112px;
+		padding-bottom: calc(112px + constant(safe-area-inset-bottom));
+		padding-bottom: calc(112px + env(safe-area-inset-bottom));
 		transform: translateX(0);
 	}
 
@@ -3388,7 +3812,7 @@
 	@keyframes pageInRight {
 		from {
 			opacity: 0;
-			transform: translateX(34px);
+			transform: translateX(28px);
 		}
 		to {
 			opacity: 1;
@@ -3399,7 +3823,7 @@
 	@keyframes pageInLeft {
 		from {
 			opacity: 0;
-			transform: translateX(-34px);
+			transform: translateX(-28px);
 		}
 		to {
 			opacity: 1;
@@ -3408,8 +3832,14 @@
 	}
 
 	.status-space {
-		height: 36px;
-		min-height: 36px;
+		height: 44px;
+		height: calc(44px + constant(safe-area-inset-top));
+		height: calc(44px + env(safe-area-inset-top));
+		height: calc(20px + var(--status-bar-height));
+		min-height: 44px;
+		min-height: calc(44px + constant(safe-area-inset-top));
+		min-height: calc(44px + env(safe-area-inset-top));
+		min-height: calc(20px + var(--status-bar-height));
 		flex-shrink: 0;
 	}
 
@@ -3423,7 +3853,10 @@
 		position: fixed;
 		left: 18px;
 		right: 18px;
-		top: 36px;
+		top: 44px;
+		top: calc(44px + constant(safe-area-inset-top));
+		top: calc(44px + env(safe-area-inset-top));
+		top: calc(20px + var(--status-bar-height));
 		width: auto;
 		max-width: none;
 		height: 48px;
@@ -3438,12 +3871,14 @@
 		position: absolute;
 		left: 0;
 		top: 5px;
+		z-index: 2;
 	}
 
 	.chat-nav .nav-button:last-child {
 		position: absolute;
 		right: 0;
 		top: 5px;
+		z-index: 2;
 	}
 
 	.nav-title {
@@ -3455,6 +3890,8 @@
 		font-weight: 700;
 		color: #111827;
 		text-align: center;
+		pointer-events: none;
+		z-index: 1;
 	}
 
 	.nav-button {
@@ -3542,8 +3979,13 @@
 		position: fixed;
 		left: 18px;
 		right: 18px;
-		top: 92px;
+		top: 100px;
+		top: calc(100px + constant(safe-area-inset-top));
+		top: calc(100px + env(safe-area-inset-top));
+		top: calc(76px + var(--status-bar-height));
 		bottom: 160px;
+		bottom: calc(160px + constant(safe-area-inset-bottom));
+		bottom: calc(160px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		margin-top: 0;
@@ -3846,7 +4288,7 @@
 		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
 	}
 
-	.chat-build-icon {
+	.build-link-icon {
 		width: 42px;
 		height: 42px;
 		border-radius: 16px;
@@ -3856,11 +4298,31 @@
 		margin-right: 10px;
 	}
 
-	.chat-build-icon-text {
-		font-size: 13px;
-		line-height: 18px;
-		font-weight: 900;
-		color: #ffffff;
+	.build-link-card {
+		width: 22px;
+		height: 26px;
+		border-radius: 7px;
+		background-color: #ffffff;
+		padding: 4px;
+	}
+
+	.build-link-card-head {
+		width: 14px;
+		height: 5px;
+		border-radius: 3px;
+		background-color: #007aff;
+	}
+
+	.build-link-card-row {
+		width: 14px;
+		height: 3px;
+		border-radius: 2px;
+		background-color: #111827;
+		margin-top: 4px;
+	}
+
+	.build-link-card-row-short {
+		width: 10px;
 	}
 
 	.chat-build-main {
@@ -3894,6 +4356,8 @@
 		left: 18px;
 		right: 18px;
 		bottom: 98px;
+		bottom: calc(98px + constant(safe-area-inset-bottom));
+		bottom: calc(98px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		min-height: 56px;
@@ -3914,6 +4378,8 @@
 		left: 30px;
 		right: 30px;
 		bottom: 162px;
+		bottom: calc(162px + constant(safe-area-inset-bottom));
+		bottom: calc(162px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		min-height: 38px;
@@ -3963,21 +4429,41 @@
 		background-color: #eef5ff;
 	}
 
-	.attach-icon-line {
-		width: 15px;
-		height: 3px;
-		border-radius: 3px;
+	.build-link-mini {
+		width: 18px;
+		height: 22px;
+		border-radius: 6px;
+		border-width: 2px;
+		border-color: #667085;
+		padding: 3px;
+	}
+
+	.build-link-mini-head {
+		width: 10px;
+		height: 4px;
+		border-radius: 2px;
 		background-color: #667085;
 	}
 
-	.attach-icon-dot {
-		position: absolute;
+	.build-link-mini-row {
+		width: 10px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #667085;
+		margin-top: 3px;
+	}
+
+	.build-link-mini-row-short {
 		width: 7px;
-		height: 7px;
-		border-radius: 4px;
+	}
+
+	.attach-button-active .build-link-mini {
+		border-color: #007aff;
+	}
+
+	.attach-button-active .build-link-mini-head,
+	.attach-button-active .build-link-mini-row {
 		background-color: #007aff;
-		right: 12px;
-		top: 12px;
 	}
 
 	.composer-input {
@@ -4052,8 +4538,13 @@
 		background-color: #ffffff;
 		z-index: 61;
 		padding-top: 56px;
+		padding-top: calc(56px + constant(safe-area-inset-top));
+		padding-top: calc(56px + env(safe-area-inset-top));
+		padding-top: calc(32px + var(--status-bar-height));
 		padding-left: 18px;
 		padding-right: 18px;
+		padding-bottom: constant(safe-area-inset-bottom);
+		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
 		box-shadow: none;
 		transition-property: left;
@@ -4480,19 +4971,27 @@
 
 	.build-live-label,
 	.build-score-label {
-		font-size: 11px;
+		width: 100%;
+		font-size: 12px;
 		line-height: 16px;
 		color: #98a2b3;
 		font-weight: 800;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.build-live-value,
 	.build-score-value {
-		margin-top: 2px;
+		width: 100%;
+		margin-top: 4px;
 		font-size: 17px;
 		line-height: 23px;
 		color: #111827;
 		font-weight: 900;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.part-selector-list {
@@ -4931,6 +5430,8 @@
 	}
 
 	.build-list {
+		width: 100%;
+		padding-top: 4px;
 		padding-bottom: 18px;
 	}
 
@@ -4982,15 +5483,20 @@
 	}
 
 	.build-card {
-		border-radius: 24px;
+		width: auto;
+		max-width: none;
+		flex-direction: column;
+		align-self: stretch;
+		overflow: hidden;
+		border-radius: 28px;
 		background-color: #ffffff;
 		padding: 16px;
-		margin-bottom: 12px;
-		border-width: 1px;
-		border-color: #edf0f5;
+		margin-bottom: 16px;
+		border-width: 0;
 	}
 
 	.build-card-head {
+		width: 100%;
 		flex-direction: row;
 		align-items: flex-start;
 		justify-content: space-between;
@@ -4998,10 +5504,12 @@
 
 	.build-card-main {
 		flex: 1;
+		min-width: 0;
 		padding-right: 12px;
 	}
 
 	.build-card-delete {
+		flex-shrink: 0;
 		height: 32px;
 		border-radius: 16px;
 		background-color: #fff1f0;
@@ -5019,32 +5527,41 @@
 	}
 
 	.build-title {
+		width: 100%;
 		font-size: 17px;
 		line-height: 24px;
 		font-weight: 900;
 		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.build-meta {
+		width: 100%;
 		margin-top: 3px;
 		font-size: 12px;
 		line-height: 17px;
 		color: #98a2b3;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.favorite-button {
-		height: 32px;
-		border-radius: 16px;
+		flex-shrink: 0;
+		height: 34px;
+		border-radius: 17px;
 		background-color: #f3f6fb;
 		flex-direction: row;
 		align-items: center;
 		justify-content: center;
-		padding-left: 12px;
+		padding-left: 11px;
 		padding-right: 12px;
 	}
 
 	.favorite-button-active {
-		background-color: #fff1f0;
+		background-color: #fff8e6;
 	}
 
 	.favorite-text {
@@ -5075,18 +5592,25 @@
 	}
 
 	.build-score-row {
+		width: 100%;
 		flex-direction: row;
 		align-items: center;
-		margin-top: 12px;
+		margin-top: 14px;
 	}
 
 	.build-score-pill {
 		flex: 1;
-		min-height: 54px;
-		border-radius: 18px;
+		min-width: 0;
+		flex-direction: column;
+		min-height: 58px;
+		border-radius: 16px;
 		background-color: #f6f9ff;
-		padding: 9px 12px;
+		padding: 10px 12px;
 		margin-right: 8px;
+	}
+
+	.build-score-pill:last-child {
+		margin-right: 0;
 	}
 
 	.build-status {
@@ -5140,14 +5664,16 @@
 	}
 
 	.build-summary {
-		margin-top: 12px;
+		width: 100%;
+		margin-top: 13px;
 		font-size: 14px;
 		line-height: 21px;
-		font-weight: 800;
-		color: #344054;
+		font-weight: 900;
+		color: #111827;
 	}
 
 	.build-content {
+		width: 100%;
 		margin-top: 8px;
 		font-size: 13px;
 		line-height: 21px;
@@ -5155,35 +5681,46 @@
 	}
 
 	.build-part-preview {
+		width: 100%;
 		flex-direction: row;
 		flex-wrap: wrap;
-		margin-top: 10px;
+		align-items: flex-start;
+		margin-top: 9px;
 	}
 
 	.build-part-chip {
+		max-width: 295px;
+		flex-shrink: 0;
 		font-size: 12px;
 		line-height: 18px;
 		color: #667085;
 		background-color: #f3f6fb;
-		border-radius: 12px;
+		border-radius: 13px;
 		padding: 4px 8px;
 		margin-right: 6px;
 		margin-bottom: 6px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.build-actions {
+		width: 100%;
 		flex-direction: row;
-		margin-top: 14px;
+		flex-wrap: wrap;
+		margin-top: 16px;
 	}
 
 	.build-action {
-		width: 70px;
-		height: 32px;
-		border-radius: 16px;
+		min-width: 70px;
+		height: 36px;
+		border-radius: 18px;
 		flex-direction: row;
 		align-items: center;
 		justify-content: center;
-		margin-right: 8px;
+		padding-left: 12px;
+		padding-right: 12px;
+		margin-right: 10px;
 	}
 
 	.build-action-soft {
@@ -5240,6 +5777,11 @@
 		box-shadow: none;
 		border-width: 1px;
 		border-color: #edf0f5;
+	}
+
+	.empty-state-news {
+		min-height: 390px;
+		margin-top: 14px;
 	}
 
 	.empty-illustration {
@@ -5367,9 +5909,9 @@
 
 	.tool-image-icon {
 		position: relative;
-		width: 16px;
-		height: 14px;
-		border-radius: 4px;
+		width: 18px;
+		height: 16px;
+		border-radius: 5px;
 		border-width: 2px;
 		border-color: #007aff;
 		margin-right: 6px;
@@ -5378,8 +5920,8 @@
 
 	.tool-image-sun {
 		position: absolute;
-		right: 2px;
-		top: 2px;
+		right: 3px;
+		top: 3px;
 		width: 4px;
 		height: 4px;
 		border-radius: 2px;
@@ -5388,27 +5930,41 @@
 
 	.tool-image-hill {
 		position: absolute;
-		left: 2px;
-		bottom: -1px;
+		left: 3px;
+		bottom: 1px;
 		width: 12px;
-		height: 7px;
-		border-radius: 7px;
+		height: 6px;
+		border-radius: 6px;
 		background-color: #007aff;
 	}
 
-	.tool-build-icon {
+	.tool-build-symbol {
 		width: 15px;
-		height: 15px;
-		flex-direction: row;
+		height: 18px;
+		border-radius: 5px;
+		border-width: 2px;
+		border-color: #007aff;
+		padding: 2px;
 		margin-right: 6px;
 	}
 
-	.tool-build-dot {
-		width: 6px;
-		height: 15px;
-		border-radius: 3px;
-		background-color: #34c759;
-		margin-right: 3px;
+	.tool-build-symbol-head {
+		width: 7px;
+		height: 3px;
+		border-radius: 2px;
+		background-color: #007aff;
+	}
+
+	.tool-build-symbol-row {
+		width: 7px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #007aff;
+		margin-top: 2px;
+	}
+
+	.tool-build-symbol-row-short {
+		width: 5px;
 	}
 
 	.tool-pill-text {
@@ -5677,7 +6233,9 @@
 	}
 
 	.comment-action-icon {
+		display: flex;
 		position: relative;
+		flex: 0 0 auto;
 		width: 18px;
 		height: 14px;
 		border-radius: 8px;
@@ -5686,9 +6244,11 @@
 		align-items: center;
 		justify-content: center;
 		margin-right: 6px;
+		overflow: visible;
 	}
 
 	.comment-action-dot {
+		display: block;
 		width: 3px;
 		height: 3px;
 		border-radius: 2px;
@@ -5698,6 +6258,7 @@
 	}
 
 	.comment-action-tail {
+		display: block;
 		position: absolute;
 		width: 6px;
 		height: 6px;
@@ -5753,7 +6314,10 @@
 		position: fixed;
 		left: 18px;
 		right: 18px;
-		top: 32px;
+		top: 44px;
+		top: calc(44px + constant(safe-area-inset-top));
+		top: calc(44px + env(safe-area-inset-top));
+		top: calc(20px + var(--status-bar-height));
 		width: auto;
 		max-width: none;
 		height: 42px;
@@ -5835,6 +6399,8 @@
 		left: 24px;
 		right: 24px;
 		bottom: 28px;
+		bottom: calc(28px + constant(safe-area-inset-bottom));
+		bottom: calc(28px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		flex-direction: row;
@@ -5867,7 +6433,10 @@
 		position: fixed;
 		left: 24px;
 		right: 24px;
-		top: 46px;
+		top: 58px;
+		top: calc(58px + constant(safe-area-inset-top));
+		top: calc(58px + env(safe-area-inset-top));
+		top: calc(34px + var(--status-bar-height));
 		width: auto;
 		max-width: none;
 		height: 104px;
@@ -6041,6 +6610,11 @@
 		margin-right: 4px;
 	}
 
+	.comment-image-button .tool-image-icon {
+		left: 0.67px;
+		margin-right: 0;
+	}
+
 	.comment-input {
 		flex: 1;
 		height: 38px;
@@ -6088,6 +6662,196 @@
 
 	.empty-news {
 		background-color: #fff7ed;
+	}
+
+	.news-sort-switch {
+		width: 132px;
+		height: 38px;
+		border-radius: 19px;
+		background-color: #edf2f8;
+		flex-direction: row;
+		padding: 4px;
+	}
+
+	.news-sort-item {
+		flex: 1;
+		border-radius: 15px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.news-sort-item-active {
+		background-color: #ffffff;
+	}
+
+	.news-sort-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.news-sort-text-active {
+		color: #0a84ff;
+	}
+
+	.news-search {
+		margin-bottom: 14px;
+	}
+
+	.news-scroll {
+		height: 590px;
+	}
+
+	.news-feed {
+		padding-bottom: 0;
+	}
+
+	.news-bottom-spacer {
+		height: 8px;
+		height: calc(8px + constant(safe-area-inset-bottom));
+		height: calc(8px + env(safe-area-inset-bottom));
+	}
+
+	.tech-news-card {
+		border-radius: 28px;
+		background-color: #ffffff;
+		margin-bottom: 14px;
+		overflow: hidden;
+		border-width: 1px;
+		border-color: #edf0f5;
+	}
+
+	.tech-news-card-featured {
+		border-color: #d6e7ff;
+	}
+
+	.tech-news-cover-wrap {
+		position: relative;
+		height: 164px;
+		background-color: #0f172a;
+	}
+
+	.tech-news-card-featured .tech-news-cover-wrap {
+		height: 174px;
+	}
+
+	.tech-news-cover {
+		width: 100%;
+		height: 100%;
+	}
+
+	.tech-news-cover-empty {
+		align-items: center;
+		justify-content: center;
+		background-color: #0f172a;
+	}
+
+	.tech-news-cover-text {
+		font-size: 30px;
+		line-height: 38px;
+		font-weight: 900;
+		color: rgba(255, 255, 255, 0.62);
+		letter-spacing: 0;
+	}
+
+	.tech-news-badge {
+		position: absolute;
+		left: 14px;
+		top: 14px;
+		height: 30px;
+		border-radius: 15px;
+		background-color: rgba(17, 24, 39, 0.72);
+		padding-left: 12px;
+		padding-right: 12px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.tech-news-badge-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.tech-news-body {
+		padding: 14px;
+	}
+
+	.tech-news-title {
+		font-size: 19px;
+		line-height: 27px;
+		font-weight: 900;
+		color: #101828;
+	}
+
+	.tech-news-summary {
+		margin-top: 8px;
+		font-size: 14px;
+		line-height: 22px;
+		color: #667085;
+		max-height: 88px;
+		overflow: hidden;
+	}
+
+	.tech-news-meta {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 10px;
+	}
+
+	.tech-news-meta-text,
+	.tech-news-meta-dot {
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+	}
+
+	.tech-news-meta-dot {
+		margin-left: 6px;
+		margin-right: 6px;
+	}
+
+	.tech-news-actions {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 14px;
+	}
+
+	.tech-news-action {
+		min-width: 54px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #f6f7fb;
+		margin-right: 8px;
+		padding-left: 12px;
+		padding-right: 12px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.tech-news-action-icon {
+		font-size: 13px;
+		line-height: 18px;
+		color: #98a2b3;
+		margin-right: 5px;
+	}
+
+	.tech-news-like-active {
+		color: #ff3b30;
+	}
+
+	.tech-news-fav-active {
+		color: #ffcc00;
+	}
+
+	.tech-news-action-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #667085;
 	}
 
 	.news-line {
@@ -6277,6 +7041,8 @@
 		left: 18px;
 		right: 18px;
 		bottom: 14px;
+		bottom: calc(14px + constant(safe-area-inset-bottom));
+		bottom: calc(14px + env(safe-area-inset-bottom));
 		width: auto;
 		max-width: none;
 		height: 72px;
@@ -6359,29 +7125,79 @@
 		background-color: #007aff;
 	}
 
-	.discover-circle {
-		width: 19px;
-		height: 19px;
-		border-radius: 10px;
+	.discover-compass {
+		position: relative;
+		width: 26px;
+		height: 26px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.discover-compass-active {
+	}
+
+	.discover-ring {
+		position: absolute;
+		left: 2px;
+		top: 2px;
+		width: 22px;
+		height: 22px;
+		border-radius: 11px;
 		border-width: 2px;
+		border-style: solid;
 		border-color: #8a94a6;
 	}
 
-	.discover-circle-active {
+	.discover-ring-active {
 		border-color: #007aff;
 	}
 
 	.discover-needle {
 		position: absolute;
-		width: 2px;
+		left: 12px;
+		top: 4px;
+		width: 4px;
 		height: 12px;
-		border-radius: 2px;
+		border-radius: 4px 4px 1px 1px;
 		background-color: #8a94a6;
-		transform: rotate(40deg);
+		transform: rotate(38deg);
 	}
 
 	.discover-needle-active {
 		background-color: #007aff;
+	}
+
+	.discover-needle-tail {
+		position: absolute;
+		left: 10px;
+		top: 14px;
+		width: 4px;
+		height: 8px;
+		border-radius: 1px 1px 4px 4px;
+		background-color: #c3cad6;
+		transform: rotate(38deg);
+	}
+
+	.tab-item-active .discover-needle-tail {
+		background-color: #9ccfff;
+	}
+
+	.discover-center {
+		position: absolute;
+		left: 11px;
+		top: 11px;
+		width: 6px;
+		height: 6px;
+		border-radius: 3px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-style: solid;
+		border-color: #8a94a6;
+	}
+
+	.discover-center-active {
+		background-color: #ffffff;
+		border-color: #007aff;
 	}
 
 	.news-icon-paper {
@@ -6438,13 +7254,12 @@
 		background-color: #007aff;
 	}
 
-	.tab-item-active .discover-circle,
+	.tab-item-active .discover-ring,
 	.tab-item-active .news-icon-paper {
 		border-color: #007aff;
 	}
 
 	.tab-item-active .grid-icon-cell,
-	.tab-item-active .discover-needle,
 	.tab-item-active .news-icon-line,
 	.tab-item-active .mine-icon-head,
 	.tab-item-active .mine-icon-body {

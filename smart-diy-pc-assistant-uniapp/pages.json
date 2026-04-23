@@ -27,6 +27,13 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "帖子详情"
 			}
+		},
+		{
+			"path": "pages/news/detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "新闻详情"
+			}
 		}
 	],
 	"globalStyle": {

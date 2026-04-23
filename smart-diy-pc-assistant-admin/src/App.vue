@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { apiUrl } from './config'
 
 type ApiResponse<T> = {
   code: number
@@ -14,13 +15,39 @@ type LoginResponse = {
   token: string
 }
 
+type FileUploadResponse = {
+  url: string
+  key: string
+  domain: string
+}
+
+type PendingNewsImage = {
+  id: string
+  url: string
+  file: File
+}
+
+type NewsImagePreview = {
+  id: string
+  url: string
+  state: string
+}
+
 type NewsItem = {
   id?: number
   title: string
   summary: string
+  tag: string
   content: string
+  coverKey: string
   coverUrl: string
+  viewCount?: number
+  likeCount?: number
+  commentCount?: number
+  favoriteCount?: number
   status: 'DRAFT' | 'PUBLISHED'
+  createdAt?: string
+  updatedAt?: string
 }
 
 type HardwarePartType = 'CPU' | 'MOTHERBOARD' | 'GPU' | 'MEMORY' | 'STORAGE' | 'PSU' | 'CASE' | 'COOLER'
@@ -85,10 +112,15 @@ const menuItems = [
   { key: 'settings', label: '系统设置', icon: '⚙' },
 ]
 
+const newsTagOptions = ['科技新闻', '硬件资讯', 'AI 前沿', '行业观察', '新品发布', '装机指南']
+
 const loggedIn = ref(false)
 const activeMenu = ref('dashboard')
 const loading = ref(false)
 const savingNews = ref(false)
+const newsUploadProgressVisible = ref(false)
+const newsUploadProgressPercent = ref(0)
+const newsUploadProgressText = ref('')
 const savingHardware = ref(false)
 const errorMessage = ref('')
 const username = ref('')
@@ -96,6 +128,13 @@ const password = ref('')
 const currentUser = ref('')
 const token = ref('')
 const loginPanelRef = ref<HTMLElement | null>(null)
+const newsCoverInputRef = ref<HTMLInputElement | null>(null)
+const newsInlineInputRef = ref<HTMLInputElement | null>(null)
+const contentTextareaRef = ref<HTMLTextAreaElement | null>(null)
+const slashMenuVisible = ref(false)
+const slashCommandKeyword = ref('')
+const slashCommandStart = ref(0)
+const slashCommandEnd = ref(0)
 const isLoginPanelHovered = ref(false)
 const isLoginPanelFocused = ref(false)
 const newsList = ref<NewsItem[]>([])
@@ -108,10 +147,14 @@ const hardwarePageSize = ref(12)
 const communityPosts = ref<CommunityPostItem[]>([])
 const communityComments = ref<CommunityCommentItem[]>([])
 const selectedCommunityPostId = ref<number | null>(null)
+const editingNewsId = ref<number | null>(null)
+const pendingNewsImages = ref<PendingNewsImage[]>([])
 const newsForm = reactive<NewsItem>({
   title: '',
   summary: '',
+  tag: '科技新闻',
   content: '',
+  coverKey: '',
   coverUrl: '',
   status: 'DRAFT',
 })
@@ -179,6 +222,44 @@ const maxActivityValue = computed(() => {
   return Math.max(...activityBars.value.map((item) => item.value), 1)
 })
 
+const generatedNewsSummary = computed(() => {
+  return createNewsSummary(newsForm.content)
+})
+
+const firstContentImageUrl = computed(() => {
+  return extractFirstContentImage(newsForm.content)
+})
+
+const effectiveNewsCoverUrl = computed(() => {
+  return newsForm.coverUrl || firstContentImageUrl.value
+})
+
+const newsContentImagePreviews = computed<NewsImagePreview[]>(() => {
+  return extractContentImages(newsForm.content).map((url, index) => ({
+    id: `${index}-${url}`,
+    url,
+    state: findPendingNewsImage(url) ? '待发布上传' : '已上传',
+  }))
+})
+
+const pendingNewsAssetCount = computed(() => {
+  const contentPendingUrls = new Set(
+    extractContentImages(newsForm.content).filter((url) => !!findPendingNewsImage(url)),
+  )
+  const coverPending = newsForm.coverUrl && findPendingNewsImage(newsForm.coverUrl)
+  return contentPendingUrls.size + (coverPending && !contentPendingUrls.has(newsForm.coverUrl) ? 1 : 0)
+})
+
+const newsCoverModeText = computed(() => {
+  if (newsForm.coverUrl) {
+    return '手动封面'
+  }
+  if (firstContentImageUrl.value) {
+    return '已自动使用正文首图'
+  }
+  return '默认科技卡片背景'
+})
+
 const filteredHardwareList = computed(() => {
   const keyword = hardwareKeyword.value.trim().toLowerCase()
   return hardwareList.value.filter((item) => {
@@ -209,13 +290,51 @@ function authHeaders() {
   }
 }
 
+function uploadHeaders() {
+  return {
+    Authorization: `Bearer ${token.value}`,
+  }
+}
+
 async function request<T>(url: string, options: RequestInit = {}) {
-  const response = await fetch(url, options)
+  const response = await fetch(apiUrl(url), options)
   const payload = (await response.json()) as ApiResponse<T>
   if (!response.ok || payload.code !== 0) {
     throw new Error(payload.message || '请求失败')
   }
   return payload.data
+}
+
+function uploadAdminImage(file: File, onProgress?: (percent: number) => void) {
+  return new Promise<FileUploadResponse>((resolve, reject) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', apiUrl('/api/files/upload'))
+    Object.entries(uploadHeaders()).forEach(([key, value]) => {
+      xhr.setRequestHeader(key, value)
+    })
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      try {
+        const payload = JSON.parse(xhr.responseText) as ApiResponse<FileUploadResponse>
+        if (xhr.status < 200 || xhr.status >= 300 || payload.code !== 0) {
+          reject(new Error(payload.message || '上传失败'))
+          return
+        }
+        onProgress?.(100)
+        resolve(payload.data)
+      } catch {
+        reject(new Error('上传响应解析失败'))
+      }
+    }
+    xhr.onerror = () => reject(new Error('上传失败'))
+    xhr.send(formData)
+  })
 }
 
 async function handleLogin() {
@@ -432,25 +551,410 @@ function nextHardwarePage() {
   hardwarePage.value = Math.min(hardwareTotalPages.value, hardwarePage.value + 1)
 }
 
-async function saveNews() {
+async function saveNews(targetStatus: NewsItem['status'] = newsForm.status) {
+  const title = newsForm.title.trim()
+  const content = newsForm.content.trim()
+  if (!title || !content) {
+    errorMessage.value = '标题和正文不能为空'
+    return
+  }
   errorMessage.value = ''
   savingNews.value = true
   try {
-    await request<NewsItem>('/api/admin/news', {
-      method: 'POST',
+    const prepared = await prepareNewsAssetsForSave(content)
+    const summary = generatedNewsSummary.value || title
+    const payload = {
+      title,
+      summary,
+      tag: newsForm.tag || '科技新闻',
+      content: prepared.content,
+      coverKey: prepared.coverKey,
+      status: targetStatus,
+    }
+    newsUploadProgressText.value = newsUploadProgressVisible.value ? '正在保存新闻' : ''
+    if (newsUploadProgressVisible.value) {
+      newsUploadProgressPercent.value = Math.max(newsUploadProgressPercent.value, 96)
+    }
+    await request<NewsItem>(editingNewsId.value ? `/api/admin/news/${editingNewsId.value}` : '/api/admin/news', {
+      method: editingNewsId.value ? 'PUT' : 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(newsForm),
+      body: JSON.stringify(payload),
     })
-    newsForm.title = ''
-    newsForm.summary = ''
-    newsForm.content = ''
-    newsForm.coverUrl = ''
-    newsForm.status = 'DRAFT'
+    if (newsUploadProgressVisible.value) {
+      newsUploadProgressPercent.value = 100
+      newsUploadProgressText.value = '保存完成'
+    }
+    resetNewsForm()
     await loadNews()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '保存失败'
   } finally {
     savingNews.value = false
+    hideNewsUploadProgressSoon()
+  }
+}
+
+async function prepareNewsAssetsForSave(content: string) {
+  ensureNewsLocalImagesAreValid(content)
+  let nextContent = content
+  const contentLocalUrls = Array.from(
+    new Set(extractContentImages(nextContent).filter((url) => !!findPendingNewsImage(url))),
+  )
+  const coverPending = newsForm.coverUrl ? findPendingNewsImage(newsForm.coverUrl) : undefined
+  const targets = contentLocalUrls
+    .map((url) => {
+      const pending = findPendingNewsImage(url)
+      return pending ? { url, pending } : null
+    })
+    .filter((item): item is { url: string; pending: PendingNewsImage } => item !== null)
+  if (coverPending && !contentLocalUrls.includes(newsForm.coverUrl)) {
+    targets.push({ url: newsForm.coverUrl, pending: coverPending })
+  }
+
+  const uploadedByUrl = new Map<string, FileUploadResponse>()
+  if (targets.length > 0) {
+    showNewsUploadProgress(targets.length)
+  }
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index]
+    newsUploadProgressText.value = `正在上传图片 ${index + 1}/${targets.length}`
+    const uploaded = await uploadAdminImage(target.pending.file, (percent) => {
+      updateNewsUploadProgress(index, targets.length, percent)
+    })
+    uploadedByUrl.set(target.url, uploaded)
+    nextContent = nextContent.split(target.url).join(uploaded.url)
+  }
+
+  const manualCoverUploaded = newsForm.coverUrl ? uploadedByUrl.get(newsForm.coverUrl) : undefined
+  let coverKey = ''
+  if (manualCoverUploaded) {
+    coverKey = manualCoverUploaded.key
+    newsForm.coverKey = manualCoverUploaded.key
+    newsForm.coverUrl = manualCoverUploaded.url
+  } else if (newsForm.coverKey) {
+    coverKey = newsForm.coverKey
+  } else {
+    coverKey = extractFirstContentImage(nextContent)
+  }
+
+  if (targets.length > 0) {
+    newsForm.content = nextContent
+    clearPendingNewsImages()
+  }
+
+  return {
+    content: nextContent,
+    coverKey,
+  }
+}
+
+function resetNewsForm() {
+  clearPendingNewsImages()
+  editingNewsId.value = null
+  newsForm.title = ''
+  newsForm.summary = ''
+  newsForm.tag = '科技新闻'
+  newsForm.content = ''
+  newsForm.coverKey = ''
+  newsForm.coverUrl = ''
+  newsForm.status = 'DRAFT'
+}
+
+function editNews(item: NewsItem) {
+  clearPendingNewsImages()
+  editingNewsId.value = item.id ?? null
+  newsForm.title = item.title
+  newsForm.summary = item.summary
+  newsForm.tag = item.tag || '科技新闻'
+  newsForm.content = item.content
+  newsForm.coverKey = item.coverKey
+  newsForm.coverUrl = item.coverUrl
+  newsForm.status = item.status
+}
+
+async function deleteNews(id?: number) {
+  if (!id || !window.confirm('确定删除这条新闻？相关评论和互动也会一起删除。')) {
+    return
+  }
+  try {
+    await request<void>(`/api/admin/news/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (editingNewsId.value === id) {
+      resetNewsForm()
+    }
+    await loadNews()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
+
+function triggerNewsCoverUpload() {
+  newsCoverInputRef.value?.click()
+}
+
+function triggerNewsInlineUpload() {
+  newsInlineInputRef.value?.click()
+}
+
+function clearManualNewsCover() {
+  forgetPendingNewsImage(newsForm.coverUrl)
+  newsForm.coverKey = ''
+  newsForm.coverUrl = ''
+}
+
+function handleNewsCoverChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) {
+    return
+  }
+  errorMessage.value = ''
+  if (!isImageFile(file)) {
+    errorMessage.value = '只能选择图片文件'
+    input.value = ''
+    return
+  }
+  forgetPendingNewsImage(newsForm.coverUrl)
+  const pending = createPendingNewsImage(file)
+  newsForm.coverKey = ''
+  newsForm.coverUrl = pending.url
+  input.value = ''
+}
+
+function handleNewsInlineChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (files.length === 0) {
+    return
+  }
+  errorMessage.value = ''
+  insertPendingNewsImages(files)
+  input.value = ''
+}
+
+function insertImageToNewsContent(url: string) {
+  const marker = `\n\n![新闻图片](${url})\n\n`
+  insertTextToNewsContent(marker)
+}
+
+function insertTextToNewsContent(text: string, caretOffset = text.length) {
+  const textarea = contentTextareaRef.value
+  if (!textarea) {
+    newsForm.content = `${newsForm.content}${text}`
+    return
+  }
+  const start = textarea.selectionStart ?? newsForm.content.length
+  const end = textarea.selectionEnd ?? start
+  newsForm.content = `${newsForm.content.slice(0, start)}${text}${newsForm.content.slice(end)}`
+  requestAnimationFrame(() => {
+    textarea.focus()
+    const next = start + caretOffset
+    textarea.setSelectionRange(next, next)
+    updateSlashCommandState()
+  })
+}
+
+function createNewsSummary(content: string) {
+  const plain = content
+    .replace(/!\[[^\]]*]\([^)]+\)/g, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#>*_`~-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!plain) {
+    return ''
+  }
+  const sentences = plain.match(/[^。！？!?\.]+[。！？!?\.]?/g) ?? [plain]
+  const summary = sentences
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('')
+  return clampNewsSummary(summary)
+}
+
+function clampNewsSummary(summary: string) {
+  if (summary.length <= 480) {
+    return summary
+  }
+  const clipped = summary.slice(0, 480)
+  const boundaries = ['。', '！', '？', '!', '?', '.'].map((char) => clipped.lastIndexOf(char))
+  const boundary = Math.max(...boundaries)
+  return boundary > 80 ? clipped.slice(0, boundary + 1) : clipped
+}
+
+function extractFirstContentImage(content: string) {
+  return extractContentImages(content)[0] ?? ''
+}
+
+function extractContentImages(content: string) {
+  return Array.from(content.matchAll(/!\[[^\]]*]\(([^)]+)\)/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean)
+}
+
+function handleEditorKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault()
+    saveNews('PUBLISHED')
+    return
+  }
+  if (event.key === 'Escape') {
+    slashMenuVisible.value = false
+  }
+}
+
+function handleEditorPaste(event: ClipboardEvent) {
+  const items = Array.from(event.clipboardData?.items ?? [])
+  const imageItems = items.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  if (imageItems.length === 0) {
+    return
+  }
+  event.preventDefault()
+  errorMessage.value = ''
+  const files = imageItems
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null)
+  insertPendingNewsImages(files)
+}
+
+function insertPendingNewsImages(files: File[]) {
+  const images = files.filter(isImageFile)
+  if (images.length === 0) {
+    errorMessage.value = '只能选择图片文件'
+    return
+  }
+  images.forEach((file) => {
+    const pending = createPendingNewsImage(file)
+    insertImageToNewsContent(pending.url)
+  })
+}
+
+function createPendingNewsImage(file: File) {
+  const pending = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    url: URL.createObjectURL(file),
+    file,
+  }
+  pendingNewsImages.value = [...pendingNewsImages.value, pending]
+  return pending
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/')
+}
+
+function findPendingNewsImage(url: string) {
+  return pendingNewsImages.value.find((image) => image.url === url)
+}
+
+function ensureNewsLocalImagesAreValid(content: string) {
+  const staleLocalImage = extractContentImages(content).find((url) => url.startsWith('blob:') && !findPendingNewsImage(url))
+  if (staleLocalImage || (newsForm.coverUrl.startsWith('blob:') && !findPendingNewsImage(newsForm.coverUrl))) {
+    throw new Error('本地预览图片已失效，请重新插入图片')
+  }
+}
+
+function clearPendingNewsImages() {
+  pendingNewsImages.value.forEach((image) => URL.revokeObjectURL(image.url))
+  pendingNewsImages.value = []
+}
+
+function forgetPendingNewsImage(url: string) {
+  if (!url.startsWith('blob:')) {
+    return
+  }
+  const pending = findPendingNewsImage(url)
+  if (!pending || newsForm.content.includes(url)) {
+    return
+  }
+  URL.revokeObjectURL(pending.url)
+  pendingNewsImages.value = pendingNewsImages.value.filter((image) => image.url !== url)
+}
+
+function showNewsUploadProgress(total: number) {
+  newsUploadProgressVisible.value = true
+  newsUploadProgressPercent.value = 0
+  newsUploadProgressText.value = `准备上传 ${total} 张图片`
+}
+
+function updateNewsUploadProgress(index: number, total: number, filePercent: number) {
+  newsUploadProgressPercent.value = Math.min(95, Math.round(((index + filePercent / 100) / total) * 95))
+}
+
+function hideNewsUploadProgressSoon() {
+  if (!newsUploadProgressVisible.value) {
+    return
+  }
+  window.setTimeout(() => {
+    if (!savingNews.value) {
+      newsUploadProgressVisible.value = false
+      newsUploadProgressPercent.value = 0
+      newsUploadProgressText.value = ''
+    }
+  }, 700)
+}
+
+function updateSlashCommandState() {
+  const textarea = contentTextareaRef.value
+  if (!textarea) {
+    slashMenuVisible.value = false
+    return
+  }
+  const cursor = textarea.selectionStart ?? 0
+  const before = newsForm.content.slice(0, cursor)
+  const lineStart = before.lastIndexOf('\n') + 1
+  const currentLine = before.slice(lineStart)
+  if (!currentLine.startsWith('/') || currentLine.includes(' ')) {
+    slashMenuVisible.value = false
+    return
+  }
+  slashCommandKeyword.value = currentLine.slice(1).trim().toLowerCase()
+  slashCommandStart.value = lineStart
+  slashCommandEnd.value = cursor
+  slashMenuVisible.value = true
+}
+
+function selectSlashCommand(command: 'image' | 'divider' | 'code' | 'video') {
+  if (command === 'video') {
+    slashMenuVisible.value = false
+    window.alert('视频模块稍后接入')
+    return
+  }
+  if (command === 'image') {
+    replaceSlashCommand('')
+    triggerNewsInlineUpload()
+    return
+  }
+  if (command === 'divider') {
+    replaceSlashCommand('\n---\n')
+    return
+  }
+  replaceSlashCommand('\n```\n\n```\n', 5)
+}
+
+function replaceSlashCommand(text: string, caretOffset = text.length) {
+  const start = slashCommandStart.value
+  const end = slashCommandEnd.value
+  newsForm.content = `${newsForm.content.slice(0, start)}${text}${newsForm.content.slice(end)}`
+  slashMenuVisible.value = false
+  requestAnimationFrame(() => {
+    const textarea = contentTextareaRef.value
+    if (!textarea) {
+      return
+    }
+    textarea.focus()
+    const next = start + caretOffset
+    textarea.setSelectionRange(next, next)
+  })
+}
+
+function publishNewsWithShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault()
+    saveNews('PUBLISHED')
   }
 }
 
@@ -476,6 +980,10 @@ onMounted(() => {
     loggedIn.value = true
     Promise.all([loadNews(), loadHardware(), loadCommunityPosts()]).catch(() => logout())
   }
+})
+
+onBeforeUnmount(() => {
+  clearPendingNewsImages()
 })
 </script>
 
@@ -737,46 +1245,165 @@ onMounted(() => {
         </div>
       </section>
 
-      <section v-else-if="activeMenu === 'news'" class="content-area two-column">
-        <form class="editor-card" @submit.prevent="saveNews">
-          <h3>发布新闻热点</h3>
-          <label>
-            标题
-            <input v-model="newsForm.title" required placeholder="请输入标题" />
-          </label>
-          <label>
-            摘要
-            <input v-model="newsForm.summary" required placeholder="请输入摘要" />
-          </label>
-          <label>
-            封面地址
-            <input v-model="newsForm.coverUrl" placeholder="七牛云图片地址" />
-          </label>
-          <label>
-            状态
-            <select v-model="newsForm.status">
-              <option value="DRAFT">草稿</option>
-              <option value="PUBLISHED">发布</option>
-            </select>
-          </label>
-          <label>
-            正文
-            <textarea v-model="newsForm.content" placeholder="请输入正文内容"></textarea>
-          </label>
+      <section v-else-if="activeMenu === 'news'" class="content-area news-workbench">
+        <form class="editor-card news-editor-card" @submit.prevent="saveNews('PUBLISHED')">
+          <div class="section-head">
+            <div>
+              <h3>{{ editingNewsId ? '编辑新闻热点' : '发布新闻热点' }}</h3>
+              <p class="section-subtitle">像写笔记一样发布：标题、正文、Ctrl/⌘ + Enter 发布</p>
+            </div>
+            <button class="ghost-button" type="button" @click="resetNewsForm">清空</button>
+          </div>
+
+          <section class="notion-editor">
+            <input
+              v-model="newsForm.title"
+              class="news-title-input"
+              required
+              placeholder="输入新闻标题"
+              @keydown="publishNewsWithShortcut"
+            />
+            <div class="news-tag-row">
+              <span>标签</span>
+              <div class="news-tag-options">
+                <button
+                  v-for="tag in newsTagOptions"
+                  :key="tag"
+                  :class="newsForm.tag === tag ? 'news-tag-option news-tag-option-active' : 'news-tag-option'"
+                  type="button"
+                  @click="newsForm.tag = tag"
+                >
+                  {{ tag }}
+                </button>
+              </div>
+            </div>
+            <div class="editor-surface">
+              <textarea
+                ref="contentTextareaRef"
+                v-model="newsForm.content"
+                class="news-content-textarea"
+                placeholder="输入正文，粘贴图片先预览；输入 / 呼出插入菜单"
+                @click="updateSlashCommandState"
+                @input="updateSlashCommandState"
+                @keydown="handleEditorKeydown"
+                @keyup="updateSlashCommandState"
+                @paste="handleEditorPaste"
+              ></textarea>
+              <div v-if="slashMenuVisible" class="slash-menu">
+                <div class="slash-menu-title">插入模块 {{ slashCommandKeyword ? `/${slashCommandKeyword}` : '' }}</div>
+                <button class="slash-item" type="button" @click="selectSlashCommand('image')">
+                  <span class="slash-icon">▧</span>
+                  <span>
+                    <strong>图片</strong>
+                    <em>插入到当前位置</em>
+                  </span>
+                </button>
+                <button class="slash-item" type="button" @click="selectSlashCommand('divider')">
+                  <span class="slash-icon">—</span>
+                  <span>
+                    <strong>分割线</strong>
+                    <em>分隔段落或模块</em>
+                  </span>
+                </button>
+                <button class="slash-item" type="button" @click="selectSlashCommand('code')">
+                  <span class="slash-icon">{ }</span>
+                  <span>
+                    <strong>代码块</strong>
+                    <em>记录参数、命令或配置</em>
+                  </span>
+                </button>
+                <button class="slash-item slash-item-disabled" type="button" @click="selectSlashCommand('video')">
+                  <span class="slash-icon">▶</span>
+                  <span>
+                    <strong>视频</strong>
+                    <em>后续接入</em>
+                  </span>
+                </button>
+              </div>
+              <input ref="newsInlineInputRef" accept="image/*" hidden multiple type="file" @change="handleNewsInlineChange" />
+              <div v-if="newsContentImagePreviews.length > 0" class="news-image-preview-strip">
+                <div v-for="image in newsContentImagePreviews" :key="image.id" class="news-image-preview">
+                  <img :src="image.url" alt="" />
+                  <span>{{ image.state }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-insights">
+              <div class="insight-card cover-insight">
+                <div class="mini-cover" @click="triggerNewsCoverUpload">
+                  <img v-if="effectiveNewsCoverUrl" :src="effectiveNewsCoverUrl" alt="" />
+                  <div v-else class="mini-cover-default">
+                    <span>TECH</span>
+                  </div>
+                </div>
+                <div class="cover-insight-copy">
+                  <span>{{ newsCoverModeText }}</span>
+                  <p>优先使用手动封面，否则自动取正文第一张图。</p>
+                  <div class="cover-actions">
+                    <button class="link-button" :disabled="savingNews" type="button" @click="triggerNewsCoverUpload">
+                      替换封面
+                    </button>
+                    <button v-if="newsForm.coverUrl" class="link-button muted-link" type="button" @click="clearManualNewsCover">
+                      使用自动封面
+                    </button>
+                  </div>
+                </div>
+                <input ref="newsCoverInputRef" accept="image/*" hidden type="file" @change="handleNewsCoverChange" />
+              </div>
+            </div>
+          </section>
+
           <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
-          <button class="primary-button" :disabled="savingNews" type="submit">
-            {{ savingNews ? '保存中...' : '保存新闻' }}
-          </button>
+          <div class="news-publish-bar">
+            <div v-if="newsUploadProgressVisible" class="news-upload-progress">
+              <span>{{ newsUploadProgressText }}</span>
+              <div class="news-upload-progress-track">
+                <div class="news-upload-progress-fill" :style="{ width: `${newsUploadProgressPercent}%` }"></div>
+              </div>
+              <strong>{{ newsUploadProgressPercent }}%</strong>
+            </div>
+            <span v-else-if="pendingNewsAssetCount > 0" class="news-pending-upload">
+              {{ pendingNewsAssetCount }} 张图片将在发布时上传
+            </span>
+            <button class="draft-button" :disabled="savingNews" type="button" @click="saveNews('DRAFT')">
+              保存草稿
+            </button>
+            <button class="primary-button publish-button" :disabled="savingNews" type="button" @click="saveNews('PUBLISHED')">
+              {{ savingNews ? '保存中...' : editingNewsId ? '更新并发布' : '发布' }}
+            </button>
+          </div>
         </form>
 
-        <div class="list-card">
-          <h3>新闻列表</h3>
-          <article v-for="item in newsList" :key="item.id" class="news-row">
+        <div class="list-card news-list-card">
+          <div class="section-head">
             <div>
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.summary }}</p>
+              <h3>新闻列表</h3>
+              <p class="section-subtitle">共 {{ newsList.length }} 条，含草稿和已发布</p>
             </div>
-            <span>{{ item.status === 'PUBLISHED' ? '已发布' : '草稿' }}</span>
+            <button class="ghost-button" type="button" @click="loadNews">刷新</button>
+          </div>
+          <article v-for="item in newsList" :key="item.id" class="news-row">
+            <img v-if="item.coverUrl" class="news-row-cover" :src="item.coverUrl" alt="" />
+            <div v-else class="news-row-cover news-row-cover-default">TECH</div>
+            <div class="news-row-main">
+              <div class="news-row-top">
+                <strong>{{ item.title }}</strong>
+                <span :class="item.status === 'PUBLISHED' ? 'status-chip published' : 'status-chip'">{{ item.status === 'PUBLISHED' ? '已发布' : '草稿' }}</span>
+              </div>
+              <p>{{ item.summary }}</p>
+              <div class="news-row-metrics">
+                <span>{{ item.tag || '科技新闻' }}</span>
+                <span>浏览 {{ item.viewCount || 0 }}</span>
+                <span>点赞 {{ item.likeCount || 0 }}</span>
+                <span>评论 {{ item.commentCount || 0 }}</span>
+                <span>收藏 {{ item.favoriteCount || 0 }}</span>
+              </div>
+            </div>
+            <div class="news-row-actions">
+              <button type="button" @click="editNews(item)">编辑</button>
+              <button class="danger-link" type="button" @click="deleteNews(item.id)">删除</button>
+            </div>
           </article>
           <div v-if="newsList.length === 0" class="empty-box">暂无新闻热点</div>
         </div>
@@ -1399,6 +2026,12 @@ textarea {
   background: #f4f7fb;
 }
 
+.ghost-button:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+  background: #f3f6fb;
+}
+
 .button-row .primary-button {
   width: 100%;
   height: 48px;
@@ -1484,10 +2117,17 @@ textarea {
 }
 
 .status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 54px;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
+  line-height: 1;
   font-weight: 900;
+  white-space: nowrap;
   color: var(--muted);
   background: #f3f6fb;
 }
@@ -1497,29 +2137,486 @@ textarea {
   background: rgba(52, 199, 89, 0.12);
 }
 
-.news-row {
+.news-workbench {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.92fr) minmax(520px, 1.08fr);
+  gap: 18px;
+}
+
+.news-editor-card,
+.news-list-card {
+  margin-top: 0;
+}
+
+.notion-editor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  margin-top: 12px;
+  border: 1px solid rgba(226, 233, 244, 0.9);
+  border-radius: 28px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.news-title-input {
+  height: 72px;
+  border: none;
+  border-radius: 0;
+  padding: 0 24px;
+  font-size: 28px;
+  font-weight: 900;
+  background: #fff;
+}
+
+.news-title-input::placeholder {
+  color: #b9c1ce;
+}
+
+.news-tag-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 14px;
+  padding: 0 24px 18px;
+  background: #fff;
+  border-bottom: 1px solid rgba(226, 233, 244, 0.78);
+}
+
+.news-tag-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.news-tag-options {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.news-tag-option {
+  border: 1px solid rgba(226, 233, 244, 0.95);
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  background: #f8fafc;
+}
+
+.news-tag-option-active {
+  color: #0a84ff;
+  border-color: rgba(10, 132, 255, 0.26);
+  background: rgba(10, 132, 255, 0.1);
+}
+
+.editor-surface {
+  position: relative;
+  min-height: 360px;
+  background:
+    linear-gradient(180deg, #fff 0%, #fbfcff 100%);
+}
+
+.news-content-textarea {
+  min-height: 360px;
+  border: none;
+  border-radius: 0;
+  padding: 22px 24px 28px;
+  font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.85;
+  background: transparent;
+  resize: vertical;
+}
+
+.news-image-preview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  padding: 0 24px 22px;
+}
+
+.news-image-preview {
+  position: relative;
+  min-height: 92px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 233, 244, 0.9);
+  border-radius: 18px;
+  background: #eef2f7;
+}
+
+.news-image-preview img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+
+.news-image-preview span {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(17, 24, 39, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.slash-menu {
+  position: absolute;
+  left: 24px;
+  top: 72px;
+  z-index: 8;
+  width: 300px;
+  padding: 8px;
+  border: 1px solid rgba(226, 233, 244, 0.9);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 50px rgba(24, 39, 75, 0.14);
+  backdrop-filter: blur(22px) saturate(160%);
+}
+
+.slash-menu-title {
+  padding: 6px 10px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.slash-item {
+  width: 100%;
+  border: none;
+  border-radius: 13px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: transparent;
+}
+
+.slash-item:hover {
+  background: #f5f8ff;
+}
+
+.slash-item-disabled {
+  opacity: 0.55;
+}
+
+.slash-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 900;
+  background: rgba(55, 125, 255, 0.1);
+}
+
+.slash-item strong,
+.slash-item em {
+  display: block;
+}
+
+.slash-item strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.slash-item em {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.editor-uploading {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 900;
+  background: rgba(230, 241, 255, 0.96);
+}
+
+.editor-insights {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 14px;
+  background: #f8fbff;
+  border-top: 1px solid rgba(226, 233, 244, 0.86);
+}
+
+.insight-card {
+  min-height: 104px;
+  border-radius: 20px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid rgba(226, 233, 244, 0.72);
+}
+
+.insight-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.insight-card p {
+  margin: 8px 0 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.cover-insight {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.mini-cover {
+  width: 112px;
+  height: 70px;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #101828, #2f466f);
+}
+
+.mini-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mini-cover-default {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.mini-cover-default span {
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 900;
+}
+
+.cover-insight-copy {
+  min-width: 0;
+}
+
+.cover-insight-copy p {
+  color: var(--muted);
+}
+
+.cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.link-button {
+  border: none;
+  padding: 0;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 900;
+  background: transparent;
+}
+
+.link-button:disabled {
+  color: #98a2b3;
+}
+
+.muted-link {
+  color: var(--muted);
+}
+
+.news-publish-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 18px -24px -24px;
+  padding: 14px 24px;
+  background: rgba(255, 255, 255, 0.88);
+  border-top: 1px solid rgba(226, 233, 244, 0.86);
+  backdrop-filter: blur(20px) saturate(160%);
+}
+
+.news-pending-upload {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.news-upload-progress {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 240px) 44px;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.news-upload-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6efff;
+}
+
+.news-upload-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0a84ff, #34c759);
+  transition: width 0.16s ease;
+}
+
+.news-upload-progress strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.draft-button {
+  height: 46px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 18px;
+  color: var(--text);
+  font-weight: 900;
+  background: #f4f7fb;
+}
+
+.publish-button {
+  width: 132px;
+  height: 46px;
+  margin-top: 0;
+  border-radius: 999px;
+}
+
+.news-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 255, 0.92));
+}
+
+.news-row-cover {
+  width: 112px;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 18px;
+  background: #eef2f7;
+}
+
+.news-row-cover-default {
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #101828, #2f466f);
+}
+
+.news-row-main {
+  min-width: 0;
+  padding-right: 50px;
+}
+
+.news-row-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.news-row-top strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.news-row-top .status-chip {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  height: 26px;
+  padding: 0 10px;
 }
 
 .news-row strong {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .news-row p {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
+  line-height: 1.6;
 }
 
-.news-row span {
-  flex-shrink: 0;
-  padding: 6px 10px;
+.news-row-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.news-row-metrics span {
+  padding: 5px 9px;
   border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  background: #f3f6fb;
+}
+
+.news-row-actions {
+  display: grid;
+  gap: 8px;
+  padding-top: 28px;
+}
+
+.news-row-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
   color: var(--blue-dark);
+  font-weight: 900;
   background: rgba(55, 125, 255, 0.1);
+}
+
+.news-row-actions .danger-link {
+  color: #ff3b30;
+  background: rgba(255, 59, 48, 0.1);
 }
 
 .section-head {
@@ -1698,8 +2795,24 @@ textarea {
   .stats-grid,
   .two-column,
   .dashboard-charts,
-  .hardware-toolbar {
+  .hardware-toolbar,
+  .news-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .editor-insights,
+  .cover-insight,
+  .news-row {
+    grid-template-columns: 1fr;
+  }
+
+  .news-title-input {
+    font-size: 24px;
+  }
+
+  .news-row-cover {
+    width: 100%;
+    height: 180px;
   }
 }
 </style>

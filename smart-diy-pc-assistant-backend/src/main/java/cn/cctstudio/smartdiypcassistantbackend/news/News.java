@@ -25,11 +25,17 @@ public class News {
     @Column(nullable = false, length = 500)
     private String summary;
 
+    @Column(length = 30)
+    private String tag;
+
     @Column(columnDefinition = "text")
     private String content;
 
     @Column(length = 500)
     private String coverUrl;
+
+    @Column(nullable = false)
+    private Long viewCount;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -44,19 +50,22 @@ public class News {
     protected News() {
     }
 
-    public News(String title, String summary, String content, String coverUrl, NewsStatus status) {
+    public News(String title, String summary, String tag, String content, String coverUrl, NewsStatus status) {
         this.title = title;
         this.summary = summary;
+        this.tag = tag;
         this.content = content;
         this.coverUrl = coverUrl;
         this.status = status;
+        this.viewCount = 0L;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = this.createdAt;
     }
 
-    public void update(String title, String summary, String content, String coverUrl, NewsStatus status) {
+    public void update(String title, String summary, String tag, String content, String coverUrl, NewsStatus status) {
         this.title = title;
         this.summary = summary;
+        this.tag = tag;
         this.content = content;
         this.coverUrl = coverUrl;
         this.status = status;
@@ -75,12 +84,28 @@ public class News {
         return summary;
     }
 
+    public String getTag() {
+        return tag == null || tag.isBlank() ? "科技新闻" : tag;
+    }
+
     public String getContent() {
         return content;
     }
 
     public String getCoverUrl() {
         return coverUrl;
+    }
+
+    public String getCoverKey() {
+        return coverUrl;
+    }
+
+    public long getViewCount() {
+        return viewCount == null ? 0 : viewCount;
+    }
+
+    public void increaseViewCount() {
+        this.viewCount = getViewCount() + 1;
     }
 
     public NewsStatus getStatus() {

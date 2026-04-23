@@ -85,6 +85,10 @@ public class User {
         return avatarUrl;
     }
 
+    public String getAvatarKey() {
+        return avatarUrl;
+    }
+
     public String getBio() {
         return bio == null ? "" : bio;
     }

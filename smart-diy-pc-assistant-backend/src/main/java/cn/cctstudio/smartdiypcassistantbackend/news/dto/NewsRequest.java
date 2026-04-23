@@ -6,10 +6,11 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public record NewsRequest(
-        @NotBlank(message = "不能为空") @Size(max = 120, message = "不能超过120个字符") String title,
-        @NotBlank(message = "不能为空") @Size(max = 500, message = "不能超过500个字符") String summary,
+        @NotBlank(message = "title cannot be blank") @Size(max = 120, message = "title too long") String title,
+        @Size(max = 500, message = "summary too long") String summary,
+        @Size(max = 30, message = "tag too long") String tag,
         String content,
-        String coverUrl,
-        @NotNull(message = "不能为空") NewsStatus status
+        String coverKey,
+        @NotNull(message = "status is required") NewsStatus status
 ) {
 }

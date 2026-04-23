@@ -6,8 +6,8 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 public record CommunityCommentRequest(
-        @NotBlank(message = "评论不能为空") @Size(max = 1000, message = "评论不能超过 1000 字") String content,
-        List<String> imageUrls,
+        @NotBlank(message = "content cannot be blank") @Size(max = 1000, message = "content too long") String content,
+        List<String> imageKeys,
         Long buildConfigId
 ) {
 }

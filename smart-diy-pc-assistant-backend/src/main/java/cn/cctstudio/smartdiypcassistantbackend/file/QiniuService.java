@@ -22,15 +22,18 @@ import java.util.UUID;
 public class QiniuService {
 
     private final QiniuProperties properties;
+    private final MediaUrlService mediaUrlService;
 
-    public QiniuService(QiniuProperties properties) {
+    public QiniuService(QiniuProperties properties, MediaUrlService mediaUrlService) {
         this.properties = properties;
+        this.mediaUrlService = mediaUrlService;
     }
 
     public UploadTokenResponse createUploadToken(String filename) {
         if (!StringUtils.hasText(properties.accessKey())
                 || !StringUtils.hasText(properties.secretKey())
-                || !StringUtils.hasText(properties.bucket())) {
+                || !StringUtils.hasText(properties.bucket())
+                || !StringUtils.hasText(properties.domain())) {
             throw new BusinessException("七牛云对象存储尚未配置完整");
         }
         String key = "uploads/%s/%s-%s".formatted(LocalDate.now(), UUID.randomUUID(), sanitize(filename));
@@ -43,15 +46,12 @@ public class QiniuService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("请选择要上传的文件");
         }
-        if (!StringUtils.hasText(properties.accessKey())
-                || !StringUtils.hasText(properties.secretKey())
-                || !StringUtils.hasText(properties.bucket())
-                || !StringUtils.hasText(properties.domain())) {
-            throw new BusinessException("七牛云对象存储尚未配置完整");
-        }
         String contentType = file.getContentType() == null ? "" : file.getContentType();
         if (!contentType.startsWith("image/")) {
             throw new BusinessException("只能上传图片文件");
+        }
+        if (!hasQiniuConfig()) {
+            throw new BusinessException("对象存储尚未配置完整，不能上传图片");
         }
 
         String key = "uploads/%s/%s-%s".formatted(
@@ -67,7 +67,7 @@ public class QiniuService {
             if (!response.isOK()) {
                 throw new BusinessException("七牛云上传失败：" + response.statusCode + " " + response.error);
             }
-            return new FileUploadResponse(fileUrl(key), key, properties.domain());
+            return new FileUploadResponse(mediaUrlService.toPublicUrl(key), key, properties.domain());
         } catch (QiniuException exception) {
             Response response = exception.response;
             String detail = response == null ? exception.getMessage() : response.statusCode + " " + response.error;
@@ -77,6 +77,13 @@ public class QiniuService {
         }
     }
 
+    private boolean hasQiniuConfig() {
+        return StringUtils.hasText(properties.accessKey())
+                && StringUtils.hasText(properties.secretKey())
+                && StringUtils.hasText(properties.bucket())
+                && StringUtils.hasText(properties.domain());
+    }
+
     private String uploadUrl() {
         if (StringUtils.hasText(properties.uploadUrl())) {
             return properties.uploadUrl();
@@ -84,17 +91,11 @@ public class QiniuService {
         return "https://upload-z2.qiniup.com";
     }
 
-    private String fileUrl(String key) {
-        if (properties.domain().startsWith("http://") || properties.domain().startsWith("https://")) {
-            return properties.domain() + "/" + key;
-        }
-        return "http://" + properties.domain() + "/" + key;
-    }
-
     private String sanitize(String filename) {
-        return filename.replace("\\", "_")
+        String sanitized = filename.replace("\\", "_")
                 .replace("/", "_")
                 .replace("..", "_")
                 .trim();
+        return StringUtils.hasText(sanitized) ? sanitized : "image.jpg";
     }
 }

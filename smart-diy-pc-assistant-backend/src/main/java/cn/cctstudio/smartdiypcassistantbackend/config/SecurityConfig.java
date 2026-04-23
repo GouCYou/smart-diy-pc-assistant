@@ -34,6 +34,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(registry -> registry
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/health", "/api/auth/login", "/api/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/community/posts",
+                                "/api/community/posts/*",
+                                "/api/community/posts/*/comments",
+                                "/api/news",
+                                "/api/news/*",
+                                "/api/news/*/comments"
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

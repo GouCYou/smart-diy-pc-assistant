@@ -7,4 +7,8 @@ import java.util.List;
 public interface NewsRepository extends JpaRepository<News, Long> {
 
     List<News> findTop20ByStatusOrderByCreatedAtDesc(NewsStatus status);
+
+    List<News> findByStatusOrderByCreatedAtDesc(NewsStatus status);
+
+    List<News> findAllByOrderByCreatedAtDesc();
 }
