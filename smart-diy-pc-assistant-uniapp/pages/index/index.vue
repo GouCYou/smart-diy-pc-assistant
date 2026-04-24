@@ -101,6 +101,7 @@
 			</view>
 
 			<view class="segmented">
+				<view :class="'segment-indicator segment-indicator-' + buildSegment"></view>
 				<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
 					<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">自定义</text>
 				</view>
@@ -5356,6 +5357,7 @@
 		border-radius: 18px;
 		padding: 4px;
 		margin-bottom: 18px;
+		position: relative;
 	}
 
 	.segment,
@@ -5365,12 +5367,36 @@
 		border-radius: 14px;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+		z-index: 1;
 	}
 
-	.segment-active {
+	.segment-indicator {
+		position: absolute;
+		left: 4px;
+		top: 4px;
+		width: calc((100% - 8px) / 3);
+		height: 36px;
+		border-radius: 14px;
 		background-color: #ffffff;
 		border-width: 1px;
 		border-color: #eef2f7;
+		transition-property: transform;
+		transition-duration: 240ms;
+		transition-timing-function: ease-out;
+		z-index: 0;
+	}
+
+	.segment-indicator-0 {
+		transform: translateX(0);
+	}
+
+	.segment-indicator-1 {
+		transform: translateX(100%);
+	}
+
+	.segment-indicator-2 {
+		transform: translateX(200%);
 	}
 
 	.segment-text,
@@ -5781,7 +5807,6 @@
 
 	.empty-state-news {
 		min-height: 390px;
-		margin-top: 14px;
 	}
 
 	.empty-illustration {
