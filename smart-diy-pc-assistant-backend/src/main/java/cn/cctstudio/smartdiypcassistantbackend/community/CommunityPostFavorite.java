@@ -26,4 +26,8 @@ public class CommunityPostFavorite {
         this.userId = userId;
         this.createdAt = LocalDateTime.now();
     }
+
+    public Long getPostId() {
+        return postId;
+    }
 }

@@ -7,7 +7,16 @@ public record UserProfileResponse(
         String nickname,
         String avatarKey,
         String avatarUrl,
+        String backgroundKey,
+        String backgroundUrl,
         String bio,
+        String gender,
+        String birthday,
+        String countryOrRegion,
+        String province,
+        String city,
+        Boolean profilePublic,
+        Boolean spacePublic,
         String role
 ) {
 }

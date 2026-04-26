@@ -14,6 +14,7 @@ import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartRepository;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartType;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.dto.HardwarePartResponse;
+import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ public class AiService {
     private final ChatMessageRepository messageRepository;
     private final HardwarePartRepository hardwarePartRepository;
     private final BuildConfigService buildConfigService;
+    private final UserAccessService userAccessService;
 
     public AiService(
             AiProperties properties,
@@ -54,7 +56,8 @@ public class AiService {
             ChatConversationRepository conversationRepository,
             ChatMessageRepository messageRepository,
             HardwarePartRepository hardwarePartRepository,
-            BuildConfigService buildConfigService
+            BuildConfigService buildConfigService,
+            UserAccessService userAccessService
     ) {
         this.properties = properties;
         this.redisTemplate = redisTemplate;
@@ -65,10 +68,12 @@ public class AiService {
         this.messageRepository = messageRepository;
         this.hardwarePartRepository = hardwarePartRepository;
         this.buildConfigService = buildConfigService;
+        this.userAccessService = userAccessService;
     }
 
     @Transactional
     public ChatResponse chat(Long userId, ChatRequest request) {
+        userAccessService.requireAvailable(userId);
         ChatConversation conversation = resolveConversation(userId, request.conversationId(), request.message());
         messageRepository.save(new ChatMessage(conversation.getId(), "user", request.message()));
 

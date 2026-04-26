@@ -33,7 +33,16 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(registry -> registry
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/health", "/api/auth/login", "/api/auth/register").permitAll()
+                        .requestMatchers(
+                                "/api/health",
+                                "/api/auth/login",
+                                "/api/auth/admin-login",
+                                "/api/auth/register",
+                                "/api/auth/captcha",
+                                "/api/auth/verification-code",
+                                "/api/auth/password-reset/verification-code",
+                                "/api/auth/password-reset"
+                        ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/community/posts",
@@ -41,7 +50,8 @@ public class SecurityConfig {
                                 "/api/community/posts/*/comments",
                                 "/api/news",
                                 "/api/news/*",
-                                "/api/news/*/comments"
+                                "/api/news/*/comments",
+                                "/api/users/*/space"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

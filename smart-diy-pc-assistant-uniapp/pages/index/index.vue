@@ -24,8 +24,8 @@
 						<view class="ai-dot ai-dot-two"></view>
 						<view class="ai-dot ai-dot-three"></view>
 					</view>
-					<text class="chat-empty-title">有什么装机问题？</text>
-					<text class="chat-empty-desc">告诉我预算、用途、屏幕分辨率、外观偏好，我会帮你整理成清晰的配置思路。</text>
+					<text class="chat-empty-title">有什么装机问题</text>
+					<text class="chat-empty-desc">AI 也可能会犯错。请核查重要信息。</text>
 					<view class="prompt-grid">
 						<view v-for="item in promptChips" :key="item" class="prompt-card" @click="choosePrompt(item)">
 							<text class="prompt-text">{{ item }}</text>
@@ -204,7 +204,17 @@
 					<text class="page-title page-title-inset">发现</text>
 				</view>
 				<view class="small-primary" @click="publishPost">
-					<text class="small-primary-text">发帖</text>
+					<text class="small-primary-text">发动态</text>
+				</view>
+			</view>
+
+			<view class="segmented discovery-segmented">
+				<view :class="'segment-indicator segment-indicator-' + communitySegment"></view>
+				<view :class="communitySegment == 0 ? 'segment-active' : 'segment'" @click="selectCommunitySegment(0)">
+					<text :class="communitySegment == 0 ? 'segment-active-text' : 'segment-text'">推荐</text>
+				</view>
+				<view :class="communitySegment == 1 ? 'segment-active' : 'segment'" @click="selectCommunitySegment(1)">
+					<text :class="communitySegment == 1 ? 'segment-active-text' : 'segment-text'">我的关注</text>
 				</view>
 			</view>
 
@@ -212,21 +222,21 @@
 				<view class="section-search-icon">
 					<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
 				</view>
-				<input class="section-search-input" v-model="communitySearchKeyword" placeholder="搜索帖子内容、作者或配置" placeholder-class="section-search-placeholder" @input="resetCommunityPage()" />
+				<input class="section-search-input" v-model="communitySearchKeyword" placeholder="搜索动态内容、作者或配置" placeholder-class="section-search-placeholder" @input="resetCommunityPage()" />
 			</view>
 
 			<scroll-view class="community-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="communityRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshCommunityPosts">
 				<view v-if="getFilteredCommunityPosts().length > 0" class="community-list">
 					<view v-for="post in getPagedCommunityPosts()" :key="post.id" class="post-card" @click="openPostDetail(post.id)">
 						<view class="post-head">
-							<view class="post-avatar">
+							<view class="post-avatar" @click.stop="openUserSpace(post.author.id)">
 								<image v-if="post.author.avatarUrl.length > 0" class="post-avatar-image" :src="post.author.avatarUrl" mode="aspectFill"></image>
 								<view v-else class="avatar-placeholder">
 									<view class="avatar-placeholder-head"></view>
 									<view class="avatar-placeholder-body"></view>
 								</view>
 							</view>
-							<view class="post-author-main">
+							<view class="post-author-main" @click.stop="openUserSpace(post.author.id)">
 								<text class="post-author-name">{{ post.author.nickname }}</text>
 								<text class="post-time">{{ formatHistoryTime(post.createdAt) }}</text>
 							</view>
@@ -283,7 +293,7 @@
 					</view>
 				</view>
 
-				<view v-if="getFilteredCommunityPosts().length == 0" class="empty-state empty-state-soft">
+				<view v-if="getFilteredCommunityPosts().length == 0 && !communityLoading" class="empty-state empty-state-soft">
 					<view class="empty-illustration empty-forum">
 						<view class="forum-bubble"></view>
 						<view class="forum-bubble forum-bubble-small"></view>
@@ -394,23 +404,48 @@
 				</view>
 				<view class="profile-copy">
 					<text class="profile-title">{{ token.length > 0 ? currentNickname : '登录 / 注册' }}</text>
+					<text v-if="token.length > 0" class="profile-username">@{{ currentUsername }}</text>
 					<text class="profile-desc">{{ token.length > 0 ? currentBio : '登录后同步配置、收藏和社区内容。' }}</text>
 					<text v-if="token.length > 0" class="profile-email">{{ currentEmail }}</text>
+					<view v-if="token.length > 0" class="profile-social">
+						<text class="profile-social-text">关注 {{ currentFollowingCount }}</text>
+						<text class="profile-social-separator">·</text>
+						<text class="profile-social-text">粉丝 {{ currentFollowerCount }}</text>
+					</view>
 				</view>
 			</view>
 
 			<view class="zero-stats">
 				<view class="zero-stat">
-					<text class="zero-number">0</text>
+					<text class="zero-number">{{ currentConfigCount }}</text>
 					<text class="zero-label">配置</text>
 				</view>
 				<view class="zero-stat">
-					<text class="zero-number">0</text>
+					<text class="zero-number">{{ currentFavoriteCount }}</text>
 					<text class="zero-label">收藏</text>
 				</view>
 				<view class="zero-stat zero-stat-last">
-					<text class="zero-number">0</text>
-					<text class="zero-label">帖子</text>
+					<text class="zero-number">{{ currentPostCount }}</text>
+					<text class="zero-label">动态</text>
+				</view>
+			</view>
+
+			<view class="profile-tools">
+				<view class="profile-tool" @click="openMySpace">
+					<text class="profile-tool-title">个人空间</text>
+					<text class="profile-tool-desc">主页与动态</text>
+				</view>
+				<view class="profile-tool" @click="openMyFavorites">
+					<text class="profile-tool-title">我的收藏</text>
+					<text class="profile-tool-desc">配置、动态、热点</text>
+				</view>
+				<view class="profile-tool" @click="createBuildFromProfile">
+					<text class="profile-tool-title">新建配置</text>
+					<text class="profile-tool-desc">记录装机方案</text>
+				</view>
+				<view class="profile-tool" @click="publishPostFromProfile">
+					<text class="profile-tool-title">发布动态</text>
+					<text class="profile-tool-desc">分享装机想法</text>
 				</view>
 			</view>
 
@@ -419,14 +454,11 @@
 					<text class="menu-text">设置</text>
 					<text class="menu-arrow">›</text>
 				</view>
-				<view v-if="token.length > 0" :class="logoutPressed ? 'menu-item menu-item-pressed' : 'menu-item'" @click="logout">
-					<text class="menu-text menu-text-danger">退出登录</text>
-					<text class="menu-arrow">›</text>
-				</view>
 			</view>
 		</view>
 
 		<view v-if="!historyOpen" class="tabbar">
+			<view :class="'tab-indicator tab-indicator-' + activeTab"></view>
 			<view :class="activeTab == 0 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(0)">
 				<view class="tab-glyph ai-tab-glyph">
 					<text :class="activeTab == 0 ? 'ai-tab-text ai-tab-text-active' : 'ai-tab-text'">AI</text>
@@ -648,8 +680,8 @@
 				<view class="build-form-head">
 					<text class="build-form-title compact-picker-title">选择关联配置</text>
 					<view class="build-form-close compact-picker-close" @click="closeChatBuildPicker">
-						<view class="close-line compact-picker-close-line"></view>
-						<view class="close-line close-line-two compact-picker-close-line"></view>
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
 				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
@@ -674,7 +706,7 @@
 		<view v-if="postFormVisible" class="build-form-mask" @click="closePostForm">
 			<view class="post-form" @click.stop>
 				<view class="build-form-head">
-					<text class="build-form-title">发布帖子</text>
+					<text class="build-form-title">发布动态</text>
 					<view class="build-form-close" @click="closePostForm">
 						<view class="close-line"></view>
 						<view class="close-line close-line-two"></view>
@@ -739,8 +771,8 @@
 				<view class="build-form-head">
 					<text class="build-form-title compact-picker-title">选择关联配置</text>
 					<view class="build-form-close compact-picker-close" @click="closePostBuildPicker">
-						<view class="close-line compact-picker-close-line"></view>
-						<view class="close-line close-line-two compact-picker-close-line"></view>
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
 				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
@@ -765,7 +797,7 @@
 		<view v-if="false" class="build-form-mask" @click="closePostDetail">
 			<view class="post-detail" @click.stop>
 				<view class="build-form-head">
-					<text class="build-form-title">帖子详情</text>
+					<text class="build-form-title">动态详情</text>
 					<view class="build-form-close" @click="closePostDetail">
 						<view class="close-line"></view>
 						<view class="close-line close-line-two"></view>
@@ -1096,7 +1128,13 @@
 	const currentNickname = ref('')
 	const currentAvatarUrl = ref('')
 	const currentBio = ref('')
+	const currentConfigCount = ref(0)
+	const currentFavoriteCount = ref(0)
+	const currentPostCount = ref(0)
+	const currentFollowingCount = ref(0)
+	const currentFollowerCount = ref(0)
 	const communityPosts = ref([] as CommunityPostItem[])
+	const communitySegment = ref(0)
 	const communitySearchKeyword = ref('')
 	const communityPage = ref(1)
 	const communityLoading = ref(false)
@@ -1505,16 +1543,22 @@
 
 	function getCommunityEmptyTitle() : string {
 		if (normalizeSearchKeyword(communitySearchKeyword.value).length > 0) {
-			return '没有找到帖子'
+			return '没有找到动态'
+		}
+		if (communitySegment.value == 1) {
+			return '还没有关注动态'
 		}
 		return '还没有社区内容'
 	}
 
 	function getCommunityEmptyDesc() : string {
 		if (normalizeSearchKeyword(communitySearchKeyword.value).length > 0) {
-			return '换个关键词试试，帖子内容、作者和关联配置都可以搜。'
+			return '换个关键词试试，动态内容、作者和关联配置都可以搜。'
 		}
-		return '发布第一条帖子后，这里会展示你的动态和其他用户的装机讨论。'
+		if (communitySegment.value == 1) {
+			return '关注用户后，他们最近发布的动态会显示在这里。'
+		}
+		return '发布第一条动态后，这里会展示你的动态和其他用户的装机讨论。'
 	}
 
 	function getPageClass(baseClass : string) : string {
@@ -1539,6 +1583,7 @@
 		if (index == 4) {
 			loadAuth()
 			loadProfile()
+			loadMyStats()
 		}
 		if (index == 1) {
 			loadBuildConfigs()
@@ -1557,6 +1602,19 @@
 	function selectBuildSegment(index : number) {
 		buildSegment.value = index
 		loadBuildConfigs()
+	}
+
+	function selectCommunitySegment(index : number) {
+		if (communitySegment.value == index) {
+			return
+		}
+		if (index == 1 && token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		communitySegment.value = index
+		communityPage.value = 1
+		loadCommunityPostsWithForce(true)
 	}
 
 	function toggleHistory() {
@@ -1643,7 +1701,16 @@
 					loadConversations()
 					return
 				}
-				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+				if (res.statusCode == 403 || (body != null && body.code == 403)) {
+					chatMessages.value.push({
+						role: 'assistant',
+						content: body != null && body.message != null ? body.message as string : '该账户已被封禁，暂时无法使用 AI 对话。',
+						buildConfigId: 0,
+						buildConfigTitle: ''
+					})
+					return
+				}
+				if (res.statusCode == 401 || (body != null && body.code == 401)) {
 					clearAuth()
 					chatMessages.value.push({
 						role: 'assistant',
@@ -1957,7 +2024,7 @@
 		}
 		communityLoading.value = true
 		uni.request({
-			url: apiBaseUrl + '/api/community/posts',
+			url: apiBaseUrl + '/api/community/posts?segment=' + (communitySegment.value == 1 ? 'following' : 'recommended'),
 			method: 'GET',
 			header: getAuthHeader(),
 			success: (res) => {
@@ -2445,6 +2512,17 @@
 		})
 	}
 
+	function openUserSpace(id : number) {
+		if (id <= 0) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/space?userId=' + id,
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
 	function closePostDetail() {
 		postDetailVisible.value = false
 		commentText.value = ''
@@ -2497,7 +2575,7 @@
 
 	function confirmDeletePost(id : number) {
 		uni.showModal({
-			title: '删除帖子',
+			title: '删除动态',
 			content: '删除后无法恢复，确定删除吗？',
 			confirmText: '删除',
 			cancelText: '取消',
@@ -2757,7 +2835,53 @@
 			openAuthPage()
 			return
 		}
-		openProfileEditor()
+		openUserSpace(currentUserId.value)
+	}
+
+	function openMySpace() {
+		if (!requireLogin()) {
+			return
+		}
+		if (currentUserId.value <= 0) {
+			loadProfile()
+			return
+		}
+		openUserSpace(currentUserId.value)
+	}
+
+	function openMyFavorites() {
+		if (!requireLogin()) {
+			return
+		}
+		if (currentUserId.value <= 0) {
+			loadProfile()
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/space?userId=' + currentUserId.value + '&tab=favorites',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
+	function createBuildFromProfile() {
+		if (!requireLogin()) {
+			return
+		}
+		selectTab(1)
+		setTimeout(() => {
+			createBuild()
+		}, 280)
+	}
+
+	function publishPostFromProfile() {
+		if (!requireLogin()) {
+			return
+		}
+		selectTab(2)
+		setTimeout(() => {
+			publishPost()
+		}, 280)
 	}
 
 	function getProfileAvatarText() : string {
@@ -2825,9 +2949,10 @@
 	}
 
 	function openSettings() {
-		uni.showToast({
-			title: '后续接入设置',
-			icon: 'none'
+		uni.navigateTo({
+			url: '/pages/settings/settings',
+			animationType: 'slide-in-right',
+			animationDuration: 260
 		})
 	}
 
@@ -2878,6 +3003,9 @@
 		uni.setStorageSync('app_nickname', currentNickname.value)
 		uni.setStorageSync('app_avatar_key', payload.avatarKey == null ? '' : payload.avatarKey)
 		uni.setStorageSync('app_bio', currentBio.value)
+		if (activeTab.value == 4) {
+			loadMyStats()
+		}
 	}
 
 	function normalizeAvatarUrl(url : string) : string {
@@ -2895,6 +3023,7 @@
 		currentNickname.value = ''
 		currentAvatarUrl.value = ''
 		currentBio.value = ''
+		resetMyStats()
 		buildList.value = []
 		selectedHardwareParts.value = []
 		for (let i = 0; i < newsList.value.length; i++) {
@@ -2907,6 +3036,7 @@
 		buildDetailVisible.value = false
 		chatBuildPickerVisible.value = false
 		communityPosts.value = []
+		communitySegment.value = 0
 		postFormVisible.value = false
 		postBuildPickerVisible.value = false
 		postDetailVisible.value = false
@@ -2948,6 +3078,75 @@
 				scheduleBackendReconnect()
 			}
 		})
+	}
+
+	function resetMyStats() {
+		currentConfigCount.value = 0
+		currentFavoriteCount.value = 0
+		currentPostCount.value = 0
+		currentFollowingCount.value = 0
+		currentFollowerCount.value = 0
+	}
+
+	function loadMyStats() {
+		if (token.value.length == 0 || currentUserId.value <= 0) {
+			resetMyStats()
+			return
+		}
+		loadMyConfigCount()
+		loadMySpaceStats()
+	}
+
+	function loadMyConfigCount() {
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs?segment=all',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					currentConfigCount.value = getArrayLength(body.data)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			}
+		})
+	}
+
+	function loadMySpaceStats() {
+		uni.request({
+			url: apiBaseUrl + '/api/users/' + currentUserId.value + '/space',
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const data = body.data as any
+					const favoriteBuildCount = getArrayLength(data.favoriteBuilds)
+					const favoritePostCount = getArrayLength(data.favoritePosts)
+					const favoriteNewsCount = getArrayLength(data.favoriteNews)
+					currentFavoriteCount.value = favoriteBuildCount + favoritePostCount + favoriteNewsCount
+					currentPostCount.value = getArrayLength(data.posts)
+					currentFollowingCount.value = Number(data.followingCount == null ? 0 : data.followingCount)
+					currentFollowerCount.value = Number(data.followerCount == null ? 0 : data.followerCount)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			}
+		})
+	}
+
+	function getArrayLength(value : any) : number {
+		if (Array.isArray(value)) {
+			return value.length
+		}
+		return 0
 	}
 
 	function loadBuildConfigs() {
@@ -5223,11 +5422,7 @@
 		width: 34px;
 		height: 34px;
 		border-radius: 17px;
-		background-color: #111827;
-	}
-
-	.compact-picker-close-line {
-		background-color: #ffffff;
+		background-color: #f3f6fb;
 	}
 
 	.compact-picker-scroll {
@@ -5397,6 +5592,10 @@
 
 	.segment-indicator-2 {
 		transform: translateX(200%);
+	}
+
+	.discovery-segmented .segment-indicator {
+		width: calc((100% - 8px) / 2);
 	}
 
 	.segment-text,
@@ -6897,6 +7096,7 @@
 	}
 
 	.profile-card {
+		position: relative;
 		border-radius: 30px;
 		background-color: #ffffff;
 		padding: 20px;
@@ -6973,6 +7173,13 @@
 		color: #111827;
 	}
 
+	.profile-username {
+		margin-top: 1px;
+		font-size: 13px;
+		line-height: 18px;
+		color: #667085;
+	}
+
 	.profile-desc {
 		margin-top: 4px;
 		font-size: 13px;
@@ -6985,6 +7192,27 @@
 		font-size: 12px;
 		line-height: 18px;
 		color: #98a2b3;
+	}
+
+	.profile-social {
+		margin-top: 8px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.profile-social-text {
+		font-size: 12px;
+		line-height: 18px;
+		font-weight: 700;
+		color: #344054;
+	}
+
+	.profile-social-separator {
+		margin-left: 6px;
+		margin-right: 6px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #c5ccda;
 	}
 
 	.zero-stats {
@@ -7018,6 +7246,38 @@
 		margin-top: 4px;
 		font-size: 12px;
 		color: #667085;
+	}
+
+	.profile-tools {
+		flex-direction: row;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		margin-bottom: 14px;
+	}
+
+	.profile-tool {
+		width: calc((100% - 10px) / 2);
+		border-radius: 24px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 14px;
+		margin-bottom: 10px;
+		box-sizing: border-box;
+	}
+
+	.profile-tool-title {
+		font-size: 15px;
+		line-height: 21px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.profile-tool-desc {
+		margin-top: 3px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
 	}
 
 	.menu-list {
@@ -7082,6 +7342,7 @@
 		border-width: 1px;
 		border-color: rgba(255, 255, 255, 0.9);
 		z-index: 20;
+		overflow: hidden;
 	}
 
 	.tab-item {
@@ -7090,13 +7351,42 @@
 		border-radius: 22px;
 		align-items: center;
 		justify-content: center;
-		transition-property: background-color, transform;
-		transition-duration: 180ms;
+		position: relative;
+		z-index: 1;
 	}
 
-	.tab-item-active {
+	.tab-indicator {
+		position: absolute;
+		left: 8px;
+		top: 7px;
+		width: calc((100% - 16px) / 5);
+		height: 58px;
+		border-radius: 22px;
 		background-color: #eef5ff;
-		transform: scale(1.03);
+		transition-property: transform;
+		transition-duration: 240ms;
+		transition-timing-function: ease-out;
+		z-index: 0;
+	}
+
+	.tab-indicator-0 {
+		transform: translateX(0);
+	}
+
+	.tab-indicator-1 {
+		transform: translateX(100%);
+	}
+
+	.tab-indicator-2 {
+		transform: translateX(200%);
+	}
+
+	.tab-indicator-3 {
+		transform: translateX(300%);
+	}
+
+	.tab-indicator-4 {
+		transform: translateX(400%);
 	}
 
 	.tab-glyph {

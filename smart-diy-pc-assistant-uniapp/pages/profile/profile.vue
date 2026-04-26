@@ -14,7 +14,8 @@
 			</view>
 		</view>
 
-		<view class="avatar-area">
+		<scroll-view class="profile-scroll" scroll-y="true">
+		<view class="account-card">
 			<view class="avatar-preview" @click="chooseAvatar">
 				<image v-if="avatarPreviewUrl.length > 0" class="avatar-image" :src="avatarPreviewUrl" mode="aspectFill"></image>
 				<view v-else class="avatar-placeholder">
@@ -22,35 +23,71 @@
 					<view class="avatar-placeholder-body"></view>
 				</view>
 			</view>
-			<view class="avatar-action" @click="chooseAvatar">
-				<text class="avatar-action-text">{{ uploadingAvatar ? '上传中...' : '更换头像' }}</text>
+			<view class="account-main">
+				<text class="account-name">{{ nickname.length > 0 ? nickname : username }}</text>
+				<view class="avatar-action" @click="chooseAvatar">
+					<text class="avatar-action-text">{{ uploadingAvatar ? '上传中...' : '更换头像' }}</text>
+				</view>
 			</view>
 		</view>
 
-		<view class="form">
-			<view class="field">
-				<text class="field-label">用户名</text>
-				<text class="field-static">{{ username }}</text>
+		<view class="form-section">
+			<view class="setting-row">
+				<text class="setting-label">用户名</text>
+				<text class="setting-value">{{ username }}</text>
 			</view>
-			<view class="field">
-				<text class="field-label">绑定邮箱</text>
-				<text class="field-static">{{ email }}</text>
+			<view class="setting-row">
+				<text class="setting-label">邮箱</text>
+				<text class="setting-value">{{ email }}</text>
 			</view>
-			<view class="field">
-				<text class="field-label">昵称</text>
-				<input class="field-input" v-model="nickname" placeholder="填写昵称" placeholder-class="input-placeholder" />
-			</view>
-			<view class="field field-large">
-				<text class="field-label">个人简介</text>
-				<textarea class="field-textarea" v-model="bio" placeholder="介绍一下你的装机偏好" placeholder-class="input-placeholder" />
+			<view class="setting-row">
+				<text class="setting-label">昵称</text>
+				<input class="setting-input" v-model="nickname" placeholder="填写昵称" placeholder-class="input-placeholder" />
 			</view>
 		</view>
+
+		<view class="form-section">
+			<view class="bio-field">
+				<text class="setting-label">个人简介</text>
+				<textarea class="setting-textarea" v-model="bio" placeholder="介绍一下你的装机偏好" placeholder-class="input-placeholder" />
+			</view>
+		</view>
+
+		<view class="form-section">
+			<view class="setting-row">
+				<text class="setting-label">性别</text>
+				<picker :range="genderOptions" :value="genderIndex" @change="onGenderChange">
+					<view class="picker-value">
+						<text class="picker-text">{{ getGenderLabel() }}</text>
+					</view>
+				</picker>
+			</view>
+			<view class="setting-row">
+				<text class="setting-label">生日</text>
+				<picker mode="date" :value="birthday" @change="onBirthdayChange">
+					<view class="picker-value">
+						<text :class="birthday.length > 0 ? 'picker-text' : 'picker-placeholder'">{{ birthday.length > 0 ? birthday : '选择生日' }}</text>
+					</view>
+				</picker>
+			</view>
+			<view class="setting-row">
+				<text class="setting-label">所在地</text>
+				<picker mode="multiSelector" :range="regionRange" :value="regionValue" @columnchange="onRegionColumnChange" @change="onRegionChange">
+					<view class="picker-value">
+						<text class="picker-text">{{ getRegionText() }}</text>
+					</view>
+				</picker>
+			</view>
+		</view>
+		<view class="profile-bottom-space"></view>
+		</scroll-view>
 	</view>
 </template>
 
 <script setup lang="ts">
 	import { ref } from 'vue'
 	import { API_BASE_URL, normalizeMediaUrl } from '../../common/api'
+	import { CHINA_CITY_OPTIONS, CHINA_PROVINCES, COUNTRY_OPTIONS, TAIWAN_CITY_OPTIONS } from '../../common/regions'
 
 	type UserProfilePayload = {
 		userId : number
@@ -59,7 +96,16 @@
 		nickname : string
 		avatarKey : string
 		avatarUrl : string
+		backgroundKey : string
+		backgroundUrl : string
 		bio : string
+		gender : string
+		birthday : string
+		countryOrRegion : string
+		province : string
+		city : string
+		profilePublic : boolean
+		spacePublic : boolean
 		role : string
 	}
 
@@ -79,10 +125,32 @@
 	const avatarUrl = ref('')
 	const avatarPreviewUrl = ref('')
 	const bio = ref('')
+	const gender = ref('')
+	const genderIndex = ref(0)
+	const birthday = ref('')
+	const countryOrRegion = ref('中国大陆')
+	const province = ref('北京')
+	const city = ref('北京市')
+	const profilePublic = ref(true)
+	const spacePublic = ref(true)
+	const countryIndex = ref(0)
+	const provinceIndex = ref(0)
+	const cityIndex = ref(0)
+	const regionRange = ref([[] as string[], [] as string[], [] as string[]])
+	const regionValue = ref([0, 0, 0])
 	const saving = ref(false)
 	const uploadingAvatar = ref(false)
 	const pageLeaving = ref(false)
 
+	const countryOptions = COUNTRY_OPTIONS
+	const provinceOptions = CHINA_PROVINCES
+	const cityOptionsMap = CHINA_CITY_OPTIONS as any
+	const taiwanCityOptions = TAIWAN_CITY_OPTIONS
+	const taiwanProvinceColumn = ['台湾地区']
+	const genderOptions = ['保密', '男', '女']
+	const emptyRegionColumn = ['']
+
+	syncPickerIndexes()
 	loadLocalProfile()
 	loadRemoteProfile()
 
@@ -260,7 +328,12 @@
 			data: {
 				nickname: nickname.value,
 				avatarKey: avatarKey.value,
-				bio: bio.value
+				bio: bio.value,
+				gender: gender.value,
+				birthday: birthday.value,
+				countryOrRegion: countryOrRegion.value,
+				province: countryOrRegion.value == '中国大陆' ? province.value : '',
+				city: countryOrRegion.value == '中国大陆' || countryOrRegion.value == '中国台湾' ? city.value : ''
 			},
 			success: (res) => {
 				const body = res.data as any
@@ -305,12 +378,197 @@
 		avatarUrl.value = normalizeMediaUrl(payload.avatarUrl == null ? '' : payload.avatarUrl)
 		avatarPreviewUrl.value = avatarUrl.value
 		bio.value = payload.bio == null ? '' : payload.bio
+		gender.value = payload.gender == null ? '' : payload.gender
+		birthday.value = payload.birthday == null ? '' : payload.birthday
+		countryOrRegion.value = payload.countryOrRegion == null || payload.countryOrRegion.length == 0 ? '中国大陆' : payload.countryOrRegion
+		province.value = payload.province == null || payload.province.length == 0 ? '北京' : payload.province
+		city.value = payload.city == null || payload.city.length == 0 ? getCityOptions()[0] : payload.city
+		if (countryOrRegion.value == '中国台湾') {
+			province.value = ''
+			city.value = payload.city == null || payload.city.length == 0 ? taiwanCityOptions[0] : payload.city
+		}
+		profilePublic.value = payload.profilePublic == null ? true : payload.profilePublic
+		spacePublic.value = payload.spacePublic == null ? true : payload.spacePublic
+		syncGenderIndex()
+		syncPickerIndexes()
 		uni.setStorageSync('app_user_id', userId.value)
 		uni.setStorageSync('app_username', username.value)
 		uni.setStorageSync('app_email', email.value)
 		uni.setStorageSync('app_nickname', nickname.value)
 		uni.setStorageSync('app_avatar_key', avatarKey.value)
 		uni.setStorageSync('app_bio', bio.value)
+	}
+
+	function onBirthdayChange(event : any) {
+		birthday.value = event.detail.value as string
+	}
+
+	function onGenderChange(event : any) {
+		genderIndex.value = Number(event.detail.value)
+		if (genderIndex.value == 1) {
+			gender.value = 'MALE'
+			return
+		}
+		if (genderIndex.value == 2) {
+			gender.value = 'FEMALE'
+			return
+		}
+		gender.value = ''
+	}
+
+	function syncGenderIndex() {
+		if (gender.value == 'MALE') {
+			genderIndex.value = 1
+			return
+		}
+		if (gender.value == 'FEMALE') {
+			genderIndex.value = 2
+			return
+		}
+		genderIndex.value = 0
+	}
+
+	function getGenderLabel() : string {
+		return genderOptions[genderIndex.value]
+	}
+
+	function onCountryChange(event : any) {
+		countryIndex.value = Number(event.detail.value)
+		countryOrRegion.value = countryOptions[countryIndex.value]
+		if (countryOrRegion.value == '中国大陆') {
+			provinceIndex.value = 0
+			province.value = provinceOptions[0]
+			cityIndex.value = 0
+			city.value = getCityOptions()[0]
+		} else {
+			province.value = ''
+			city.value = ''
+		}
+	}
+
+	function onProvinceChange(event : any) {
+		provinceIndex.value = Number(event.detail.value)
+		province.value = provinceOptions[provinceIndex.value]
+		cityIndex.value = 0
+		city.value = getCityOptions()[0]
+	}
+
+	function onCityChange(event : any) {
+		cityIndex.value = Number(event.detail.value)
+		const options = getCityOptions()
+		city.value = options[cityIndex.value]
+	}
+
+	function getCityOptions() : string[] {
+		if (countryOrRegion.value == '中国台湾') {
+			return taiwanCityOptions
+		}
+		const options = cityOptionsMap[province.value]
+		if (options == null || options.length == 0) {
+			return ['请选择城市']
+		}
+		return options as string[]
+	}
+
+	function syncPickerIndexes() {
+		countryIndex.value = Math.max(0, countryOptions.indexOf(countryOrRegion.value))
+		provinceIndex.value = Math.max(0, provinceOptions.indexOf(province.value))
+		const cities = getCityOptions()
+		cityIndex.value = Math.max(0, cities.indexOf(city.value))
+		if (cityIndex.value == 0 && city.value.length == 0 && cities.length > 0) {
+			city.value = cities[0]
+		}
+		syncRegionPicker()
+	}
+
+	function syncRegionPicker() {
+		let provinceColumn = emptyRegionColumn
+		let cityColumn = emptyRegionColumn
+		if (countryOrRegion.value == '中国大陆') {
+			provinceColumn = provinceOptions
+			cityColumn = getCityOptions()
+		}
+		if (countryOrRegion.value == '中国台湾') {
+			provinceColumn = taiwanProvinceColumn
+			cityColumn = taiwanCityOptions
+		}
+		regionRange.value = [countryOptions, provinceColumn, cityColumn]
+		regionValue.value = [
+			Math.max(0, countryOptions.indexOf(countryOrRegion.value)),
+			countryOrRegion.value == '中国大陆' ? Math.max(0, provinceOptions.indexOf(province.value)) : 0,
+			countryOrRegion.value == '中国大陆' || countryOrRegion.value == '中国台湾' ? Math.max(0, cityColumn.indexOf(city.value)) : 0
+		]
+	}
+
+	function onRegionColumnChange(event : any) {
+		const column = Number(event.detail.column)
+		const selected = Number(event.detail.value)
+		const next = regionValue.value.slice()
+		next[column] = selected
+		if (column == 0) {
+			const selectedCountry = countryOptions[selected]
+			if (selectedCountry == '中国大陆') {
+				countryOrRegion.value = selectedCountry
+				province.value = provinceOptions[0]
+				city.value = cityOptionsMap[province.value][0]
+			} else if (selectedCountry == '中国台湾') {
+				countryOrRegion.value = selectedCountry
+				province.value = ''
+				city.value = taiwanCityOptions[0]
+			} else {
+				countryOrRegion.value = selectedCountry
+				province.value = ''
+				city.value = ''
+			}
+			syncRegionPicker()
+			return
+		}
+		if (column == 1 && countryOrRegion.value == '中国大陆') {
+			province.value = provinceOptions[selected]
+			city.value = getCityOptions()[0]
+			syncRegionPicker()
+			return
+		}
+		if (column == 2 && countryOrRegion.value == '中国大陆') {
+			const cities = getCityOptions()
+			city.value = cities[selected]
+			syncRegionPicker()
+			return
+		}
+		if (column == 2 && countryOrRegion.value == '中国台湾') {
+			city.value = taiwanCityOptions[selected]
+			syncRegionPicker()
+			return
+		}
+		regionValue.value = next
+	}
+
+	function onRegionChange(event : any) {
+		const value = event.detail.value as number[]
+		const country = countryOptions[value[0]]
+		countryOrRegion.value = country
+		if (country == '中国大陆') {
+			province.value = provinceOptions[value[1]]
+			const cities = cityOptionsMap[province.value] as string[]
+			city.value = cities[Math.min(value[2], cities.length - 1)]
+		} else if (country == '中国台湾') {
+			province.value = ''
+			city.value = taiwanCityOptions[Math.min(value[2], taiwanCityOptions.length - 1)]
+		} else {
+			province.value = ''
+			city.value = ''
+		}
+		syncRegionPicker()
+	}
+
+	function getRegionText() : string {
+		if (countryOrRegion.value != '中国大陆') {
+			if (countryOrRegion.value == '中国台湾' && city.value.length > 0) {
+				return countryOrRegion.value + ' · ' + city.value
+			}
+			return countryOrRegion.value
+		}
+		return countryOrRegion.value + ' · ' + province.value + ' · ' + city.value
 	}
 
 	function clearAuth() {
@@ -338,8 +596,8 @@
 		width: 100vw;
 		max-width: none;
 		background-color: #f6f7fb;
-		padding-left: 20px;
-		padding-right: 20px;
+		padding-left: 16px;
+		padding-right: 16px;
 		padding-bottom: constant(safe-area-inset-bottom);
 		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
@@ -390,6 +648,10 @@
 		flex-direction: row;
 		align-items: center;
 		justify-content: space-between;
+	}
+
+	.profile-scroll {
+		flex: 1;
 	}
 
 	.nav-button {
@@ -463,26 +725,33 @@
 		color: #ffffff;
 	}
 
-	.avatar-area {
+	.account-card {
+		flex-direction: row;
 		align-items: center;
-		padding-top: 34px;
-		padding-bottom: 24px;
+		border-radius: 28px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 18px;
+		margin-top: 18px;
+		margin-bottom: 14px;
 	}
 
 	.avatar-preview {
-		width: 92px;
-		height: 92px;
-		border-radius: 46px;
+		width: 76px;
+		height: 76px;
+		border-radius: 38px;
 		background-color: #eef2f7;
 		align-items: center;
 		justify-content: center;
 		overflow: hidden;
+		margin-right: 16px;
 	}
 
 	.avatar-image {
-		width: 92px;
-		height: 92px;
-		border-radius: 46px;
+		width: 76px;
+		height: 76px;
+		border-radius: 38px;
 	}
 
 	.avatar-placeholder {
@@ -511,14 +780,15 @@
 	}
 
 	.avatar-action {
-		height: 34px;
-		padding-left: 14px;
-		padding-right: 14px;
+		align-self: flex-start;
+		height: 32px;
+		padding-left: 13px;
+		padding-right: 13px;
 		border-radius: 17px;
 		background-color: #eef5ff;
 		align-items: center;
 		justify-content: center;
-		margin-top: 12px;
+		margin-top: 10px;
 	}
 
 	.avatar-action-text {
@@ -527,48 +797,112 @@
 		color: #007aff;
 	}
 
-	.form {
-		border-radius: 28px;
+	.account-main {
+		flex: 1;
+	}
+
+	.account-name {
+		font-size: 20px;
+		line-height: 28px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.form-section {
+		border-radius: 24px;
 		background-color: #ffffff;
-		padding: 8px 14px;
+		padding-left: 16px;
+		padding-right: 16px;
+		margin-bottom: 14px;
 		border-width: 1px;
 		border-color: #edf0f5;
 	}
 
-	.field {
+	.setting-row {
 		min-height: 58px;
+		flex-direction: row;
+		align-items: center;
 		border-bottom-width: 1px;
 		border-bottom-color: #edf0f5;
+		justify-content: space-between;
+	}
+
+	.setting-row-large {
+		min-height: 120px;
+		flex-direction: column;
+		align-items: stretch;
 		justify-content: center;
 	}
 
-	.field-large {
-		min-height: 116px;
+	.bio-field {
+		padding-top: 16px;
+		padding-bottom: 16px;
 	}
 
-	.field-label {
-		font-size: 12px;
-		font-weight: 800;
-		color: #98a2b3;
-		margin-bottom: 6px;
+	.setting-row-last {
+		border-bottom-width: 0;
 	}
 
-	.field-static {
-		font-size: 15px;
+	.setting-label {
+		font-size: 14px;
+		line-height: 17px;
+		font-weight: 700;
 		color: #344054;
+		margin-right: 14px;
 	}
 
-	.field-input {
+	.setting-value {
+		font-size: 15px;
+		line-height: 21px;
+		color: #667085;
+		text-align: right;
+		flex: 1;
+	}
+
+	.setting-input {
+		flex: 1;
 		height: 30px;
 		font-size: 15px;
 		color: #111827;
+		text-align: right;
 	}
 
-	.field-textarea {
-		height: 72px;
+	.setting-textarea {
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		height: 94px;
 		font-size: 15px;
 		line-height: 22px;
 		color: #111827;
+		margin-top: 10px;
+		padding: 12px;
+		border-radius: 18px;
+		background-color: #f6f8fc;
+	}
+
+	.profile-bottom-space {
+		height: 34px;
+		height: calc(34px + constant(safe-area-inset-bottom));
+		height: calc(34px + env(safe-area-inset-bottom));
+	}
+
+	.picker-value {
+		min-height: 34px;
+		justify-content: center;
+		align-items: flex-end;
+		flex: 1;
+	}
+
+	.picker-text {
+		font-size: 15px;
+		color: #111827;
+		text-align: right;
+	}
+
+	.picker-placeholder {
+		font-size: 15px;
+		color: #98a2b3;
 	}
 
 	.input-placeholder {

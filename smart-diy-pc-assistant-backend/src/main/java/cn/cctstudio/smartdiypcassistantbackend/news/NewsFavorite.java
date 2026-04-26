@@ -26,4 +26,8 @@ public class NewsFavorite {
         this.userId = userId;
         this.createdAt = LocalDateTime.now();
     }
+
+    public Long getNewsId() {
+        return newsId;
+    }
 }

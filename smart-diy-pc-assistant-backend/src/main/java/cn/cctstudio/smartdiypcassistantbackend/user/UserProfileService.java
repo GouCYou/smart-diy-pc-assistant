@@ -26,13 +26,37 @@ public class UserProfileService {
     @Transactional
     public UserProfileResponse updateProfile(Long userId, UpdateProfileRequest request) {
         User user = findUser(userId);
-        user.updateProfile(request.nickname(), mediaUrlService.normalizeKey(request.avatarKey()), request.bio());
+        String nickname = request.nickname() == null || request.nickname().isBlank()
+                ? user.getUsername()
+                : request.nickname().trim();
+        if (userRepository.existsByNicknameAndIdNot(nickname, user.getId())) {
+            throw new BusinessException("昵称已存在");
+        }
+        String avatarKey = request.avatarKey() == null
+                ? user.getAvatarKey()
+                : mediaUrlService.normalizeKey(request.avatarKey());
+        String backgroundKey = request.backgroundKey() == null
+                ? user.getBackgroundImageKey()
+                : mediaUrlService.normalizeKey(request.backgroundKey());
+        user.updateProfile(
+                request.nickname(),
+                avatarKey,
+                backgroundKey,
+                request.bio(),
+                request.gender(),
+                request.birthday(),
+                request.countryOrRegion(),
+                request.province(),
+                request.city(),
+                request.profilePublic(),
+                request.spacePublic()
+        );
         return toResponse(user);
     }
 
     private User findUser(Long userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(401, "鐧诲綍鐘舵€佸凡澶辨晥"));
+                .orElseThrow(() -> new BusinessException(401, "登录状态已过期，请重新登录"));
     }
 
     private UserProfileResponse toResponse(User user) {
@@ -43,7 +67,16 @@ public class UserProfileService {
                 user.getNickname(),
                 user.getAvatarKey(),
                 mediaUrlService.toPublicUrl(user.getAvatarKey()),
+                user.getBackgroundImageKey(),
+                mediaUrlService.toPublicUrl(user.getBackgroundImageKey()),
                 user.getBio(),
+                user.getGender(),
+                user.getBirthday(),
+                user.getCountryOrRegion(),
+                user.getProvince(),
+                user.getCity(),
+                user.isProfilePublic(),
+                user.isSpacePublic(),
                 user.getRole().name()
         );
     }

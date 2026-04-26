@@ -7,6 +7,7 @@ import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentResponse;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsResponse;
+import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +16,7 @@ import org.springframework.util.StringUtils;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class NewsService {
@@ -25,6 +27,7 @@ public class NewsService {
     private final NewsCommentRepository newsCommentRepository;
     private final NewsCommentLikeRepository newsCommentLikeRepository;
     private final UserRepository userRepository;
+    private final UserAccessService userAccessService;
     private final MediaUrlService mediaUrlService;
 
     public NewsService(
@@ -34,6 +37,7 @@ public class NewsService {
             NewsCommentRepository newsCommentRepository,
             NewsCommentLikeRepository newsCommentLikeRepository,
             UserRepository userRepository,
+            UserAccessService userAccessService,
             MediaUrlService mediaUrlService
     ) {
         this.newsRepository = newsRepository;
@@ -42,6 +46,7 @@ public class NewsService {
         this.newsCommentRepository = newsCommentRepository;
         this.newsCommentLikeRepository = newsCommentLikeRepository;
         this.userRepository = userRepository;
+        this.userAccessService = userAccessService;
         this.mediaUrlService = mediaUrlService;
     }
 
@@ -51,6 +56,17 @@ public class NewsService {
                 .stream()
                 .limit(50)
                 .map(news -> toNewsResponse(news, userId, false, "latest"))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<NewsResponse> listFavorites(Long viewerId, Long ownerId) {
+        return newsFavoriteRepository.findByUserIdOrderByCreatedAtDesc(ownerId).stream()
+                .map(NewsFavorite::getNewsId)
+                .map(newsRepository::findById)
+                .flatMap(Optional::stream)
+                .filter(news -> news.getStatus() == NewsStatus.PUBLISHED)
+                .map(news -> toNewsResponse(news, viewerId, false, "latest"))
                 .toList();
     }
 
@@ -84,7 +100,7 @@ public class NewsService {
 
     @Transactional
     public NewsResponse update(Long id, NewsRequest request) {
-        News news = newsRepository.findById(id).orElseThrow(() -> new BusinessException("News not found"));
+        News news = newsRepository.findById(id).orElseThrow(() -> new BusinessException("新闻不存在"));
         news.update(
                 request.title(),
                 createSummary(request.summary(), request.content(), request.title()),
@@ -114,11 +130,12 @@ public class NewsService {
 
     @Transactional
     public NewsCommentResponse createComment(Long userId, Long newsId, NewsCommentRequest request) {
+        userAccessService.requireAvailable(userId);
         findPublishedNews(newsId);
         String content = request.content() == null ? "" : request.content().trim();
         List<String> imageKeys = cleanImages(request.imageKeys());
         if (!StringUtils.hasText(content) && imageKeys.isEmpty()) {
-            throw new BusinessException("Comment content or images are required");
+            throw new BusinessException("评论内容或图片不能为空");
         }
         NewsComment comment = newsCommentRepository.save(new NewsComment(newsId, userId, content, serialize(imageKeys)));
         return toCommentResponse(comment, userId);
@@ -137,7 +154,7 @@ public class NewsService {
     public NewsCommentResponse toggleCommentLike(Long userId, Long commentId) {
         NewsComment comment = newsCommentRepository.findById(commentId)
                 .filter(NewsComment::isVisible)
-                .orElseThrow(() -> new BusinessException("Comment not found"));
+                .orElseThrow(() -> new BusinessException("评论不存在"));
         findPublishedNews(comment.getNewsId());
         newsCommentLikeRepository.findByCommentIdAndUserId(commentId, userId)
                 .ifPresentOrElse(newsCommentLikeRepository::delete, () -> newsCommentLikeRepository.save(new NewsCommentLike(commentId, userId)));
@@ -147,7 +164,7 @@ public class NewsService {
     @Transactional
     public void delete(Long id) {
         if (!newsRepository.existsById(id)) {
-            throw new BusinessException("News not found");
+            throw new BusinessException("新闻不存在");
         }
         newsCommentRepository.findByNewsIdOrderByCreatedAtAsc(id)
                 .forEach(comment -> newsCommentLikeRepository.deleteByCommentId(comment.getId()));
@@ -160,7 +177,7 @@ public class NewsService {
     private News findPublishedNews(Long id) {
         return newsRepository.findById(id)
                 .filter(news -> news.getStatus() == NewsStatus.PUBLISHED)
-                .orElseThrow(() -> new BusinessException("News not found"));
+                .orElseThrow(() -> new BusinessException("新闻不存在"));
     }
 
     private NewsResponse toNewsResponse(News news, Long userId, boolean withComments, String commentSort) {
@@ -212,7 +229,7 @@ public class NewsService {
                         user.getNickname(),
                         mediaUrlService.toPublicUrl(user.getAvatarKey())
                 ))
-                .orElse(new AuthorResponse(userId, "User", "User", ""));
+                .orElse(new AuthorResponse(userId, "用户", "用户", ""));
     }
 
     private List<News> sortNews(List<News> news, String sort) {
@@ -302,7 +319,7 @@ public class NewsService {
     private List<String> cleanImages(List<String> imageKeys) {
         List<String> cleaned = mediaUrlService.normalizeKeys(imageKeys);
         if (cleaned.size() > 9) {
-            throw new BusinessException("At most 9 images are allowed");
+            throw new BusinessException("最多只能上传 9 张图片");
         }
         return cleaned;
     }

@@ -23,7 +23,7 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException exception) {
         String message = exception.getBindingResult().getFieldErrors().stream()
                 .findFirst()
-                .map(error -> error.getField() + error.getDefaultMessage())
+                .map(error -> error.getDefaultMessage() == null ? "参数不合法" : error.getDefaultMessage())
                 .orElse("参数不合法");
         return ApiResponse.fail(400, message);
     }
@@ -31,7 +31,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleConstraintViolationException(ConstraintViolationException exception) {
-        return ApiResponse.fail(400, exception.getMessage());
+        String message = exception.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> violation.getMessage() == null ? "参数不合法" : violation.getMessage())
+                .orElse("参数不合法");
+        return ApiResponse.fail(400, message);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

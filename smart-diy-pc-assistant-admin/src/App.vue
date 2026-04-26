@@ -15,6 +15,12 @@ type LoginResponse = {
   token: string
 }
 
+type CurrentUserResponse = {
+  userId: number
+  username: string
+  role: string
+}
+
 type FileUploadResponse = {
   url: string
   key: string
@@ -103,8 +109,25 @@ type CommunityCommentItem = {
   createdAt: string
 }
 
+type AdminUserItem = {
+  id: number
+  username: string
+  email: string
+  nickname: string
+  avatarUrl: string
+  bio: string
+  role: 'ADMIN' | 'USER'
+  enabled: boolean
+  banExpiresAt: string | null
+  createdAt: string
+  updatedAt?: string
+}
+
+type BanPreset = 'PERMANENT' | '1H' | '1D' | '7D' | 'CUSTOM'
+
 const menuItems = [
   { key: 'dashboard', label: '仪表盘', icon: '⌘' },
+  { key: 'users', label: '用户管理', icon: '◎' },
   { key: 'components', label: '配件库', icon: '▦' },
   { key: 'news', label: '新闻热点', icon: '≡' },
   { key: 'community', label: '社区内容', icon: '✦' },
@@ -139,6 +162,15 @@ const isLoginPanelHovered = ref(false)
 const isLoginPanelFocused = ref(false)
 const newsList = ref<NewsItem[]>([])
 const hardwareList = ref<HardwarePart[]>([])
+const userList = ref<AdminUserItem[]>([])
+const userKeyword = ref('')
+const userRoleFilter = ref('ALL')
+const userStatusFilter = ref('ALL')
+const savingUserId = ref<number | null>(null)
+const banningUser = ref<AdminUserItem | null>(null)
+const banDialogPreset = ref<BanPreset>('PERMANENT')
+const banDialogCustomUntil = ref('')
+const failedUserAvatars = ref<Set<number>>(new Set())
 const hardwareKeyword = ref('')
 const hardwareTypeFilter = ref('ALL')
 const hardwareStatusFilter = ref('ALL')
@@ -193,11 +225,39 @@ const currentMenuTitle = computed(() => {
 const isLoginEngaged = computed(() => isLoginPanelHovered.value || isLoginPanelFocused.value)
 
 const dashboardCards = computed(() => [
+  { label: '注册用户', value: userList.value.length, hint: '账号与权限管理' },
   { label: '配件总数', value: hardwareList.value.length, hint: '已接入硬件库' },
   { label: '启用配件', value: hardwareList.value.filter((item) => item.enabled).length, hint: '当前可被用户选择' },
   { label: '社区帖子', value: communityPosts.value.length, hint: '发现页内容管理' },
   { label: '新闻热点', value: newsList.value.length, hint: '已接入基础接口' },
 ])
+
+const userStats = computed(() => [
+  { label: '全部用户', value: userList.value.length },
+  { label: '管理员', value: userList.value.filter((item) => item.role === 'ADMIN').length },
+  { label: '正常账号', value: userList.value.filter((item) => item.enabled).length },
+])
+
+const banPresetOptions: Array<{ label: string; value: BanPreset }> = [
+  { label: '永久禁用', value: 'PERMANENT' },
+  { label: '1 小时', value: '1H' },
+  { label: '1 天', value: '1D' },
+  { label: '7 天', value: '7D' },
+  { label: '指定时间', value: 'CUSTOM' },
+]
+
+const filteredUserList = computed(() => {
+  const keyword = userKeyword.value.trim().toLowerCase()
+  return userList.value.filter((item) => {
+    const matchRole = userRoleFilter.value === 'ALL' || item.role === userRoleFilter.value
+    const matchStatus =
+      userStatusFilter.value === 'ALL' ||
+      (userStatusFilter.value === 'ENABLED' && item.enabled) ||
+      (userStatusFilter.value === 'DISABLED' && !item.enabled)
+    const searchable = `${item.username} ${item.email} ${item.nickname}`.toLowerCase()
+    return matchRole && matchStatus && (keyword.length === 0 || searchable.includes(keyword))
+  })
+})
 
 const hardwareTypeStats = computed(() => {
   const total = Math.max(hardwareList.value.length, 1)
@@ -257,7 +317,7 @@ const newsCoverModeText = computed(() => {
   if (firstContentImageUrl.value) {
     return '已自动使用正文首图'
   }
-  return '默认科技卡片背景'
+  return '暂无封面'
 })
 
 const filteredHardwareList = computed(() => {
@@ -341,7 +401,7 @@ async function handleLogin() {
   errorMessage.value = ''
   loading.value = true
   try {
-    const data = await request<LoginResponse>('/api/auth/login', {
+    const data = await request<LoginResponse>('/api/auth/admin-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -349,17 +409,24 @@ async function handleLogin() {
         password: password.value,
       }),
     })
-    token.value = data.token
-    currentUser.value = data.username
-    localStorage.setItem('admin_token', data.token)
-    localStorage.setItem('admin_user', data.username)
-    loggedIn.value = true
-    await Promise.all([loadNews(), loadHardware(), loadCommunityPosts()])
+    await enterAdminSession(data.token, data.username, data.role)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
   } finally {
     loading.value = false
   }
+}
+
+async function enterAdminSession(nextToken: string, nextUsername: string, role: string) {
+  if (role !== 'ADMIN') {
+    throw new Error('该账号没有后台管理权限')
+  }
+  token.value = nextToken
+  currentUser.value = nextUsername
+  localStorage.setItem('admin_token', nextToken)
+  localStorage.setItem('admin_user', nextUsername)
+  loggedIn.value = true
+  await Promise.all([loadUsers(), loadNews(), loadHardware(), loadCommunityPosts()])
 }
 
 function logout() {
@@ -368,6 +435,14 @@ function logout() {
   token.value = ''
   loggedIn.value = false
   activeMenu.value = 'dashboard'
+}
+
+async function restoreAdminSession(savedToken: string, savedUser: string | null) {
+  token.value = savedToken
+  const user = await request<CurrentUserResponse>('/api/auth/me', {
+    headers: authHeaders(),
+  })
+  await enterAdminSession(savedToken, user.username || savedUser || 'root', user.role)
 }
 
 async function loadNews() {
@@ -386,6 +461,164 @@ async function loadHardware() {
   hardwareList.value = await request<HardwarePart[]>('/api/admin/hardware-parts', {
     headers: authHeaders(),
   })
+}
+
+async function loadUsers() {
+  if (!token.value) {
+    return
+  }
+  userList.value = await request<AdminUserItem[]>('/api/admin/users', {
+    headers: authHeaders(),
+  })
+}
+
+async function updateUserRole(item: AdminUserItem, role: AdminUserItem['role']) {
+  if (item.role === role || savingUserId.value) {
+    return
+  }
+  savingUserId.value = item.id
+  errorMessage.value = ''
+  try {
+    await request<AdminUserItem>(`/api/admin/users/${item.id}/role`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ role }),
+    })
+    await loadUsers()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    savingUserId.value = null
+  }
+}
+
+function handleUserRoleChange(item: AdminUserItem, event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  if (!target) {
+    return
+  }
+  updateUserRole(item, target.value as AdminUserItem['role'])
+}
+
+function userAvatarLoadFailed(item: AdminUserItem) {
+  failedUserAvatars.value = new Set([...failedUserAvatars.value, item.id])
+}
+
+function shouldShowUserAvatar(item: AdminUserItem) {
+  return item.avatarUrl.length > 0 && !failedUserAvatars.value.has(item.id)
+}
+
+function banPresetLabel(preset: BanPreset) {
+  return banPresetOptions.find((option) => option.value === preset)?.label ?? '永久禁用'
+}
+
+function banUntilFromDialog() {
+  const preset = banDialogPreset.value
+  if (preset === 'PERMANENT') {
+    return null
+  }
+  if (preset === 'CUSTOM') {
+    const value = banDialogCustomUntil.value
+    if (!value) {
+      throw new Error('请选择解封时间')
+    }
+    if (new Date(value).getTime() <= Date.now()) {
+      throw new Error('解封时间需要晚于当前时间')
+    }
+    return value.length === 16 ? `${value}:00` : value
+  }
+  const now = new Date()
+  const hours = preset === '1H' ? 1 : preset === '1D' ? 24 : 24 * 7
+  now.setHours(now.getHours() + hours)
+  return toLocalDateTimeValue(now)
+}
+
+function banDialogSummary() {
+  if (banDialogPreset.value === 'CUSTOM') {
+    return banDialogCustomUntil.value ? `封禁至 ${formatTime(banDialogCustomUntil.value)}` : '请先选择解封时间'
+  }
+  return banPresetLabel(banDialogPreset.value)
+}
+
+function toLocalDateTimeValue(value: Date) {
+  const pad = (num: number) => `${num}`.padStart(2, '0')
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}:00`
+}
+
+function banStatusText(item: AdminUserItem) {
+  if (item.enabled) {
+    return '正常'
+  }
+  if (!item.banExpiresAt) {
+    return '永久封禁'
+  }
+  return `封禁至 ${formatTime(item.banExpiresAt)}`
+}
+
+function openBanDialog(item: AdminUserItem) {
+  if (savingUserId.value) {
+    return
+  }
+  banningUser.value = item
+  banDialogPreset.value = 'PERMANENT'
+  banDialogCustomUntil.value = ''
+}
+
+function closeBanDialog() {
+  if (savingUserId.value) {
+    return
+  }
+  banningUser.value = null
+  banDialogCustomUntil.value = ''
+}
+
+async function confirmBanUser() {
+  if (!banningUser.value || savingUserId.value) {
+    return
+  }
+  const item = banningUser.value
+  savingUserId.value = item.id
+  errorMessage.value = ''
+  try {
+    await request<AdminUserItem>(`/api/admin/users/${item.id}/enabled`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        enabled: false,
+        banExpiresAt: banUntilFromDialog(),
+      }),
+    })
+    await loadUsers()
+    banningUser.value = null
+    banDialogCustomUntil.value = ''
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    savingUserId.value = null
+  }
+}
+
+async function enableUser(item: AdminUserItem) {
+  if (savingUserId.value || !window.confirm(`确定解除 ${item.nickname || item.username} 的封禁吗？`)) {
+    return
+  }
+  savingUserId.value = item.id
+  errorMessage.value = ''
+  try {
+    await request<AdminUserItem>(`/api/admin/users/${item.id}/enabled`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        enabled: true,
+        banExpiresAt: null,
+      }),
+    })
+    await loadUsers()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    savingUserId.value = null
+  }
 }
 
 async function loadCommunityPosts() {
@@ -960,6 +1193,9 @@ function publishNewsWithShortcut(event: KeyboardEvent) {
 
 function switchMenu(key: string) {
   activeMenu.value = key
+  if (key === 'users') {
+    loadUsers()
+  }
   if (key === 'news') {
     loadNews()
   }
@@ -975,10 +1211,10 @@ onMounted(() => {
   const savedToken = localStorage.getItem('admin_token')
   const savedUser = localStorage.getItem('admin_user')
   if (savedToken) {
-    token.value = savedToken
-    currentUser.value = savedUser || 'root'
-    loggedIn.value = true
-    Promise.all([loadNews(), loadHardware(), loadCommunityPosts()]).catch(() => logout())
+    restoreAdminSession(savedToken, savedUser).catch(() => {
+      logout()
+      errorMessage.value = '管理员登录状态已失效，请重新登录'
+    })
   }
 })
 
@@ -992,8 +1228,8 @@ onBeforeUnmount(() => {
     <section class="login-hero">
       <div class="hero-card">
         <div class="hero-badge">Smart DIY Admin</div>
-        <h1>智能DIY助手</h1>
-        <p>统一管理硬件资讯、配置方案、社区内容和 AI 能力。</p>
+        <h1>Smart DIY</h1>
+        <p>提供电脑硬件选配、商品信息查询及兼容性检测功能，辅助用户完成装机配置选择。</p>
         <div class="hero-metrics">
           <span>Vue3</span>
           <span>Spring Boot</span>
@@ -1038,9 +1274,11 @@ onBeforeUnmount(() => {
   <main v-else class="admin-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">DIY</div>
+        <div class="brand-mark">
+          <img src="/logo.png" alt="" />
+        </div>
         <div>
-          <h1>智能DIY助手</h1>
+          <h1>Smart DIY</h1>
           <p>后台管理系统</p>
         </div>
       </div>
@@ -1118,6 +1356,89 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </section>
+        </div>
+      </section>
+
+      <section v-else-if="activeMenu === 'users'" class="content-area user-management">
+        <div class="user-summary-grid">
+          <article v-for="item in userStats" :key="item.label" class="stat-card user-stat-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </article>
+        </div>
+
+        <div class="list-card user-list-card">
+          <div class="section-head">
+            <div>
+              <h3>用户列表</h3>
+              <p class="section-subtitle">管理账号状态与后台权限</p>
+            </div>
+            <button class="ghost-button" type="button" @click="loadUsers">刷新</button>
+          </div>
+
+          <div class="user-toolbar">
+            <input v-model="userKeyword" class="hardware-search" placeholder="搜索用户名、昵称或邮箱" />
+            <select v-model="userRoleFilter" class="hardware-filter">
+              <option value="ALL">全部角色</option>
+              <option value="ADMIN">管理员</option>
+              <option value="USER">普通用户</option>
+            </select>
+            <select v-model="userStatusFilter" class="hardware-filter">
+              <option value="ALL">全部状态</option>
+              <option value="ENABLED">正常</option>
+              <option value="DISABLED">已封禁</option>
+            </select>
+          </div>
+
+          <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+
+          <article v-for="item in filteredUserList" :key="item.id" class="user-row">
+            <div class="user-avatar">
+              <img v-if="shouldShowUserAvatar(item)" :src="item.avatarUrl" alt="" @error="userAvatarLoadFailed(item)" />
+              <div v-else class="avatar-placeholder">
+                <div class="avatar-placeholder-head"></div>
+                <div class="avatar-placeholder-body"></div>
+              </div>
+            </div>
+            <div class="user-row-main">
+              <div class="user-row-top">
+                <strong>{{ item.nickname || item.username }}</strong>
+                <span :class="item.enabled ? 'status-chip published' : 'status-chip'">
+                  {{ item.enabled ? '正常' : '已封禁' }}
+                </span>
+              </div>
+              <p>{{ item.username }} · {{ item.email || '未绑定邮箱' }}</p>
+              <div class="community-counts">
+                <span>{{ item.role === 'ADMIN' ? '管理员' : '普通用户' }}</span>
+                <span>注册 {{ formatTime(item.createdAt) }}</span>
+                <span v-if="!item.enabled">{{ banStatusText(item) }}</span>
+              </div>
+            </div>
+            <div class="user-actions">
+              <label class="role-control">
+                <span>权限</span>
+                <select
+                  :disabled="savingUserId === item.id"
+                  :value="item.role"
+                  @change="handleUserRoleChange(item, $event)"
+                >
+                  <option value="USER">普通用户</option>
+                  <option value="ADMIN">管理员</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="ban-action"
+                :class="{ restore: !item.enabled }"
+                :disabled="savingUserId === item.id"
+                @click="item.enabled ? openBanDialog(item) : enableUser(item)"
+              >
+                {{ item.enabled ? '封禁账号' : '解除封禁' }}
+              </button>
+            </div>
+          </article>
+
+          <div v-if="filteredUserList.length === 0" class="empty-box">暂无符合条件的用户</div>
         </div>
       </section>
 
@@ -1334,12 +1655,12 @@ onBeforeUnmount(() => {
                 <div class="mini-cover" @click="triggerNewsCoverUpload">
                   <img v-if="effectiveNewsCoverUrl" :src="effectiveNewsCoverUrl" alt="" />
                   <div v-else class="mini-cover-default">
-                    <span>TECH</span>
+                    <span>暂无</span>
                   </div>
                 </div>
                 <div class="cover-insight-copy">
                   <span>{{ newsCoverModeText }}</span>
-                  <p>优先使用手动封面，否则自动取正文第一张图。</p>
+                  <p>优先使用手动封面，否则自动取正文第一张图；没有图片时显示暂无。</p>
                   <div class="cover-actions">
                     <button class="link-button" :disabled="savingNews" type="button" @click="triggerNewsCoverUpload">
                       替换封面
@@ -1385,7 +1706,7 @@ onBeforeUnmount(() => {
           </div>
           <article v-for="item in newsList" :key="item.id" class="news-row">
             <img v-if="item.coverUrl" class="news-row-cover" :src="item.coverUrl" alt="" />
-            <div v-else class="news-row-cover news-row-cover-default">TECH</div>
+            <div v-else class="news-row-cover news-row-cover-default">暂无</div>
             <div class="news-row-main">
               <div class="news-row-top">
                 <strong>{{ item.title }}</strong>
@@ -1473,6 +1794,59 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </section>
+
+    <div v-if="banningUser" class="modal-backdrop" @click.self="closeBanDialog">
+      <section class="ban-dialog" role="dialog" aria-modal="true" aria-labelledby="ban-dialog-title">
+        <div class="ban-dialog-head">
+          <div>
+            <p>账号封禁</p>
+            <h3 id="ban-dialog-title">确认封禁 {{ banningUser.nickname || banningUser.username }}</h3>
+          </div>
+          <button type="button" aria-label="关闭" :disabled="savingUserId === banningUser.id" @click="closeBanDialog">
+            ×
+          </button>
+        </div>
+
+        <div class="ban-target-card">
+          <strong>{{ banningUser.username }}</strong>
+          <span>{{ banningUser.email || '未绑定邮箱' }}</span>
+        </div>
+
+        <div class="ban-dialog-section">
+          <span>封禁期限</span>
+          <div class="ban-preset-grid">
+            <button
+              v-for="option in banPresetOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: banDialogPreset === option.value }"
+              :disabled="savingUserId === banningUser.id"
+              @click="banDialogPreset = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
+        <label v-if="banDialogPreset === 'CUSTOM'" class="ban-custom-field">
+          解封时间
+          <input v-model="banDialogCustomUntil" type="datetime-local" :disabled="savingUserId === banningUser.id" />
+        </label>
+
+        <p class="ban-warning">
+          确认后该账号将无法登录、发帖、评论或使用 AI 对话。当前设置：{{ banDialogSummary() }}
+        </p>
+
+        <div class="ban-dialog-actions">
+          <button type="button" class="plain-button" :disabled="savingUserId === banningUser.id" @click="closeBanDialog">
+            取消
+          </button>
+          <button type="button" class="danger-button" :disabled="savingUserId === banningUser.id" @click="confirmBanUser">
+            确认封禁
+          </button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -1706,10 +2080,15 @@ textarea {
   width: 48px;
   height: 48px;
   border-radius: 18px;
-  display: grid;
-  place-items: center;
-  font-weight: 900;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.18);
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .brand h1 {
@@ -1800,7 +2179,7 @@ textarea {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 18px;
 }
 
@@ -2406,10 +2785,11 @@ textarea {
   height: 100%;
   display: grid;
   place-items: center;
+  background: #f3f6fb;
 }
 
 .mini-cover-default span {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
   font-weight: 900;
 }
 
@@ -2539,10 +2919,10 @@ textarea {
 .news-row-cover-default {
   display: grid;
   place-items: center;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
   font-size: 13px;
   font-weight: 900;
-  background: linear-gradient(135deg, #101828, #2f466f);
+  background: #f3f6fb;
 }
 
 .news-row-main {
@@ -2654,6 +3034,324 @@ textarea {
 .hardware-filter {
   padding-top: 0;
   padding-bottom: 0;
+}
+
+.user-management {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.user-stat-card {
+  min-height: 118px;
+}
+
+.user-list-card {
+  margin-top: 18px;
+}
+
+.user-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px 150px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.user-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #f8fbff;
+}
+
+.user-avatar {
+  width: 54px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #eef2f7;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  background: #eef2f7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.avatar-placeholder-head {
+  width: 32%;
+  height: 32%;
+  border-radius: 999px;
+  background: #98a2b3;
+  margin-bottom: 3px;
+}
+
+.avatar-placeholder-body {
+  width: 54%;
+  height: 28%;
+  border-radius: 999px 999px 0 0;
+  background: #98a2b3;
+}
+
+.user-row-main {
+  min-width: 0;
+}
+
+.user-row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-row-top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-row-main p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.user-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.role-control {
+  display: grid;
+  grid-template-columns: auto 118px;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 4px 6px 4px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #597099;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.role-control select {
+  width: 118px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 28px 0 14px;
+  color: #0f2f66;
+  font-weight: 900;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(55, 125, 255, 0.1);
+}
+
+.ban-action {
+  min-width: 112px;
+  height: 44px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 18px;
+  color: #fff;
+  font-weight: 900;
+  background: #0f172a;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+}
+
+.ban-action.restore {
+  color: #0f2f66;
+  background: #e2edff;
+  box-shadow: none;
+}
+
+.ban-action:not(:disabled):hover,
+.role-control select:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.user-actions button:disabled,
+.user-actions select:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+  background: #f3f6fb;
+  box-shadow: none;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(10px);
+}
+
+.ban-dialog {
+  width: min(520px, 100%);
+  border: 1px solid rgba(214, 226, 244, 0.9);
+  border-radius: 28px;
+  padding: 24px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
+}
+
+.ban-dialog-head,
+.ban-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.ban-dialog-head p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ban-dialog-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.ban-dialog-head > button {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 999px;
+  color: #50627f;
+  font-size: 24px;
+  line-height: 1;
+  background: #f3f6fb;
+}
+
+.ban-target-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 20px 0;
+  padding: 16px;
+  border-radius: 18px;
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.ban-target-card span {
+  color: var(--muted);
+}
+
+.ban-dialog-section > span,
+.ban-custom-field {
+  display: block;
+  color: #344866;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ban-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ban-preset-grid button,
+.plain-button,
+.danger-button {
+  height: 42px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-weight: 900;
+}
+
+.ban-preset-grid button {
+  color: #0f2f66;
+  background: #edf4ff;
+}
+
+.ban-preset-grid button.active {
+  color: #fff;
+  background: #377dff;
+  box-shadow: 0 12px 24px rgba(55, 125, 255, 0.22);
+}
+
+.ban-custom-field {
+  margin-top: 14px;
+}
+
+.ban-custom-field input {
+  width: 100%;
+  height: 44px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0 14px;
+  color: var(--text);
+  font-weight: 800;
+  background: #f8fbff;
+}
+
+.ban-warning {
+  margin: 18px 0 22px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  color: #7a3f07;
+  font-weight: 800;
+  line-height: 1.7;
+  background: #fff7ed;
+}
+
+.ban-dialog-actions {
+  justify-content: flex-end;
+}
+
+.plain-button {
+  color: #51617d;
+  background: #f2f5fa;
+}
+
+.danger-button {
+  color: #fff;
+  background: #0f172a;
+}
+
+.plain-button:disabled,
+.danger-button:disabled,
+.ban-preset-grid button:disabled,
+.ban-dialog-head > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .community-row,
@@ -2793,17 +3491,29 @@ textarea {
   }
 
   .stats-grid,
+  .user-summary-grid,
   .two-column,
   .dashboard-charts,
   .hardware-toolbar,
+  .user-toolbar,
   .news-workbench {
     grid-template-columns: 1fr;
   }
 
   .editor-insights,
   .cover-insight,
-  .news-row {
+  .news-row,
+  .user-row {
     grid-template-columns: 1fr;
+  }
+
+  .user-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ban-preset-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .news-title-input {

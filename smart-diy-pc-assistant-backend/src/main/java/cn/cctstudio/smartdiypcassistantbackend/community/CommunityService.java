@@ -9,6 +9,8 @@ import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostReques
 import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostResponse;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
+import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
+import cn.cctstudio.smartdiypcassistantbackend.user.UserFollowRepository;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +19,7 @@ import org.springframework.util.StringUtils;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 public class CommunityService {
@@ -27,6 +30,8 @@ public class CommunityService {
     private final CommunityPostFavoriteRepository postFavoriteRepository;
     private final CommunityCommentLikeRepository commentLikeRepository;
     private final UserRepository userRepository;
+    private final UserAccessService userAccessService;
+    private final UserFollowRepository userFollowRepository;
     private final BuildConfigService buildConfigService;
     private final MediaUrlService mediaUrlService;
 
@@ -37,6 +42,8 @@ public class CommunityService {
             CommunityPostFavoriteRepository postFavoriteRepository,
             CommunityCommentLikeRepository commentLikeRepository,
             UserRepository userRepository,
+            UserAccessService userAccessService,
+            UserFollowRepository userFollowRepository,
             BuildConfigService buildConfigService,
             MediaUrlService mediaUrlService
     ) {
@@ -46,14 +53,52 @@ public class CommunityService {
         this.postFavoriteRepository = postFavoriteRepository;
         this.commentLikeRepository = commentLikeRepository;
         this.userRepository = userRepository;
+        this.userAccessService = userAccessService;
+        this.userFollowRepository = userFollowRepository;
         this.buildConfigService = buildConfigService;
         this.mediaUrlService = mediaUrlService;
     }
 
     @Transactional(readOnly = true)
     public List<CommunityPostResponse> list(Long userId) {
+        return list(userId, "recommended");
+    }
+
+    @Transactional(readOnly = true)
+    public List<CommunityPostResponse> list(Long userId, String segment) {
+        if ("following".equalsIgnoreCase(segment)) {
+            if (userId == null || userId <= 0) {
+                return List.of();
+            }
+            List<Long> followingIds = userFollowRepository.findByFollowerIdOrderByCreatedAtDesc(userId).stream()
+                    .map(follow -> follow.getFollowingId())
+                    .toList();
+            if (followingIds.isEmpty()) {
+                return List.of();
+            }
+            return postRepository.findByUserIdInAndVisibleTrueOrderByCreatedAtDesc(followingIds).stream()
+                    .map(post -> toPostResponse(post, userId, false))
+                    .toList();
+        }
         return postRepository.findByVisibleTrueOrderByCreatedAtDesc().stream()
                 .map(post -> toPostResponse(post, userId, false))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CommunityPostResponse> listByAuthor(Long viewerId, Long authorId) {
+        return postRepository.findByUserIdAndVisibleTrueOrderByCreatedAtDesc(authorId).stream()
+                .map(post -> toPostResponse(post, viewerId, false))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CommunityPostResponse> listFavorites(Long viewerId, Long ownerId) {
+        return postFavoriteRepository.findByUserIdOrderByCreatedAtDesc(ownerId).stream()
+                .map(CommunityPostFavorite::getPostId)
+                .map(postRepository::findByIdAndVisibleTrue)
+                .flatMap(Optional::stream)
+                .map(post -> toPostResponse(post, viewerId, false))
                 .toList();
     }
 
@@ -65,6 +110,7 @@ public class CommunityService {
 
     @Transactional
     public CommunityPostResponse create(Long userId, CommunityPostRequest request) {
+        userAccessService.requireAvailable(userId);
         List<String> imageKeys = cleanImages(request.imageKeys());
         Long buildConfigId = request.buildConfigId();
         if (buildConfigId != null) {
@@ -97,6 +143,7 @@ public class CommunityService {
 
     @Transactional
     public CommunityCommentResponse createComment(Long userId, Long postId, CommunityCommentRequest request) {
+        userAccessService.requireAvailable(userId);
         findVisiblePost(postId);
         List<String> imageKeys = cleanImages(request.imageKeys());
         Long buildConfigId = request.buildConfigId();
@@ -125,7 +172,7 @@ public class CommunityService {
     public CommunityCommentResponse toggleCommentLike(Long userId, Long commentId) {
         CommunityComment comment = commentRepository.findById(commentId)
                 .filter(CommunityComment::isVisible)
-                .orElseThrow(() -> new BusinessException("Comment not found"));
+                .orElseThrow(() -> new BusinessException("评论不存在"));
         commentLikeRepository.findByCommentIdAndUserId(commentId, userId)
                 .ifPresentOrElse(commentLikeRepository::delete, () -> commentLikeRepository.save(new CommunityCommentLike(commentId, userId)));
         return toCommentResponse(comment, userId);
@@ -148,7 +195,7 @@ public class CommunityService {
     @Transactional
     public void deletePost(Long postId) {
         if (!postRepository.existsById(postId)) {
-            throw new BusinessException("Post not found");
+            throw new BusinessException("帖子不存在");
         }
         commentRepository.findByPostIdOrderByCreatedAtAsc(postId)
                 .forEach(comment -> commentLikeRepository.deleteByCommentId(comment.getId()));
@@ -162,7 +209,7 @@ public class CommunityService {
     public void deleteOwnPost(Long userId, Long postId) {
         CommunityPost post = findVisiblePost(postId);
         if (!Objects.equals(post.getUserId(), userId)) {
-            throw new BusinessException("Only the author can delete this post");
+            throw new BusinessException("只能删除自己发布的帖子");
         }
         deletePost(postId);
     }
@@ -170,7 +217,7 @@ public class CommunityService {
     @Transactional
     public void deleteComment(Long commentId) {
         if (!commentRepository.existsById(commentId)) {
-            throw new BusinessException("Comment not found");
+            throw new BusinessException("评论不存在");
         }
         commentLikeRepository.deleteByCommentId(commentId);
         commentRepository.deleteById(commentId);
@@ -180,16 +227,16 @@ public class CommunityService {
     public void deleteOwnComment(Long userId, Long commentId) {
         CommunityComment comment = commentRepository.findById(commentId)
                 .filter(CommunityComment::isVisible)
-                .orElseThrow(() -> new BusinessException("Comment not found"));
+                .orElseThrow(() -> new BusinessException("评论不存在"));
         if (!Objects.equals(comment.getUserId(), userId)) {
-            throw new BusinessException("Only the author can delete this comment");
+            throw new BusinessException("只能删除自己的评论");
         }
         deleteComment(commentId);
     }
 
     private CommunityPost findVisiblePost(Long id) {
         return postRepository.findByIdAndVisibleTrue(id)
-                .orElseThrow(() -> new BusinessException("Post not found"));
+                .orElseThrow(() -> new BusinessException("帖子不存在"));
     }
 
     private CommunityPostResponse toPostResponse(CommunityPost post, Long userId, boolean withComments) {
@@ -238,13 +285,13 @@ public class CommunityService {
                         user.getNickname(),
                         mediaUrlService.toPublicUrl(user.getAvatarKey())
                 ))
-                .orElse(new AuthorResponse(userId, "User", "User", ""));
+                .orElse(new AuthorResponse(userId, "用户", "用户", ""));
     }
 
     private List<String> cleanImages(List<String> imageKeys) {
         List<String> cleaned = mediaUrlService.normalizeKeys(imageKeys);
         if (cleaned.size() > 9) {
-            throw new BusinessException("At most 9 images are allowed");
+            throw new BusinessException("最多只能上传 9 张图片");
         }
         return cleaned;
     }

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -29,8 +30,11 @@ public class CommunityController {
     }
 
     @GetMapping("/posts")
-    public ApiResponse<List<CommunityPostResponse>> list(@AuthenticationPrincipal UserPrincipal principal) {
-        return ApiResponse.ok(communityService.list(currentUserId(principal)));
+    public ApiResponse<List<CommunityPostResponse>> list(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(defaultValue = "recommended") String segment
+    ) {
+        return ApiResponse.ok(communityService.list(currentUserId(principal), segment));
     }
 
     @PostMapping("/posts")

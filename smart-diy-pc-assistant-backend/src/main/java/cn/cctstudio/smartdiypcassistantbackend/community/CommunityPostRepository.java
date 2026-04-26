@@ -8,6 +8,10 @@ import java.util.Optional;
 public interface CommunityPostRepository extends JpaRepository<CommunityPost, Long> {
     List<CommunityPost> findByVisibleTrueOrderByCreatedAtDesc();
 
+    List<CommunityPost> findByUserIdAndVisibleTrueOrderByCreatedAtDesc(Long userId);
+
+    List<CommunityPost> findByUserIdInAndVisibleTrueOrderByCreatedAtDesc(List<Long> userIds);
+
     List<CommunityPost> findAllByOrderByCreatedAtDesc();
 
     Optional<CommunityPost> findByIdAndVisibleTrue(Long id);

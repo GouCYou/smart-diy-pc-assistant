@@ -8,21 +8,21 @@
 					<view class="back-chevron-line back-chevron-line-bottom"></view>
 				</view>
 			</view>
-			<text class="nav-title">帖子详情</text>
+			<text class="nav-title">动态详情</text>
 			<view class="nav-spacer"></view>
 		</view>
 
 		<scroll-view class="post-scroll" scroll-y="true">
 			<view v-if="post.id > 0" class="post-card">
 				<view class="post-head">
-					<view class="post-avatar">
+					<view class="post-avatar" @click.stop="openUserSpace(post.author.id)">
 						<image v-if="post.author.avatarUrl.length > 0" class="post-avatar-image" :src="normalizeMediaUrl(post.author.avatarUrl)" mode="aspectFill"></image>
 						<view v-else class="avatar-placeholder">
 							<view class="avatar-placeholder-head"></view>
 							<view class="avatar-placeholder-body"></view>
 						</view>
 					</view>
-					<view class="post-author-main">
+					<view class="post-author-main" @click.stop="openUserSpace(post.author.id)">
 						<text class="post-author-name">{{ post.author.nickname }}</text>
 						<text class="post-time">{{ formatTime(post.createdAt) }}</text>
 					</view>
@@ -87,14 +87,14 @@
 
 				<view v-for="comment in getPagedComments()" :key="comment.id" class="comment-card">
 					<view class="comment-top">
-						<view class="comment-avatar">
+						<view class="comment-avatar" @click.stop="openUserSpace(comment.author.id)">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="normalizeMediaUrl(comment.author.avatarUrl)" mode="aspectFill"></image>
 							<view v-else class="avatar-placeholder avatar-placeholder-small">
 								<view class="avatar-placeholder-head"></view>
 								<view class="avatar-placeholder-body"></view>
 							</view>
 						</view>
-						<view class="comment-main">
+						<view class="comment-main" @click.stop="openUserSpace(comment.author.id)">
 							<text class="comment-author">{{ comment.author.nickname }}</text>
 							<text class="comment-time">{{ formatTime(comment.createdAt) }}</text>
 						</view>
@@ -517,19 +517,28 @@
 	}
 
 	function normalizePost(value : CommunityPostItem) : CommunityPostItem {
-		if (value.author.avatarUrl.length > 0) {
+		if (value.author == null) {
+			value.author = createEmptyAuthor()
+		}
+		if (value.author.avatarUrl != null && value.author.avatarUrl.length > 0) {
 			value.author.avatarUrl = normalizeMediaUrl(value.author.avatarUrl)
 		}
+		value.imageUrls = value.imageUrls == null ? [] as string[] : value.imageUrls
+		value.comments = value.comments == null ? [] as CommunityCommentItem[] : value.comments
 		for (let i = 0; i < value.imageUrls.length; i++) {
 			value.imageUrls[i] = normalizeMediaUrl(value.imageUrls[i])
 		}
 		for (let i = 0; i < value.comments.length; i++) {
-			if (value.comments[i].author.avatarUrl.length > 0) {
+			if (value.comments[i].author == null) {
+				value.comments[i].author = createEmptyAuthor()
+			}
+			if (value.comments[i].author.avatarUrl != null && value.comments[i].author.avatarUrl.length > 0) {
 				value.comments[i].author.avatarUrl = normalizeMediaUrl(value.comments[i].author.avatarUrl)
 			}
 			if (value.comments[i].buildConfig == null) {
 				value.comments[i].buildConfig = createEmptyBuildConfig()
 			}
+			value.comments[i].imageUrls = value.comments[i].imageUrls == null ? [] as string[] : value.comments[i].imageUrls
 			for (let j = 0; j < value.comments[i].imageUrls.length; j++) {
 				value.comments[i].imageUrls[j] = normalizeMediaUrl(value.comments[i].imageUrls[j])
 			}
@@ -633,6 +642,17 @@
 		buildDetailVisible.value = true
 	}
 
+	function openUserSpace(id : number) {
+		if (id <= 0) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/space?userId=' + id,
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
 	function closeBuildDetail() {
 		buildDetailVisible.value = false
 	}
@@ -688,7 +708,7 @@
 			return
 		}
 		uni.showModal({
-			title: '删除帖子',
+			title: '删除动态',
 			content: '删除后无法恢复，确定删除吗？',
 			confirmText: '删除',
 			cancelText: '取消',

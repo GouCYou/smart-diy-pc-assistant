@@ -24,6 +24,19 @@ spring:
       port: 6379
       database: 0
       timeout: 3s
+  mail:
+    host: ${MAIL_HOST:smtp.163.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    protocol: smtp
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
   servlet:
     multipart:
       max-file-size: 10MB
@@ -50,3 +63,6 @@ app:
     api-key: ${AI_API_KEY:}
     model-name: ${AI_MODEL_NAME:}
     timeout-seconds: 60
+  verification-code:
+    expire-minutes: 10
+    resend-seconds: 120

@@ -72,14 +72,14 @@
 
 				<view v-for="comment in news.comments" :key="comment.id" class="comment-card">
 					<view class="comment-top">
-						<view class="comment-avatar">
+						<view class="comment-avatar" @click.stop="openUserSpace(comment.author.id)">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="comment.author.avatarUrl" mode="aspectFill"></image>
 							<view v-else class="avatar-placeholder">
 								<view class="avatar-placeholder-head"></view>
 								<view class="avatar-placeholder-body"></view>
 							</view>
 						</view>
-						<view class="comment-main">
+						<view class="comment-main" @click.stop="openUserSpace(comment.author.id)">
 							<text class="comment-author">{{ comment.author.nickname || comment.author.username }}</text>
 							<text class="comment-time">{{ formatTime(comment.createdAt) }}</text>
 						</view>
@@ -454,7 +454,10 @@
 	}
 
 	function normalizeComment(comment : NewsCommentItem) : NewsCommentItem {
-		if (comment.author != null && comment.author.avatarUrl.length > 0) {
+		if (comment.author == null) {
+			comment.author = { id: 0, username: '', nickname: '用户', avatarUrl: '' } as AuthorItem
+		}
+		if (comment.author.avatarUrl != null && comment.author.avatarUrl.length > 0) {
 			comment.author.avatarUrl = normalizeMediaUrl(comment.author.avatarUrl)
 		}
 		if (comment.imageUrls == null) {
@@ -572,6 +575,17 @@
 				uni.reLaunch({ url: '/pages/index/index' })
 			}
 		}, 250)
+	}
+
+	function openUserSpace(id : number) {
+		if (id <= 0) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/space?userId=' + id,
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
 	}
 
 	function requireLogin() : boolean {

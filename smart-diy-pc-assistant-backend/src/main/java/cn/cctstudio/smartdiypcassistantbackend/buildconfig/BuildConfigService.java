@@ -6,6 +6,7 @@ import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartRepository;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartType;
+import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,10 +25,16 @@ public class BuildConfigService {
 
     private final BuildConfigRepository buildConfigRepository;
     private final HardwarePartRepository hardwarePartRepository;
+    private final UserAccessService userAccessService;
 
-    public BuildConfigService(BuildConfigRepository buildConfigRepository, HardwarePartRepository hardwarePartRepository) {
+    public BuildConfigService(
+            BuildConfigRepository buildConfigRepository,
+            HardwarePartRepository hardwarePartRepository,
+            UserAccessService userAccessService
+    ) {
         this.buildConfigRepository = buildConfigRepository;
         this.hardwarePartRepository = hardwarePartRepository;
+        this.userAccessService = userAccessService;
     }
 
     @Transactional(readOnly = true)
@@ -39,6 +46,13 @@ public class BuildConfigService {
             default -> buildConfigRepository.findByUserIdAndSourceOrderByUpdatedAtDesc(userId, BuildConfigSource.MANUAL);
         };
         return configs.stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<BuildConfigResponse> listFavoriteByUser(Long userId) {
+        return buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(userId).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -55,6 +69,7 @@ public class BuildConfigService {
 
     @Transactional
     public BuildConfigResponse create(Long userId, BuildConfigRequest request) {
+        userAccessService.requireAvailable(userId);
         BuildConfig config = new BuildConfig(userId, "", "", "", 0, 0, "WARN", "", "", "", BuildConfigSource.MANUAL);
         applyConfig(config, request);
         return toResponse(buildConfigRepository.save(config));
@@ -62,6 +77,7 @@ public class BuildConfigService {
 
     @Transactional
     public BuildConfigResponse update(Long userId, Long id, BuildConfigRequest request) {
+        userAccessService.requireAvailable(userId);
         BuildConfig config = findOwned(id, userId);
         applyConfig(config, request);
         return toResponse(config);
