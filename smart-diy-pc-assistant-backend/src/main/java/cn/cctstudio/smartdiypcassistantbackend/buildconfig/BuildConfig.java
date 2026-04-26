@@ -40,6 +40,10 @@ public class BuildConfig {
     @Column(columnDefinition = "TEXT")
     private String partIds;
 
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String partSelections;
+
     private Integer totalPrice;
 
     private Integer performanceScore;
@@ -79,6 +83,7 @@ public class BuildConfig {
             String title,
             String note,
             String partIds,
+            String partSelections,
             Integer totalPrice,
             Integer performanceScore,
             String compatibilityStatus,
@@ -93,6 +98,7 @@ public class BuildConfig {
         this.scenario = "";
         this.note = note;
         this.partIds = partIds;
+        this.partSelections = partSelections;
         this.totalPrice = totalPrice;
         this.performanceScore = performanceScore;
         this.compatibilityStatus = compatibilityStatus;
@@ -114,6 +120,7 @@ public class BuildConfig {
             String title,
             String note,
             String partIds,
+            String partSelections,
             Integer totalPrice,
             Integer performanceScore,
             String compatibilityStatus,
@@ -125,6 +132,7 @@ public class BuildConfig {
         this.title = title;
         this.note = note;
         this.partIds = partIds;
+        this.partSelections = partSelections;
         this.totalPrice = totalPrice;
         this.performanceScore = performanceScore;
         this.compatibilityStatus = compatibilityStatus;
@@ -161,6 +169,10 @@ public class BuildConfig {
 
     public String getPartIds() {
         return partIds == null ? "" : partIds;
+    }
+
+    public String getPartSelections() {
+        return partSelections == null ? "" : partSelections;
     }
 
     public Integer getTotalPrice() {

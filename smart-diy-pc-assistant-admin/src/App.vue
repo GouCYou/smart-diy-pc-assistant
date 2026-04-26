@@ -128,7 +128,7 @@ type BanPreset = 'PERMANENT' | '1H' | '1D' | '7D' | 'CUSTOM'
 const menuItems = [
   { key: 'dashboard', label: '仪表盘', icon: '⌘' },
   { key: 'users', label: '用户管理', icon: '◎' },
-  { key: 'components', label: '配件库', icon: '▦' },
+  { key: 'components', label: '标准型号库', icon: '▦' },
   { key: 'news', label: '新闻热点', icon: '≡' },
   { key: 'community', label: '社区内容', icon: '✦' },
   { key: 'ai', label: 'AI 设置', icon: 'AI' },
@@ -328,7 +328,7 @@ const filteredHardwareList = computed(() => {
       hardwareStatusFilter.value === 'ALL' ||
       (hardwareStatusFilter.value === 'ENABLED' && item.enabled) ||
       (hardwareStatusFilter.value === 'DISABLED' && !item.enabled)
-    const searchable = `${hardwareTypeLabel(item.type)} ${item.brand} ${item.model} ${item.socketType} ${item.memoryType} ${item.formFactor} ${item.specs}`.toLowerCase()
+    const searchable = `${hardwareTypeLabel(item.type)} ${item.model} ${item.socketType} ${item.memoryType} ${item.formFactor} ${item.specs}`.toLowerCase()
     return matchType && matchStatus && (keyword.length === 0 || searchable.includes(keyword))
   })
 })
@@ -667,17 +667,17 @@ function resetHardwareForm() {
 function editHardware(item: HardwarePart) {
   editingHardwareId.value = item.id ?? null
   hardwareForm.type = item.type
-  hardwareForm.brand = item.brand
+  hardwareForm.brand = ''
   hardwareForm.model = item.model
-  hardwareForm.price = item.price
+  hardwareForm.price = item.price ?? 0
   hardwareForm.performanceScore = item.performanceScore
   hardwareForm.socketType = item.socketType
   hardwareForm.memoryType = item.memoryType
   hardwareForm.formFactor = item.formFactor
   hardwareForm.wattage = item.wattage
-  hardwareForm.gpuLengthMm = item.gpuLengthMm
-  hardwareForm.coolerHeightMm = item.coolerHeightMm
-  hardwareForm.supportedFormFactors = item.supportedFormFactors
+  hardwareForm.gpuLengthMm = 0
+  hardwareForm.coolerHeightMm = 0
+  hardwareForm.supportedFormFactors = ''
   hardwareForm.specs = item.specs
   hardwareForm.enabled = item.enabled
 }
@@ -690,7 +690,15 @@ async function saveHardware() {
     await request<HardwarePart>(url, {
       method: editingHardwareId.value ? 'PUT' : 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(hardwareForm),
+      body: JSON.stringify({
+        ...hardwareForm,
+        brand: '',
+        price: 0,
+        performanceScore: hasHardwarePerformanceScore(hardwareForm.type) ? hardwareForm.performanceScore : 0,
+        gpuLengthMm: 0,
+        coolerHeightMm: 0,
+        supportedFormFactors: hardwareForm.type === 'CASE' ? hardwareForm.formFactor : '',
+      }),
     })
     resetHardwareForm()
     await loadHardware()
@@ -702,7 +710,7 @@ async function saveHardware() {
 }
 
 async function deleteHardware(id?: number) {
-  if (!id || !window.confirm('确定删除这个配件？')) {
+  if (!id || !window.confirm('确定删除这个标准型号？')) {
     return
   }
   try {
@@ -770,6 +778,22 @@ function handleLoginPanelFocusOut() {
 
 function hardwareTypeLabel(type: HardwarePartType) {
   return hardwareTypeOptions.find((item) => item.value === type)?.label ?? type
+}
+
+function hardwareSpecSummary(item: HardwarePart) {
+  const specs = [
+    hasHardwarePerformanceScore(item.type) ? `性能 ${item.performanceScore}` : '不参与性能评分',
+    item.socketType,
+    item.memoryType,
+    item.formFactor,
+    item.wattage > 0 ? `${item.wattage}W` : '',
+    item.specs,
+  ].filter(Boolean)
+  return specs.length > 0 ? specs.join(' · ') : '通用规格'
+}
+
+function hasHardwarePerformanceScore(type: HardwarePartType) {
+  return type === 'CPU' || type === 'GPU' || type === 'MEMORY' || type === 'STORAGE'
 }
 
 function resetHardwarePage() {
@@ -1444,33 +1468,26 @@ onBeforeUnmount(() => {
 
       <section v-else-if="activeMenu === 'components'" class="content-area two-column">
         <form class="editor-card" @submit.prevent="saveHardware">
-          <h3>{{ editingHardwareId ? '编辑配件' : '新增配件' }}</h3>
+          <h3>{{ editingHardwareId ? '编辑标准型号' : '新增标准型号' }}</h3>
+          <p class="section-subtitle">只维护标准型号和粗略兼容参数，价格与具体商品来自京东搜索。</p>
           <label>
             类型
             <select v-model="hardwareForm.type">
               <option v-for="item in hardwareTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
-          <div class="form-grid">
-            <label>
-              品牌
-              <input v-model="hardwareForm.brand" required placeholder="例如 AMD / 华硕" />
-            </label>
-            <label>
-              型号
-              <input v-model="hardwareForm.model" required placeholder="例如 Ryzen 5 7500F" />
-            </label>
-          </div>
-          <div class="form-grid">
-            <label>
-              价格
-              <input v-model.number="hardwareForm.price" min="0" required type="number" />
-            </label>
-            <label>
-              性能评分
-              <input v-model.number="hardwareForm.performanceScore" min="0" max="100" required type="number" />
-            </label>
-          </div>
+          <label>
+            标准型号
+            <input v-model="hardwareForm.model" required placeholder="例如 Ryzen 5 7500F / B650M / RTX 4060" />
+          </label>
+          <label v-if="hasHardwarePerformanceScore(hardwareForm.type)">
+            性能评分
+            <input v-model.number="hardwareForm.performanceScore" min="0" max="100" required type="number" />
+          </label>
+          <label v-else>
+            性能评分
+            <input disabled value="该类型不参与性能评分" />
+          </label>
           <div class="form-grid">
             <label>
               CPU 接口
@@ -1483,28 +1500,14 @@ onBeforeUnmount(() => {
           </div>
           <div class="form-grid">
             <label>
-              版型
-              <input v-model="hardwareForm.formFactor" placeholder="ATX / M-ATX / ITX" />
+              版型 / 规格级别
+              <input v-model="hardwareForm.formFactor" placeholder="例如 M-ATX / ATX / 240mm 水冷 / 塔式风冷" />
             </label>
-            <label>
-              支持版型
-              <input v-model="hardwareForm.supportedFormFactors" placeholder="ATX,M-ATX,ITX" />
-            </label>
-          </div>
-          <div class="form-grid">
             <label>
               功耗 / 额定功率
               <input v-model.number="hardwareForm.wattage" min="0" type="number" />
             </label>
-            <label>
-              显卡限长
-              <input v-model.number="hardwareForm.gpuLengthMm" min="0" type="number" />
-            </label>
           </div>
-          <label>
-            散热限高
-            <input v-model.number="hardwareForm.coolerHeightMm" min="0" type="number" />
-          </label>
           <label>
             规格备注
             <textarea v-model="hardwareForm.specs" placeholder="接口、容量、频率、适用场景等"></textarea>
@@ -1516,7 +1519,7 @@ onBeforeUnmount(() => {
           <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
           <div class="button-row">
             <button class="primary-button" :disabled="savingHardware" type="submit">
-              {{ savingHardware ? '保存中...' : '保存配件' }}
+              {{ savingHardware ? '保存中...' : '保存型号' }}
             </button>
             <button class="ghost-button" type="button" @click="resetHardwareForm">清空</button>
           </div>
@@ -1525,12 +1528,12 @@ onBeforeUnmount(() => {
         <div class="list-card">
           <div class="section-head">
             <div>
-              <h3>配件列表</h3>
-              <p class="section-subtitle">共 {{ filteredHardwareList.length }} 个结果</p>
+              <h3>标准型号列表</h3>
+              <p class="section-subtitle">本地只维护标准硬件型号，京东仅作为价格来源 · 共 {{ filteredHardwareList.length }} 个结果</p>
             </div>
           </div>
           <div class="hardware-toolbar">
-            <input v-model="hardwareKeyword" class="hardware-search" placeholder="搜索品牌、型号、接口或规格" @input="resetHardwarePage" />
+            <input v-model="hardwareKeyword" class="hardware-search" placeholder="搜索型号、接口或规格" @input="resetHardwarePage" />
             <select v-model="hardwareTypeFilter" class="hardware-filter" @change="resetHardwarePage">
               <option value="ALL">全部类型</option>
               <option v-for="item in hardwareTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
@@ -1548,8 +1551,8 @@ onBeforeUnmount(() => {
           </div>
           <article v-for="item in pagedHardwareList" :key="item.id" class="hardware-row">
             <div class="hardware-row-main">
-              <strong>{{ hardwareTypeLabel(item.type) }} · {{ item.brand }} {{ item.model }}</strong>
-              <p>¥{{ item.price }} · 性能 {{ item.performanceScore }} · {{ item.socketType || item.memoryType || item.formFactor || '通用规格' }}</p>
+              <strong>{{ hardwareTypeLabel(item.type) }} · {{ item.model }}</strong>
+              <p>{{ hardwareSpecSummary(item) }}</p>
             </div>
             <div class="hardware-actions">
               <span :class="item.enabled ? 'status-chip published' : 'status-chip'">{{ item.enabled ? '启用' : '停用' }}</span>
@@ -1557,7 +1560,7 @@ onBeforeUnmount(() => {
               <button class="danger-link" type="button" @click="deleteHardware(item.id)">删除</button>
             </div>
           </article>
-          <div v-if="filteredHardwareList.length === 0" class="empty-box">暂无符合条件的配件</div>
+          <div v-if="filteredHardwareList.length === 0" class="empty-box">暂无符合条件的标准型号</div>
           <div v-if="filteredHardwareList.length > 0" class="pagination-row">
             <button type="button" :disabled="hardwarePage <= 1" @click="previousHardwarePage">上一页</button>
             <span>第 {{ Math.min(hardwarePage, hardwareTotalPages) }} / {{ hardwareTotalPages }} 页 · 每页 {{ hardwarePageSize }} 条</span>

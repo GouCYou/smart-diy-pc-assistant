@@ -55,8 +55,8 @@
 				</view>
 				<view class="profile-meta">
 					<text v-if="getGenderText().length > 0" :class="getGenderMetaClass()">{{ getGenderText() }}</text>
-					<text v-if="getLocationText().length > 0" class="meta-chip">{{ getLocationText() }}</text>
 					<text v-if="getAgeText().length > 0" class="meta-chip">{{ getAgeText() }}</text>
+					<text v-if="getLocationText().length > 0" class="meta-chip">{{ getLocationText() }}</text>
 				</view>
 				<view v-if="!space.mine" class="action-row">
 					<view :class="space.following ? 'follow-button follow-button-active' : 'follow-button'" @click.stop="toggleFollow">

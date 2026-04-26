@@ -6,8 +6,11 @@ import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatResponse;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ConversationResponse;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.BuildConfigService;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.BuildConfigSource;
+import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildPartSelectionRequest;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigRequest;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigResponse;
+import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProduct;
+import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProductSearchService;
 import cn.cctstudio.smartdiypcassistantbackend.config.properties.AiProperties;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
@@ -26,8 +29,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,6 +51,7 @@ public class AiService {
     private final HardwarePartRepository hardwarePartRepository;
     private final BuildConfigService buildConfigService;
     private final UserAccessService userAccessService;
+    private final JdProductSearchService jdProductSearchService;
 
     public AiService(
             AiProperties properties,
@@ -57,7 +63,8 @@ public class AiService {
             ChatMessageRepository messageRepository,
             HardwarePartRepository hardwarePartRepository,
             BuildConfigService buildConfigService,
-            UserAccessService userAccessService
+            UserAccessService userAccessService,
+            JdProductSearchService jdProductSearchService
     ) {
         this.properties = properties;
         this.redisTemplate = redisTemplate;
@@ -69,6 +76,7 @@ public class AiService {
         this.hardwarePartRepository = hardwarePartRepository;
         this.buildConfigService = buildConfigService;
         this.userAccessService = userAccessService;
+        this.jdProductSearchService = jdProductSearchService;
     }
 
     @Transactional
@@ -223,7 +231,7 @@ public class AiService {
                 ? createBuildNote(message)
                 : "基于《" + attachedBuild.title() + "》按你的新要求自动调整。需求：" + trim(message, 120);
         List<Long> partIds = plan.parts().stream().map(HardwarePart::getId).toList();
-        return buildConfigService.create(userId, new BuildConfigRequest(title, note, partIds, BuildConfigSource.AI));
+        return buildConfigService.create(userId, new BuildConfigRequest(title, note, partIds, plan.selections(), BuildConfigSource.AI));
     }
 
     private String createGeneratedBuildReply(boolean adjusted, BuildConfigResponse build) {
@@ -234,9 +242,51 @@ public class AiService {
                 .append(build.totalPrice())
                 .append("，综合性能 ")
                 .append(build.performanceScore())
-                .append(" 分。");
+                .append(" 分。\n\n");
+        builder.append(createBuildReason(build))
+                .append("\n\n");
         builder.append("你可以点开下面的配置卡查看详情，也可以继续告诉我想降低预算、提高显卡性能、换白色外观或增强静音。");
         return builder.toString();
+    }
+
+    private String createBuildReason(BuildConfigResponse build) {
+        HardwarePartResponse cpu = findBuildPart(build, HardwarePartType.CPU);
+        HardwarePartResponse gpu = findBuildPart(build, HardwarePartType.GPU);
+        HardwarePartResponse motherboard = findBuildPart(build, HardwarePartType.MOTHERBOARD);
+        HardwarePartResponse memory = findBuildPart(build, HardwarePartType.MEMORY);
+        HardwarePartResponse psu = findBuildPart(build, HardwarePartType.PSU);
+        StringBuilder reason = new StringBuilder();
+        boolean productivity = containsAny(build.note().toLowerCase(), "生产力", "剪辑", "渲染", "建模", "编程", "设计");
+        if (cpu != null && gpu != null) {
+            reason.append("这套把预算优先放在 ").append(partDisplayName(gpu))
+                    .append(" 和 ").append(partDisplayName(cpu))
+                    .append(productivity ? " 上，优先照顾多线程处理、渲染加速和多任务响应。" : " 上，保证游戏帧率和日常响应。");
+        }
+        if (motherboard != null) {
+            reason.append("主板用 ").append(partDisplayName(motherboard))
+                    .append("，重点匹配接口、内存类型和后续升级空间。");
+        }
+        if (memory != null) {
+            reason.append("内存选择 ").append(memory.memoryType()).append(" 平台，和主板保持一致。");
+        }
+        if (psu != null && psu.wattage() != null && psu.wattage() > 0) {
+            reason.append("电源预留到 ").append(psu.wattage()).append("W，给显卡满载和后期升级留余量。");
+        }
+        return reason.toString();
+    }
+
+    private HardwarePartResponse findBuildPart(BuildConfigResponse build, HardwarePartType type) {
+        return build.parts().stream()
+                .filter(part -> part.type() == type)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String partDisplayName(HardwarePartResponse part) {
+        if (StringUtils.hasText(part.productTitle())) {
+            return part.model();
+        }
+        return part.model();
     }
 
     private boolean shouldGenerateBuild(String message, boolean hasAttachedBuild) {
@@ -244,9 +294,9 @@ public class AiService {
         if (hasAttachedBuild) {
             return containsAny(text, "调整", "优化", "升级", "更换", "换成", "改成", "降预算", "提高性能");
         }
-        boolean explicitBuild = containsAny(text, "生成配置", "配置单", "配一套", "装机方案", "推荐一套", "帮我配", "电脑配置", "装机", "配电脑");
+        boolean explicitBuild = containsAny(text, "生成配置", "配置单", "配一套", "组一套", "攒一套", "装机方案", "推荐一套", "帮我配", "帮我组", "帮我攒", "电脑配置", "装机", "配电脑", "组电脑", "攒机");
         boolean budgetWithUse = containsAny(text, "预算", "主玩", "游戏", "2k", "4k", "剪辑", "建模", "办公", "生产力")
-                && Pattern.compile("\\d{4,5}").matcher(text).find();
+                && (Pattern.compile("\\d{4,5}").matcher(text).find() || containsChineseBudget(text));
         return explicitBuild || budgetWithUse;
     }
 
@@ -257,6 +307,8 @@ public class AiService {
             scene = "2K 游戏配置";
         } else if (text.contains("4k")) {
             scene = "4K 游戏配置";
+        } else if (containsAny(text, "生产力", "渲染", "编程", "设计")) {
+            scene = "生产力配置";
         } else if (text.contains("剪辑")) {
             scene = "剪辑创作配置";
         } else if (text.contains("建模")) {
@@ -288,11 +340,51 @@ public class AiService {
     }
 
     private int extractBudget(String message) {
+        String text = message == null ? "" : message;
         Matcher matcher = Pattern.compile("(\\d{4,5})\\s*(元|块|预算)?").matcher(message == null ? "" : message);
         if (matcher.find()) {
             return Integer.parseInt(matcher.group(1));
         }
+        Integer chineseBudget = extractChineseBudget(text);
+        if (chineseBudget != null) {
+            return chineseBudget;
+        }
         return 6500;
+    }
+
+    private boolean containsChineseBudget(String text) {
+        return extractChineseBudget(text) != null;
+    }
+
+    private Integer extractChineseBudget(String message) {
+        String text = message == null ? "" : message;
+        if (containsAny(text, "一万五", "1万5", "1.5万", "15000")) {
+            return 15000;
+        }
+        if (containsAny(text, "一万", "1万", "10000")) {
+            return 10000;
+        }
+        if (containsAny(text, "两万", "二万", "2万", "20000")) {
+            return 20000;
+        }
+        if (containsAny(text, "八千", "8000")) {
+            return 8000;
+        }
+        if (containsAny(text, "六千", "6000")) {
+            return 6000;
+        }
+        if (containsAny(text, "五千", "5000")) {
+            return 5000;
+        }
+        Matcher decimalWan = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*万").matcher(text);
+        if (decimalWan.find()) {
+            return (int) Math.round(Double.parseDouble(decimalWan.group(1)) * 10000);
+        }
+        Matcher wanQian = Pattern.compile("(\\d)万(\\d)千?").matcher(text);
+        if (wanQian.find()) {
+            return Integer.parseInt(wanQian.group(1)) * 10000 + Integer.parseInt(wanQian.group(2)) * 1000;
+        }
+        return null;
     }
 
     private BuildPlan selectBuildPlan(int budget) {
@@ -300,17 +392,32 @@ public class AiService {
         for (HardwarePart part : hardwarePartRepository.findByEnabledTrue()) {
             parts.computeIfAbsent(part.getType(), ignored -> new ArrayList<>()).add(part);
         }
-        for (List<HardwarePart> typedParts : parts.values()) {
-            typedParts.sort(Comparator.comparing(HardwarePart::getPrice));
-        }
-        List<HardwarePart> cpus = required(parts, HardwarePartType.CPU);
-        List<HardwarePart> motherboards = required(parts, HardwarePartType.MOTHERBOARD);
-        List<HardwarePart> gpus = required(parts, HardwarePartType.GPU);
-        List<HardwarePart> memories = required(parts, HardwarePartType.MEMORY);
-        List<HardwarePart> storages = required(parts, HardwarePartType.STORAGE);
-        List<HardwarePart> psus = required(parts, HardwarePartType.PSU);
-        List<HardwarePart> cases = required(parts, HardwarePartType.CASE);
-        List<HardwarePart> coolers = required(parts, HardwarePartType.COOLER);
+        List<HardwarePart> cpus = prioritizeCandidates(required(parts, HardwarePartType.CPU), 12);
+        List<HardwarePart> motherboards = prioritizeCandidates(required(parts, HardwarePartType.MOTHERBOARD), 14);
+        List<HardwarePart> gpus = prioritizeCandidates(required(parts, HardwarePartType.GPU), 12);
+        List<HardwarePart> memories = prioritizeCandidates(required(parts, HardwarePartType.MEMORY), 4);
+        List<HardwarePart> storages = prioritizeCandidates(required(parts, HardwarePartType.STORAGE), 3);
+        List<HardwarePart> psus = prioritizeCandidates(required(parts, HardwarePartType.PSU), 5);
+        List<HardwarePart> cases = prioritizeCandidates(required(parts, HardwarePartType.CASE), 3);
+        List<HardwarePart> coolers = prioritizeCandidates(required(parts, HardwarePartType.COOLER), 4);
+        Map<HardwarePartType, List<HardwarePart>> candidateParts = new EnumMap<>(HardwarePartType.class);
+        candidateParts.put(HardwarePartType.CPU, cpus);
+        candidateParts.put(HardwarePartType.MOTHERBOARD, motherboards);
+        candidateParts.put(HardwarePartType.GPU, gpus);
+        candidateParts.put(HardwarePartType.MEMORY, memories);
+        candidateParts.put(HardwarePartType.STORAGE, storages);
+        candidateParts.put(HardwarePartType.PSU, psus);
+        candidateParts.put(HardwarePartType.CASE, cases);
+        candidateParts.put(HardwarePartType.COOLER, coolers);
+        Map<Long, BuildPartSelectionRequest> productSelections = createProductSelectionMap(candidateParts);
+        cpus = purchasableCandidates(cpus, productSelections, HardwarePartType.CPU);
+        motherboards = purchasableCandidates(motherboards, productSelections, HardwarePartType.MOTHERBOARD);
+        gpus = purchasableCandidates(gpus, productSelections, HardwarePartType.GPU);
+        memories = purchasableCandidates(memories, productSelections, HardwarePartType.MEMORY);
+        storages = purchasableCandidates(storages, productSelections, HardwarePartType.STORAGE);
+        psus = purchasableCandidates(psus, productSelections, HardwarePartType.PSU);
+        cases = purchasableCandidates(cases, productSelections, HardwarePartType.CASE);
+        coolers = purchasableCandidates(coolers, productSelections, HardwarePartType.COOLER);
 
         BuildPlan best = null;
         BuildPlan cheapest = null;
@@ -331,18 +438,17 @@ public class AiService {
                                     continue;
                                 }
                                 for (HardwarePart pcCase : cases) {
-                                    if (!pcCase.getSupportedFormFactors().toUpperCase().contains(motherboard.getFormFactor().toUpperCase())) {
-                                        continue;
-                                    }
-                                    if (gpu.getGpuLengthMm() > 0 && pcCase.getGpuLengthMm() > 0 && gpu.getGpuLengthMm() > pcCase.getGpuLengthMm()) {
+                                    if (StringUtils.hasText(motherboard.getFormFactor())
+                                            && StringUtils.hasText(pcCase.getSupportedFormFactors())
+                                            && !pcCase.getSupportedFormFactors().toUpperCase().contains(motherboard.getFormFactor().toUpperCase())) {
                                         continue;
                                     }
                                     for (HardwarePart cooler : coolers) {
-                                        if (cooler.getCoolerHeightMm() > 0 && pcCase.getCoolerHeightMm() > 0 && cooler.getCoolerHeightMm() > pcCase.getCoolerHeightMm()) {
-                                            continue;
-                                        }
                                         List<HardwarePart> selected = List.of(cpu, motherboard, gpu, memory, storage, psu, pcCase, cooler);
-                                        BuildPlan plan = new BuildPlan(selected, totalPrice(selected), performanceScore(selected));
+                                        List<BuildPartSelectionRequest> selections = selected.stream()
+                                                .map(part -> productSelections.get(part.getId()))
+                                                .toList();
+                                        BuildPlan plan = new BuildPlan(selected, selections, totalPrice(selected, selections), performanceScore(selected));
                                         if (cheapest == null || plan.totalPrice() < cheapest.totalPrice()) {
                                             cheapest = plan;
                                         }
@@ -366,12 +472,134 @@ public class AiService {
         throw new BusinessException("硬件库数据不足，暂时无法自动生成配置单");
     }
 
+    private List<HardwarePart> purchasableCandidates(List<HardwarePart> parts, Map<Long, BuildPartSelectionRequest> selections, HardwarePartType type) {
+        List<HardwarePart> result = parts.stream()
+                .filter(part -> hasAvailableSelection(selections.get(part.getId())))
+                .toList();
+        if (result.isEmpty()) {
+            throw new BusinessException("京东暂时没有找到可购买的 " + hardwareTypeLabel(type) + " 商品，请稍后重试或换个预算范围。");
+        }
+        return result;
+    }
+
+    private boolean hasAvailableSelection(BuildPartSelectionRequest selection) {
+        return selection != null
+                && StringUtils.hasText(selection.title())
+                && selection.price() != null
+                && selection.price() > 0
+                && StringUtils.hasText(selection.link())
+                && StringUtils.hasText(selection.skuId());
+    }
+
+    private String hardwareTypeLabel(HardwarePartType type) {
+        return switch (type) {
+            case CPU -> "CPU";
+            case MOTHERBOARD -> "主板";
+            case GPU -> "显卡";
+            case MEMORY -> "内存";
+            case STORAGE -> "硬盘";
+            case PSU -> "电源";
+            case CASE -> "机箱";
+            case COOLER -> "散热器";
+        };
+    }
+
     private List<HardwarePart> required(Map<HardwarePartType, List<HardwarePart>> parts, HardwarePartType type) {
         List<HardwarePart> result = parts.getOrDefault(type, List.of());
         if (result.isEmpty()) {
             throw new BusinessException("硬件库缺少 " + type.name() + " 数据");
         }
         return result;
+    }
+
+    private List<HardwarePart> prioritizeCandidates(List<HardwarePart> parts, int limit) {
+        List<HardwarePart> ranked = parts.stream()
+                .sorted(Comparator.comparingInt(this::hardwareGenerationRank).reversed()
+                        .thenComparing(Comparator.comparingInt(HardwarePart::getPerformanceScore).reversed())
+                        .thenComparing(HardwarePart::getModel))
+                .toList();
+        if (ranked.size() <= limit) {
+            return ranked;
+        }
+        LinkedHashMap<Long, HardwarePart> selected = new LinkedHashMap<>();
+        int headCount = Math.max(1, limit - 2);
+        ranked.stream().limit(headCount).forEach(part -> selected.put(part.getId(), part));
+        parts.stream()
+                .sorted(Comparator.comparingInt(HardwarePart::getPerformanceScore)
+                        .thenComparing(HardwarePart::getModel))
+                .limit(limit - selected.size())
+                .forEach(part -> selected.put(part.getId(), part));
+        return selected.values().stream().limit(limit).toList();
+    }
+
+    private int hardwareGenerationRank(HardwarePart part) {
+        String model = part.getModel().toUpperCase();
+        return switch (part.getType()) {
+            case CPU -> cpuGenerationRank(model);
+            case GPU -> gpuGenerationRank(model);
+            case MOTHERBOARD -> motherboardGenerationRank(model);
+            case MEMORY -> model.contains("DDR5") ? 2000 : model.contains("DDR4") ? 1000 : 0;
+            case STORAGE -> model.contains("PCIE 5.0") ? 2000 : model.contains("PCIE 4.0") ? 1500 : 0;
+            case PSU -> model.contains("ATX 3.1") ? 2000 : model.contains("ATX 3.0") ? 1800 : 0;
+            case CASE, COOLER -> 0;
+        };
+    }
+
+    private int cpuGenerationRank(String model) {
+        if (model.contains("CORE ULTRA")) {
+            return model.contains("PLUS") ? 2600 : 2500;
+        }
+        if (model.contains("9950X3D2") || model.contains("9850X3D")) {
+            return 2450;
+        }
+        if (model.contains("9950X3D") || model.contains("9900X3D") || model.contains("9800X3D")) {
+            return 2400;
+        }
+        if (model.contains("RYZEN 9 99") || model.contains("RYZEN 7 97") || model.contains("RYZEN 5 96")) {
+            return 2300;
+        }
+        if (model.contains("7800X3D")) {
+            return 1800;
+        }
+        if (model.contains("14")) {
+            return 1700;
+        }
+        if (model.contains("13")) {
+            return 1600;
+        }
+        if (model.contains("12")) {
+            return 1500;
+        }
+        return 0;
+    }
+
+    private int gpuGenerationRank(String model) {
+        if (model.contains("RTX 50")) {
+            return 2600;
+        }
+        if (model.contains("RX 90")) {
+            return 2500;
+        }
+        if (model.contains("ARC B")) {
+            return 2300;
+        }
+        if (model.contains("RTX 40") || model.contains("RX 7")) {
+            return 1800;
+        }
+        return 0;
+    }
+
+    private int motherboardGenerationRank(String model) {
+        if (model.contains("Z890") || model.contains("X870") || model.contains("B860") || model.contains("B850") || model.contains("H810")) {
+            return 2400;
+        }
+        if (model.contains("B650") || model.contains("X670") || model.contains("Z790") || model.contains("B760")) {
+            return 1800;
+        }
+        if (model.contains("B550")) {
+            return 1200;
+        }
+        return 0;
     }
 
     private boolean same(String left, String right) {
@@ -393,8 +621,38 @@ public class AiService {
         return plan.totalPrice() < current.totalPrice();
     }
 
-    private int totalPrice(List<HardwarePart> parts) {
-        return parts.stream().mapToInt(HardwarePart::getPrice).sum();
+    private Map<Long, BuildPartSelectionRequest> createProductSelectionMap(Map<HardwarePartType, List<HardwarePart>> typedParts) {
+        Map<Long, BuildPartSelectionRequest> result = new LinkedHashMap<>();
+        for (List<HardwarePart> list : typedParts.values()) {
+            for (HardwarePart part : list) {
+                jdProductSearchService.bestAvailableForPart(part).ifPresent(product -> result.put(part.getId(), new BuildPartSelectionRequest(
+                            part.getId(),
+                            product.title(),
+                            product.price(),
+                            product.image(),
+                            product.link(),
+                            product.skuId(),
+                            StringUtils.hasText(product.matchedModel()) ? product.matchedModel() : part.getModel()
+                    )));
+            }
+        }
+        return result;
+    }
+
+    private int totalPrice(List<HardwarePart> parts, List<BuildPartSelectionRequest> selections) {
+        Map<Long, Integer> productPrices = selections.stream()
+                .filter(item -> item != null && item.hardwarePartId() != null)
+                .collect(Collectors.toMap(
+                        BuildPartSelectionRequest::hardwarePartId,
+                        item -> item.price() == null ? 0 : item.price(),
+                        (left, right) -> left
+                ));
+        int total = 0;
+        for (HardwarePart part : parts) {
+            int productPrice = productPrices.getOrDefault(part.getId(), 0);
+            total += productPrice > 0 ? productPrice : part.getPrice();
+        }
+        return total;
     }
 
     private int performanceScore(List<HardwarePart> parts) {
@@ -406,8 +664,7 @@ public class AiService {
                 case GPU -> 40;
                 case MEMORY -> 12;
                 case STORAGE -> 10;
-                case MOTHERBOARD -> 8;
-                default -> 0;
+            default -> 0;
             };
             weighted += part.getPerformanceScore() * partWeight;
             weight += partWeight;
@@ -435,11 +692,24 @@ public class AiService {
                 .append("，总价 ¥").append(build.totalPrice())
                 .append("，性能 ").append(build.performanceScore()).append(" 分。\n");
         for (HardwarePartResponse part : build.parts()) {
+            String title = StringUtils.hasText(part.productTitle()) ? part.productTitle() : part.model();
             builder.append(part.type()).append("：")
-                    .append(part.brand()).append(" ")
-                    .append(part.model()).append("，¥")
-                    .append(part.price()).append("，性能 ")
-                    .append(part.performanceScore()).append(" 分\n");
+                    .append(title);
+            if (!title.equals(part.model())) {
+                builder.append("（标准型号：").append(part.model()).append("）");
+            }
+            builder.append("，¥")
+                    .append(part.productPrice() != null && part.productPrice() > 0 ? part.productPrice() : part.price());
+            if (!hasPerformanceScore(part.type())) {
+                builder.append("，不参与性能评分");
+            } else {
+                builder.append("，性能 ")
+                        .append(part.performanceScore()).append(" 分");
+            }
+            if (StringUtils.hasText(part.productLink())) {
+                builder.append("，京东链接：").append(part.productLink());
+            }
+            builder.append("\n");
         }
         if (!build.note().isBlank()) {
             builder.append("备注：").append(build.note()).append("\n");
@@ -554,6 +824,13 @@ public class AiService {
         return model.generate(prompt);
     }
 
-    private record BuildPlan(List<HardwarePart> parts, int totalPrice, int performanceScore) {
+    private record BuildPlan(List<HardwarePart> parts, List<BuildPartSelectionRequest> selections, int totalPrice, int performanceScore) {
+    }
+
+    private boolean hasPerformanceScore(HardwarePartType type) {
+        return type == HardwarePartType.CPU
+                || type == HardwarePartType.GPU
+                || type == HardwarePartType.MEMORY
+                || type == HardwarePartType.STORAGE;
     }
 }

@@ -2,13 +2,20 @@ package cn.cctstudio.smartdiypcassistantbackend.buildconfig;
 
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigRequest;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigResponse;
+import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildPartSelectionRequest;
+import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProduct;
+import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProductSearchService;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartRepository;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartType;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,15 +33,21 @@ public class BuildConfigService {
     private final BuildConfigRepository buildConfigRepository;
     private final HardwarePartRepository hardwarePartRepository;
     private final UserAccessService userAccessService;
+    private final JdProductSearchService jdProductSearchService;
+    private final ObjectMapper objectMapper;
 
     public BuildConfigService(
             BuildConfigRepository buildConfigRepository,
             HardwarePartRepository hardwarePartRepository,
-            UserAccessService userAccessService
+            UserAccessService userAccessService,
+            JdProductSearchService jdProductSearchService,
+            ObjectMapper objectMapper
     ) {
         this.buildConfigRepository = buildConfigRepository;
         this.hardwarePartRepository = hardwarePartRepository;
         this.userAccessService = userAccessService;
+        this.jdProductSearchService = jdProductSearchService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +83,7 @@ public class BuildConfigService {
     @Transactional
     public BuildConfigResponse create(Long userId, BuildConfigRequest request) {
         userAccessService.requireAvailable(userId);
-        BuildConfig config = new BuildConfig(userId, "", "", "", 0, 0, "WARN", "", "", "", BuildConfigSource.MANUAL);
+        BuildConfig config = new BuildConfig(userId, "", "", "", "", 0, 0, "WARN", "", "", "", BuildConfigSource.MANUAL);
         applyConfig(config, request);
         return toResponse(buildConfigRepository.save(config));
     }
@@ -86,20 +99,23 @@ public class BuildConfigService {
     private void applyConfig(BuildConfig config, BuildConfigRequest request) {
         String title = clean(request.title(), 80, "未命名配置");
         String note = clean(request.note(), 500, "");
-        List<HardwarePart> parts = resolveParts(request.partIds());
-        int totalPrice = parts.stream().mapToInt(HardwarePart::getPrice).sum();
+        List<BuildPartSelection> selections = resolveSelections(request);
+        List<HardwarePart> parts = resolveParts(selections.stream().map(BuildPartSelection::hardwarePartId).toList());
+        selections = fillMissingProductSnapshots(parts, selections);
+        int totalPrice = calculateTotalPrice(parts, selections);
         int performanceScore = calculatePerformanceScore(parts);
         CompatibilityResult compatibility = checkCompatibility(parts);
         if ("BLOCK".equals(compatibility.status())) {
             throw new BusinessException("存在兼容性问题，请调整红色标记的硬件后再保存");
         }
         String summary = "¥" + totalPrice + " · 性能 " + performanceScore + " 分 · " + statusLabel(compatibility.status());
-        String content = createContent(parts, note, totalPrice, performanceScore, compatibility);
+        String content = createContent(parts, selections, note, totalPrice, performanceScore, compatibility);
         BuildConfigSource source = request.source() == null ? BuildConfigSource.MANUAL : request.source();
         config.updateConfig(
                 title,
                 note,
                 serializePartIds(parts),
+                serializeSelections(selections),
                 totalPrice,
                 performanceScore,
                 compatibility.status(),
@@ -124,7 +140,11 @@ public class BuildConfigService {
     }
 
     private BuildConfigResponse toResponse(BuildConfig config) {
-        return BuildConfigResponse.from(config, resolveParts(parsePartIds(config.getPartIds()), false));
+        return BuildConfigResponse.from(
+                config,
+                resolveParts(parsePartIds(config.getPartIds()), false),
+                parseSelections(config.getPartSelections())
+        );
     }
 
     private BuildConfig findOwned(Long id, Long userId) {
@@ -170,10 +190,96 @@ public class BuildConfigService {
         return ids;
     }
 
+    private List<BuildPartSelection> resolveSelections(BuildConfigRequest request) {
+        if (request.partSelections() != null && !request.partSelections().isEmpty()) {
+            return request.partSelections().stream()
+                    .filter(item -> item != null && item.hardwarePartId() != null)
+                    .map(item -> new BuildPartSelection(
+                            item.hardwarePartId(),
+                            cleanSnapshotText(item.title(), 240),
+                            item.price() == null ? 0 : item.price(),
+                            cleanSnapshotText(item.image(), 500),
+                            cleanSnapshotText(item.link(), 500),
+                            cleanSnapshotText(item.skuId(), 80),
+                            cleanSnapshotText(item.matchedModel(), 120)
+                    ))
+                    .toList();
+        }
+        if (request.partIds() == null || request.partIds().isEmpty()) {
+            throw new BusinessException("请至少选择一个硬件");
+        }
+        return request.partIds().stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(id -> new BuildPartSelection(id, "", 0, "", "", "", ""))
+                .toList();
+    }
+
+    private List<BuildPartSelection> fillMissingProductSnapshots(List<HardwarePart> parts, List<BuildPartSelection> selections) {
+        Map<Long, BuildPartSelection> selectionMap = selections.stream()
+                .filter(item -> item.hardwarePartId() != null)
+                .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (left, right) -> left, LinkedHashMap::new));
+        List<BuildPartSelection> filled = new ArrayList<>();
+        for (HardwarePart part : parts) {
+            BuildPartSelection current = selectionMap.get(part.getId());
+            if (current != null && current.price() != null && current.price() > 0 && StringUtils.hasText(current.title())) {
+                filled.add(current);
+                continue;
+            }
+            JdProduct product = jdProductSearchService.bestForPart(part);
+            filled.add(new BuildPartSelection(
+                    part.getId(),
+                    product.title(),
+                    product.price(),
+                    product.image(),
+                    product.link(),
+                    product.skuId(),
+                    StringUtils.hasText(product.matchedModel()) ? product.matchedModel() : part.getModel()
+            ));
+        }
+        return filled;
+    }
+
+    private List<BuildPartSelection> parseSelections(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(value, new TypeReference<List<BuildPartSelection>>() {
+            });
+        } catch (JsonProcessingException ignored) {
+            return List.of();
+        }
+    }
+
+    private String serializeSelections(List<BuildPartSelection> selections) {
+        try {
+            return objectMapper.writeValueAsString(selections);
+        } catch (JsonProcessingException ignored) {
+            return "[]";
+        }
+    }
+
     private String serializePartIds(List<HardwarePart> parts) {
         return parts.stream()
                 .map(part -> String.valueOf(part.getId()))
                 .collect(Collectors.joining(","));
+    }
+
+    private int calculateTotalPrice(List<HardwarePart> parts, List<BuildPartSelection> selections) {
+        Map<Long, Integer> priceMap = selections.stream()
+                .filter(item -> item.hardwarePartId() != null)
+                .collect(Collectors.toMap(
+                        BuildPartSelection::hardwarePartId,
+                        item -> item.price() == null ? 0 : item.price(),
+                        (left, right) -> left
+                ));
+        int total = 0;
+        for (HardwarePart part : parts) {
+            int productPrice = priceMap.getOrDefault(part.getId(), 0);
+            total += productPrice > 0 ? productPrice : part.getPrice();
+        }
+        return total;
     }
 
     private int calculatePerformanceScore(List<HardwarePart> parts) {
@@ -188,8 +294,6 @@ public class BuildConfigService {
         weight += typed.containsKey(HardwarePartType.MEMORY) ? 12 : 0;
         weighted += score(typed, HardwarePartType.STORAGE, 10);
         weight += typed.containsKey(HardwarePartType.STORAGE) ? 10 : 0;
-        weighted += score(typed, HardwarePartType.MOTHERBOARD, 8);
-        weight += typed.containsKey(HardwarePartType.MOTHERBOARD) ? 8 : 0;
         if (weight == 0) {
             return 0;
         }
@@ -220,10 +324,8 @@ public class BuildConfigService {
         HardwarePart cpu = typed.get(HardwarePartType.CPU);
         HardwarePart motherboard = typed.get(HardwarePartType.MOTHERBOARD);
         HardwarePart memory = typed.get(HardwarePartType.MEMORY);
-        HardwarePart gpu = typed.get(HardwarePartType.GPU);
         HardwarePart psu = typed.get(HardwarePartType.PSU);
         HardwarePart pcCase = typed.get(HardwarePartType.CASE);
-        HardwarePart cooler = typed.get(HardwarePartType.COOLER);
 
         if (cpu != null && motherboard != null && bothPresent(cpu.getSocketType(), motherboard.getSocketType())
                 && !cpu.getSocketType().equalsIgnoreCase(motherboard.getSocketType())) {
@@ -244,16 +346,6 @@ public class BuildConfigService {
                 messages.add("电源额定功率建议至少 " + estimatedWattage + "W，当前为 " + psu.getWattage() + "W。");
                 blocked = true;
             }
-        }
-        if (gpu != null && pcCase != null && gpu.getGpuLengthMm() > 0 && pcCase.getGpuLengthMm() > 0
-                && gpu.getGpuLengthMm() > pcCase.getGpuLengthMm()) {
-            messages.add("显卡长度 " + gpu.getGpuLengthMm() + "mm 超出机箱支持的 " + pcCase.getGpuLengthMm() + "mm。");
-            blocked = true;
-        }
-        if (cooler != null && pcCase != null && cooler.getCoolerHeightMm() > 0 && pcCase.getCoolerHeightMm() > 0
-                && cooler.getCoolerHeightMm() > pcCase.getCoolerHeightMm()) {
-            messages.add("散热器高度 " + cooler.getCoolerHeightMm() + "mm 超出机箱支持的 " + pcCase.getCoolerHeightMm() + "mm。");
-            blocked = true;
         }
         if (motherboard != null && pcCase != null && bothPresent(motherboard.getFormFactor(), pcCase.getSupportedFormFactors())
                 && !pcCase.getSupportedFormFactors().toUpperCase().contains(motherboard.getFormFactor().toUpperCase())) {
@@ -280,19 +372,35 @@ public class BuildConfigService {
         return left != null && !left.isBlank() && right != null && !right.isBlank();
     }
 
-    private String createContent(List<HardwarePart> parts, String note, int totalPrice, int performanceScore, CompatibilityResult compatibility) {
+    private String createContent(List<HardwarePart> parts, List<BuildPartSelection> selections, String note, int totalPrice, int performanceScore, CompatibilityResult compatibility) {
+        Map<Long, BuildPartSelection> selectionMap = selections.stream()
+                .filter(item -> item.hardwarePartId() != null)
+                .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (left, right) -> left));
         StringBuilder builder = new StringBuilder();
         for (HardwarePart part : parts) {
+            BuildPartSelection selection = selectionMap.get(part.getId());
+            int price = selection != null && selection.price() != null && selection.price() > 0 ? selection.price() : part.getPrice();
+            String productTitle = selection != null && StringUtils.hasText(selection.title()) ? selection.title() : part.getModel();
             builder.append(typeLabel(part.getType()))
                     .append("：")
-                    .append(part.getBrand())
-                    .append(" ")
-                    .append(part.getModel())
+                    .append(productTitle);
+            if (!productTitle.equals(part.getModel())) {
+                builder.append("（标准型号：").append(part.getModel()).append("）");
+            }
+            builder
                     .append("，¥")
-                    .append(part.getPrice())
-                    .append("，性能 ")
-                    .append(part.getPerformanceScore())
-                    .append(" 分\n");
+                    .append(price);
+            if (!hasPerformanceScore(part.getType())) {
+                builder.append("，不参与性能评分");
+            } else {
+                builder.append("，性能 ")
+                        .append(part.getPerformanceScore())
+                        .append(" 分");
+            }
+            if (selection != null && StringUtils.hasText(selection.link())) {
+                builder.append("，京东：").append(selection.link());
+            }
+            builder.append("\n");
         }
         builder.append("总价：¥").append(totalPrice).append("\n");
         builder.append("综合性能：").append(performanceScore).append(" 分\n");
@@ -319,6 +427,13 @@ public class BuildConfigService {
         };
     }
 
+    private boolean hasPerformanceScore(HardwarePartType type) {
+        return type == HardwarePartType.CPU
+                || type == HardwarePartType.GPU
+                || type == HardwarePartType.MEMORY
+                || type == HardwarePartType.STORAGE;
+    }
+
     private String statusLabel(String status) {
         return switch (status) {
             case "PASS" -> "兼容";
@@ -329,6 +444,11 @@ public class BuildConfigService {
 
     private String clean(String value, int maxLength, String fallback) {
         String text = value == null || value.isBlank() ? fallback : value.trim();
+        return text.length() > maxLength ? text.substring(0, maxLength) : text;
+    }
+
+    private String cleanSnapshotText(String value, int maxLength) {
+        String text = value == null ? "" : value.trim();
         return text.length() > maxLength ? text.substring(0, maxLength) : text;
     }
 

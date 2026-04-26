@@ -24,11 +24,11 @@ public class HardwarePart {
     @Column(nullable = false, length = 30)
     private HardwarePartType type;
 
-    @Column(nullable = false, length = 60)
-    private String brand;
-
     @Column(nullable = false, length = 120)
     private String model;
+
+    @Column(nullable = false, length = 80)
+    private String brand;
 
     @Column(nullable = false)
     private Integer price;
@@ -70,10 +70,10 @@ public class HardwarePart {
     protected HardwarePart() {
     }
 
-    public HardwarePart(HardwarePartType type, String brand, String model, Integer price, Integer performanceScore) {
+    public HardwarePart(HardwarePartType type, String model, Integer price, Integer performanceScore) {
         this.type = type;
-        this.brand = brand;
         this.model = model;
+        this.brand = "";
         this.price = price;
         this.performanceScore = performanceScore;
         this.enabled = true;
@@ -83,7 +83,6 @@ public class HardwarePart {
 
     public void update(
             HardwarePartType type,
-            String brand,
             String model,
             Integer price,
             Integer performanceScore,
@@ -98,8 +97,8 @@ public class HardwarePart {
             boolean enabled
     ) {
         this.type = type;
-        this.brand = brand;
         this.model = model;
+        this.brand = "";
         this.price = price;
         this.performanceScore = performanceScore;
         this.socketType = blankToNull(socketType);
@@ -120,10 +119,6 @@ public class HardwarePart {
 
     public HardwarePartType getType() {
         return type;
-    }
-
-    public String getBrand() {
-        return brand;
     }
 
     public String getModel() {

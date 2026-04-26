@@ -8,17 +8,17 @@ import java.util.Optional;
 
 public interface HardwarePartRepository extends JpaRepository<HardwarePart, Long> {
 
-    boolean existsByBrandAndModel(String brand, String model);
+    boolean existsByTypeAndModelIgnoreCase(HardwarePartType type, String model);
 
-    Optional<HardwarePart> findByBrandAndModel(String brand, String model);
+    Optional<HardwarePart> findByTypeAndModelIgnoreCase(HardwarePartType type, String model);
+
+    long deleteByBrandIsNotNullAndBrandNot(String brand);
 
     List<HardwarePart> findByEnabledTrue();
 
     List<HardwarePart> findByTypeAndEnabledTrueOrderByPriceAsc(HardwarePartType type);
 
     List<HardwarePart> findByTypeAndEnabledTrueAndModelContainingIgnoreCaseOrderByPriceAsc(HardwarePartType type, String keyword);
-
-    List<HardwarePart> findByTypeAndEnabledTrueAndBrandContainingIgnoreCaseOrderByPriceAsc(HardwarePartType type, String keyword);
 
     List<HardwarePart> findByIdIn(Collection<Long> ids);
 }

@@ -31,6 +31,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <langchain4j.version>0.36.2</langchain4j.version>
         <qiniu.version>7.15.0</qiniu.version>
+        <jsoup.version>1.18.3</jsoup.version>
     </properties>
     <dependencies>
         <dependency>
@@ -99,6 +100,12 @@
             <groupId>com.qiniu</groupId>
             <artifactId>qiniu-java-sdk</artifactId>
             <version>${qiniu.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
         </dependency>
 
         <dependency>

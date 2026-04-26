@@ -58,7 +58,15 @@
 							<view class="thinking-mark">
 								<text class="thinking-mark-text">AI</text>
 							</view>
-							<text class="breathing-title">正在思考</text>
+							<view class="thinking-content">
+								<text class="breathing-title">{{ currentChatThinkingStep().title }}</text>
+								<text class="breathing-subtitle">{{ currentChatThinkingStep().desc }}</text>
+							</view>
+							<view class="thinking-dots">
+								<view class="thinking-dot thinking-dot-one"></view>
+								<view class="thinking-dot thinking-dot-two"></view>
+								<view class="thinking-dot thinking-dot-three"></view>
+							</view>
 						</view>
 					</view>
 				</view>
@@ -91,107 +99,172 @@
 
 		<view v-if="activeTab == 1" :class="getPageClass('normal-page')">
 			<view class="status-space"></view>
-			<view class="page-head page-head-row">
+			<view class="page-head page-head-row build-page-head">
+				<view v-if="buildPageDetailVisible" class="page-back-button" @click="closeBuildPageDetail">
+					<view class="page-back-chevron">
+						<view class="page-back-chevron-line page-back-chevron-line-top"></view>
+						<view class="page-back-chevron-line page-back-chevron-line-bottom"></view>
+					</view>
+				</view>
 				<view class="page-head-main">
-					<text class="page-title page-title-inset">配置</text>
+					<text :class="buildPageDetailVisible ? 'page-title build-detail-page-title' : 'page-title page-title-inset'">{{ buildPageDetailVisible ? '配置详情' : '配置' }}</text>
 				</view>
-				<view class="small-primary" @click="createBuild">
-					<text class="small-primary-text">新建</text>
-				</view>
-			</view>
-
-			<view class="segmented">
-				<view :class="'segment-indicator segment-indicator-' + buildSegment"></view>
-				<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
-					<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">自定义</text>
-				</view>
-				<view :class="buildSegment == 1 ? 'segment-active' : 'segment'" @click="selectBuildSegment(1)">
-					<text :class="buildSegment == 1 ? 'segment-active-text' : 'segment-text'">AI 生成</text>
-				</view>
-				<view :class="buildSegment == 2 ? 'segment-active' : 'segment'" @click="selectBuildSegment(2)">
-					<text :class="buildSegment == 2 ? 'segment-active-text' : 'segment-text'">收藏</text>
+				<view class="small-primary" @click="buildPageDetailVisible ? editBuild(selectedBuildDetail) : createBuild()">
+					<text class="small-primary-text">{{ buildPageDetailVisible ? '编辑' : '新建' }}</text>
 				</view>
 			</view>
 
-			<view class="section-search">
-				<view class="section-search-icon">
-					<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
+			<view v-if="!buildPageDetailVisible" class="build-list-pane">
+				<view class="segmented">
+					<view :class="'segment-indicator segment-indicator-' + buildSegment"></view>
+					<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
+						<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">自定义</text>
+					</view>
+					<view :class="buildSegment == 1 ? 'segment-active' : 'segment'" @click="selectBuildSegment(1)">
+						<text :class="buildSegment == 1 ? 'segment-active-text' : 'segment-text'">AI 生成</text>
+					</view>
+					<view :class="buildSegment == 2 ? 'segment-active' : 'segment'" @click="selectBuildSegment(2)">
+						<text :class="buildSegment == 2 ? 'segment-active-text' : 'segment-text'">收藏</text>
+					</view>
 				</view>
-				<input class="section-search-input" v-model="buildSearchKeyword" placeholder="搜索配置名称、备注或配件" placeholder-class="section-search-placeholder" @input="resetBuildPage()" />
+
+				<view class="section-search">
+					<view class="section-search-icon">
+						<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
+					</view>
+					<input class="section-search-input" v-model="buildSearchKeyword" placeholder="搜索配置名称、备注或配件" placeholder-class="section-search-placeholder" @input="resetBuildPage()" />
+				</view>
+
+				<scroll-view class="build-scroll" scroll-y="true">
+					<view v-if="getFilteredBuildList().length > 0" class="build-list">
+						<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildPageDetail(item)">
+							<view class="build-card-head">
+								<view class="build-card-main">
+									<text class="build-title">{{ item.title }}</text>
+									<text class="build-meta">{{ getBuildSourceLabel(item.source) }} · {{ formatHistoryTime(item.updatedAt) }}</text>
+								</view>
+								<view class="build-card-delete" @click.stop="deleteBuild(item.id)">
+									<text class="build-card-delete-text">删除</text>
+								</view>
+							</view>
+							<view class="build-score-row">
+								<view class="build-score-pill">
+									<text class="build-score-label">总价</text>
+									<text class="build-score-value">¥{{ item.totalPrice }}</text>
+								</view>
+								<view class="build-score-pill">
+									<text class="build-score-label">性能</text>
+									<text class="build-score-value">{{ item.performanceScore }} 分</text>
+								</view>
+							</view>
+							<text class="build-summary">{{ item.summary }}</text>
+							<view class="build-part-preview">
+								<view v-for="part in item.parts" :key="part.id" class="build-part-product">
+									<image v-if="part.productImage.length > 0" class="build-part-product-image" :src="part.productImage" mode="aspectFill"></image>
+									<view v-else class="build-part-product-image build-part-product-fallback">
+										<text class="build-part-product-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
+									</view>
+									<view class="build-part-product-main">
+										<text class="build-part-product-title">{{ getCompactPartTitle(part, 24) }}</text>
+										<text class="build-part-product-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartPriceLabel(part) }}</text>
+									</view>
+								</view>
+							</view>
+							<view class="build-actions">
+								<view class="build-action build-action-soft" @click.stop="editBuild(item)">
+									<text class="build-action-icon">✎</text>
+									<text class="build-action-text">编辑</text>
+								</view>
+								<view class="build-action build-action-soft" @click.stop="copyBuild(item.content)">
+									<text class="build-action-icon">⧉</text>
+									<text class="build-action-text">复制</text>
+								</view>
+								<view :class="item.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click.stop="toggleBuildFavorite(item)">
+									<text :class="item.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ item.favorite ? '★' : '☆' }}</text>
+									<text :class="item.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ item.favorite ? '已收藏' : '收藏' }}</text>
+								</view>
+							</view>
+						</view>
+						<view v-if="getBuildPageCount() > 1" class="list-pager">
+							<view :class="getBuildPage() <= 1 ? 'pager-button pager-button-disabled' : 'pager-button'" @click="previousBuildPage">
+								<text :class="getBuildPage() <= 1 ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">上一页</text>
+							</view>
+							<text class="pager-count">{{ getBuildPage() }} / {{ getBuildPageCount() }}</text>
+							<view :class="getBuildPage() >= getBuildPageCount() ? 'pager-button pager-button-disabled' : 'pager-button'" @click="nextBuildPage">
+								<text :class="getBuildPage() >= getBuildPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
+							</view>
+						</view>
+					</view>
+
+					<view v-if="getFilteredBuildList().length == 0" class="empty-state">
+						<view class="empty-illustration">
+							<view class="empty-grid-row">
+								<view class="empty-grid-cell"></view>
+								<view class="empty-grid-cell"></view>
+							</view>
+							<view class="empty-grid-row">
+								<view class="empty-grid-cell"></view>
+								<view class="empty-grid-cell empty-grid-cell-accent"></view>
+							</view>
+						</view>
+						<text class="empty-title">{{ getBuildEmptyTitle() }}</text>
+						<text class="empty-desc">{{ getBuildEmptyDesc() }}</text>
+						<view v-if="buildSegment != 2" class="action-stack">
+							<view class="primary-action" @click="createBuild">
+								<text class="primary-action-text">新建配置</text>
+							</view>
+							<view class="secondary-action" @click="askAiForBuild">
+								<text class="secondary-action-text">让 AI 生成</text>
+							</view>
+						</view>
+					</view>
+				</scroll-view>
 			</view>
 
-			<scroll-view class="build-scroll" scroll-y="true">
-				<view v-if="getFilteredBuildList().length > 0" class="build-list">
-					<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildDetail(item)">
-						<view class="build-card-head">
-							<view class="build-card-main">
-								<text class="build-title">{{ item.title }}</text>
-								<text class="build-meta">{{ getBuildSourceLabel(item.source) }} · {{ formatHistoryTime(item.updatedAt) }}</text>
-							</view>
-							<view class="build-card-delete" @click.stop="deleteBuild(item.id)">
-								<text class="build-card-delete-text">删除</text>
-							</view>
+			<scroll-view v-else class="build-page-detail-scroll" scroll-y="true">
+				<view class="build-page-detail-card">
+					<view class="build-detail-metrics build-page-detail-metrics">
+						<view class="build-detail-metric">
+							<text class="build-live-label">总价</text>
+							<text class="build-live-value">¥{{ selectedBuildDetail.totalPrice }}</text>
 						</view>
-						<view class="build-score-row">
-							<view class="build-score-pill">
-								<text class="build-score-label">总价</text>
-								<text class="build-score-value">¥{{ item.totalPrice }}</text>
-							</view>
-							<view class="build-score-pill">
-								<text class="build-score-label">性能</text>
-								<text class="build-score-value">{{ item.performanceScore }} 分</text>
-							</view>
-						</view>
-						<text class="build-summary">{{ item.summary }}</text>
-						<view class="build-part-preview">
-							<text v-for="part in item.parts" :key="part.id" class="build-part-chip">{{ getHardwareTypeLabel(part.type) }} · {{ part.model }}</text>
-						</view>
-						<view class="build-actions">
-							<view class="build-action build-action-soft" @click.stop="editBuild(item)">
-								<text class="build-action-icon">✎</text>
-								<text class="build-action-text">编辑</text>
-							</view>
-							<view class="build-action build-action-soft" @click.stop="copyBuild(item.content)">
-								<text class="build-action-icon">⧉</text>
-								<text class="build-action-text">复制</text>
-							</view>
-							<view :class="item.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click.stop="toggleBuildFavorite(item)">
-								<text :class="item.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ item.favorite ? '★' : '☆' }}</text>
-								<text :class="item.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ item.favorite ? '已收藏' : '收藏' }}</text>
-							</view>
+						<view class="build-detail-metric">
+							<text class="build-live-label">性能</text>
+							<text class="build-live-value">{{ selectedBuildDetail.performanceScore }} 分</text>
 						</view>
 					</view>
-					<view v-if="getBuildPageCount() > 1" class="list-pager">
-						<view :class="getBuildPage() <= 1 ? 'pager-button pager-button-disabled' : 'pager-button'" @click="previousBuildPage">
-							<text :class="getBuildPage() <= 1 ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">上一页</text>
+					<text class="build-page-detail-summary">{{ selectedBuildDetail.summary }}</text>
+					<text v-if="selectedBuildDetail.note.length > 0" class="build-page-detail-note">备注：{{ selectedBuildDetail.note }}</text>
+				</view>
+				<view class="build-page-section">
+					<text class="build-page-section-title">所选配件</text>
+					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="build-page-part-row" @click="openPartProduct(part)">
+						<image v-if="part.productImage.length > 0" class="build-page-part-image" :src="part.productImage" mode="aspectFill"></image>
+						<view v-else class="build-page-part-image detail-part-fallback">
+							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
 						</view>
-						<text class="pager-count">{{ getBuildPage() }} / {{ getBuildPageCount() }}</text>
-						<view :class="getBuildPage() >= getBuildPageCount() ? 'pager-button pager-button-disabled' : 'pager-button'" @click="nextBuildPage">
-							<text :class="getBuildPage() >= getBuildPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
+						<view class="build-page-part-main">
+							<text class="build-page-part-title">{{ getCompactPartTitle(part, 56) }}</text>
+							<text class="build-page-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<text class="build-page-part-spec">{{ getPartDetailSpecLine(part) }}</text>
 						</view>
+						<text v-if="part.productLink.length > 0" class="build-page-part-link">京东 ›</text>
 					</view>
 				</view>
-
-				<view v-if="getFilteredBuildList().length == 0" class="empty-state">
-					<view class="empty-illustration">
-						<view class="empty-grid-row">
-							<view class="empty-grid-cell"></view>
-							<view class="empty-grid-cell"></view>
-						</view>
-						<view class="empty-grid-row">
-							<view class="empty-grid-cell"></view>
-							<view class="empty-grid-cell empty-grid-cell-accent"></view>
-						</view>
+				<view class="build-page-section">
+					<text class="build-page-section-title">兼容性检查</text>
+					<view class="compat-list compat-list-detail">
+						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
 					</view>
-					<text class="empty-title">{{ getBuildEmptyTitle() }}</text>
-					<text class="empty-desc">{{ getBuildEmptyDesc() }}</text>
-					<view v-if="buildSegment != 2" class="action-stack">
-						<view class="primary-action" @click="createBuild">
-							<text class="primary-action-text">新建配置</text>
-						</view>
-						<view class="secondary-action" @click="askAiForBuild">
-							<text class="secondary-action-text">让 AI 生成</text>
-						</view>
+				</view>
+				<view class="build-page-actions">
+					<view class="build-action build-action-soft" @click="copyBuild(selectedBuildDetail.content)">
+						<text class="build-action-icon">⧉</text>
+						<text class="build-action-text">复制</text>
+					</view>
+					<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
+						<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
+						<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
 					</view>
 				</view>
 			</scroll-view>
@@ -405,13 +478,8 @@
 				<view class="profile-copy">
 					<text class="profile-title">{{ token.length > 0 ? currentNickname : '登录 / 注册' }}</text>
 					<text v-if="token.length > 0" class="profile-username">@{{ currentUsername }}</text>
-					<text class="profile-desc">{{ token.length > 0 ? currentBio : '登录后同步配置、收藏和社区内容。' }}</text>
+					<text v-if="token.length == 0" class="profile-desc">登录后同步配置、收藏和社区内容。</text>
 					<text v-if="token.length > 0" class="profile-email">{{ currentEmail }}</text>
-					<view v-if="token.length > 0" class="profile-social">
-						<text class="profile-social-text">关注 {{ currentFollowingCount }}</text>
-						<text class="profile-social-separator">·</text>
-						<text class="profile-social-text">粉丝 {{ currentFollowerCount }}</text>
-					</view>
 				</view>
 			</view>
 
@@ -580,9 +648,12 @@
 				</view>
 				<scroll-view class="build-form-body" scroll-y="true">
 					<input class="build-form-input" v-model="buildFormTitle" placeholder="配置名称" placeholder-class="input-placeholder" />
-					<textarea class="build-form-textarea build-note-textarea" v-model="buildFormNote" placeholder="备注，例如偏好白色、小机箱、安静一点" placeholder-class="input-placeholder" />
 					<view class="part-selector-list">
 						<view v-for="partType in hardwareTypeOptions" :key="partType.key" :class="getPartSelectorClass(partType.key)" @click="openPartPicker(partType.key)">
+							<image v-if="hasSelectedPart(partType.key) && getSelectedPartImage(partType.key).length > 0" class="part-selector-image" :src="getSelectedPartImage(partType.key)" mode="aspectFill"></image>
+							<view v-else-if="hasSelectedPart(partType.key)" class="part-selector-image part-selector-fallback">
+								<text class="part-selector-fallback-text">{{ getHardwareTypeShortLabel(partType.key) }}</text>
+							</view>
 							<view class="part-selector-main">
 								<text class="part-selector-label">{{ partType.label }}</text>
 								<text :class="hasSelectedPart(partType.key) ? 'part-selector-value' : 'part-selector-placeholder'">{{ getSelectedPartName(partType.key) }}</text>
@@ -590,6 +661,7 @@
 							<text class="part-selector-price">{{ getSelectedPartPrice(partType.key) }}</text>
 						</view>
 					</view>
+					<textarea class="build-form-textarea build-note-textarea" v-model="buildFormNote" placeholder="备注，例如偏好白色、小机箱、安静一点" placeholder-class="input-placeholder" />
 					<view class="compat-list">
 						<text v-for="message in getCurrentCompatibilityMessages()" :key="message" class="compat-message">{{ message }}</text>
 					</view>
@@ -603,31 +675,71 @@
 		<view v-if="partPickerVisible" class="build-form-mask" @click="closePartPicker">
 			<view class="part-picker" @click.stop>
 				<view class="build-form-head">
-					<text class="build-form-title">选择{{ getHardwareTypeLabel(activePickerType) }}</text>
+					<text class="build-form-title">选择标准{{ getHardwareTypeLabel(activePickerType) }}</text>
 					<view class="build-form-close" @click="closePartPicker">
 						<view class="close-line"></view>
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
 				<view class="part-search-row">
-					<input class="part-search-input" v-model="hardwareKeyword" confirm-type="search" placeholder="搜索品牌或型号" placeholder-class="input-placeholder" @confirm="loadHardwareOptions" />
+					<input class="part-search-input" v-model="hardwareKeyword" confirm-type="search" placeholder="搜索标准型号" placeholder-class="input-placeholder" @confirm="loadHardwareOptions" />
 					<view class="part-search-button" @click="loadHardwareOptions">
 						<text class="part-search-button-text">搜索</text>
 					</view>
 				</view>
 				<scroll-view class="part-option-scroll" scroll-y="true">
-					<view v-for="part in hardwareOptions" :key="part.id" class="part-option" @click="selectHardwarePart(part)">
+					<view v-for="part in hardwareOptions" :key="part.id" class="part-option" @click="openProductPicker(part)">
 						<view class="part-option-main">
-							<text class="part-option-title">{{ part.brand }} {{ part.model }}</text>
+							<text class="part-option-title">{{ part.model }}</text>
 							<text class="part-option-spec">{{ getPartSpecText(part) }}</text>
 						</view>
 						<view class="part-option-side">
-							<text class="part-option-price">¥{{ part.price }}</text>
-							<text class="part-option-score">{{ part.performanceScore }} 分</text>
+							<text class="part-option-price">选商品</text>
+							<text class="part-option-score">{{ getPartScoreLabel(part) }}</text>
 						</view>
 					</view>
 					<view v-if="hardwareOptions.length == 0" class="part-empty">
-						<text class="part-empty-text">暂无可选硬件</text>
+						<text class="part-empty-text">暂无标准型号</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
+		<view v-if="productPickerVisible" class="build-form-mask" @click="closeProductPicker">
+			<view class="part-picker product-picker" @click.stop>
+				<view class="build-form-head">
+					<text class="build-form-title">{{ productPickerTitle }}</text>
+					<view class="build-form-close" @click="closeProductPicker">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<view class="part-search-row">
+					<input class="part-search-input" v-model="productKeyword" confirm-type="search" placeholder="搜索京东商品" placeholder-class="input-placeholder" @confirm="loadProductOptions" />
+					<view class="part-search-button" @click="loadProductOptions">
+						<text class="part-search-button-text">搜索</text>
+					</view>
+				</view>
+				<scroll-view class="part-option-scroll" scroll-y="true">
+					<view v-for="part in productOptions" :key="part.skuId" class="part-option product-option" @click="selectHardwarePart(part)">
+						<image v-if="part.productImage.length > 0" class="part-option-image" :src="part.productImage" mode="aspectFill"></image>
+						<view v-else class="part-option-image product-image-fallback">
+							<text class="product-image-fallback-text">JD</text>
+						</view>
+						<view class="part-option-main product-option-main">
+							<text class="part-option-title product-option-title">{{ getCompactPartTitle(part, 42) }}</text>
+							<text class="part-option-spec product-option-spec">{{ getPartOptionSpecText(part) }}</text>
+						</view>
+						<view class="part-option-side product-option-side">
+							<text class="part-option-price">{{ getPartPriceLabel(part) }}</text>
+							<text class="part-option-score">京东商品</text>
+						</view>
+					</view>
+					<view v-if="productLoading" class="part-empty product-loading">
+						<text class="part-empty-text">正在搜索京东商品...</text>
+					</view>
+					<view v-if="!productLoading && productOptions.length == 0" class="part-empty">
+						<text class="part-empty-text">没有找到可用京东商品</text>
 					</view>
 				</scroll-view>
 			</view>
@@ -653,9 +765,17 @@
 					</view>
 				</view>
 				<scroll-view class="build-detail-scroll" scroll-y="true">
-					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="detail-part-row">
-						<text class="detail-part-title">{{ getHardwareTypeLabel(part.type) }} · {{ part.brand }} {{ part.model }}</text>
-						<text class="detail-part-meta">¥{{ part.price }} · 性能 {{ part.performanceScore }} · {{ getPartSpecText(part) }}</text>
+					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="detail-part-row" @click="openPartProduct(part)">
+						<image v-if="part.productImage.length > 0" class="detail-part-image" :src="part.productImage" mode="aspectFill"></image>
+						<view v-else class="detail-part-image detail-part-fallback">
+							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
+						</view>
+						<view class="detail-part-main">
+							<text class="detail-part-title">{{ getCompactPartTitle(part, 54) }}</text>
+							<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<text class="detail-part-product">{{ getPartDetailSpecLine(part) }}</text>
+						</view>
+						<text v-if="part.productLink.length > 0" class="detail-part-link">京东 ›</text>
 					</view>
 					<view class="compat-list compat-list-detail">
 						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
@@ -972,6 +1092,12 @@
 		brand : string
 		model : string
 		price : number
+		productTitle : string
+		productPrice : number
+		productImage : string
+		productLink : string
+		skuId : string
+		matchedModel : string
 		performanceScore : number
 		socketType : string
 		memoryType : string
@@ -1087,7 +1213,14 @@
 	const activePickerType = ref('CPU')
 	const hardwareKeyword = ref('')
 	const hardwareOptions = ref([] as HardwarePartItem[])
+	const productPickerVisible = ref(false)
+	const productPickerTitle = ref('')
+	const productKeyword = ref('')
+	const productOptions = ref([] as HardwarePartItem[])
+	const productLoading = ref(false)
+	const activeStandardPart = ref(null as HardwarePartItem | null)
 	const buildDetailVisible = ref(false)
+	const buildPageDetailVisible = ref(false)
 	const chatBuildPickerVisible = ref(false)
 	const chatAttachBuildList = ref([] as BuildConfigItem[])
 	const attachedBuildId = ref(0)
@@ -1181,6 +1314,13 @@
 		'已有显卡，帮我补齐其他配件'
 	]
 
+	const chatThinkingSteps = [
+		{ title: '识别需求', desc: '整理预算、用途和偏好' },
+		{ title: '筛选硬件', desc: '检查接口、内存和功耗' },
+		{ title: '检索商品', desc: '匹配京东可购买配件' },
+		{ title: '整理回复', desc: '保存配置并生成说明' }
+	]
+
 	const hardwareTypeOptions = [
 		{ key: 'CPU', label: 'CPU' },
 		{ key: 'MOTHERBOARD', label: '主板' },
@@ -1194,8 +1334,10 @@
 
 	let historyRefreshTimer : number = 0
 	let backendReconnectTimer : number = 0
+	let chatThinkingTimer : number = 0
 	let backendProbeRunning = false
 	const backendReconnectPending = ref(false)
+	const chatThinkingStepIndex = ref(0)
 
 	loadAuth()
 	if (token.value.length > 0) {
@@ -1232,6 +1374,7 @@
 	onHide(() => {
 		stopHistoryRefreshTimer()
 		stopBackendReconnectTimer()
+		stopChatThinkingTimer()
 	})
 
 	function createEmptyBuildConfig() : BuildConfigItem {
@@ -1366,7 +1509,7 @@
 			}
 			for (let i = 0; i < item.parts.length; i++) {
 				const part = item.parts[i]
-				if (textMatchesKeyword(getHardwareTypeLabel(part.type), keyword) || textMatchesKeyword(part.brand, keyword) || textMatchesKeyword(part.model, keyword) || textMatchesKeyword(part.socketType, keyword) || textMatchesKeyword(part.memoryType, keyword) || textMatchesKeyword(part.formFactor, keyword) || textMatchesKeyword(part.specs, keyword)) {
+				if (textMatchesKeyword(getHardwareTypeLabel(part.type), keyword) || textMatchesKeyword(part.brand, keyword) || textMatchesKeyword(part.model, keyword) || textMatchesKeyword(part.productTitle, keyword) || textMatchesKeyword(part.skuId, keyword) || textMatchesKeyword(part.socketType, keyword) || textMatchesKeyword(part.memoryType, keyword) || textMatchesKeyword(part.formFactor, keyword) || textMatchesKeyword(part.specs, keyword)) {
 					return true
 				}
 			}
@@ -1580,6 +1723,9 @@
 		}
 		activeTab.value = index
 		historyOpen.value = false
+		if (index != 1) {
+			buildPageDetailVisible.value = false
+		}
 		if (index == 4) {
 			loadAuth()
 			loadProfile()
@@ -1664,9 +1810,11 @@
 		draft.value = ''
 		clearAttachedBuild()
 		chatLoading.value = true
+		startChatThinkingTimer()
 		uni.request({
 			url: apiBaseUrl + '/api/ai/chat',
 			method: 'POST',
+			timeout: 240000,
 			header: {
 				'Content-Type': 'application/json',
 				'Authorization': 'Bearer ' + token.value
@@ -1728,17 +1876,20 @@
 					buildConfigTitle: ''
 				})
 			},
-			fail: () => {
-				scheduleBackendReconnect()
+			fail: (error) => {
+				if (!isRequestTimeout(error)) {
+					scheduleBackendReconnect()
+				}
 				chatMessages.value.push({
 					role: 'assistant',
-					content: '暂时连接不到后端服务，请确认后端已经启动。',
+					content: isRequestTimeout(error) ? '这次生成耗时比较久，后端可能仍在处理。请稍后打开历史对话或刷新页面查看结果。' : '暂时连接不到后端服务，请确认后端已经启动。',
 					buildConfigId: 0,
 					buildConfigTitle: ''
 				})
 			},
 			complete: () => {
 				chatLoading.value = false
+				stopChatThinkingTimer()
 			}
 		})
 	}
@@ -1789,7 +1940,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					chatAttachBuildList.value = body.data as BuildConfigItem[]
+					chatAttachBuildList.value = (body.data as any[]).map((item : any) : BuildConfigItem => normalizeBuildConfigItem(item))
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -1851,10 +2002,11 @@
 			return
 		}
 		buildDetailVisible.value = false
+		buildPageDetailVisible.value = false
 		buildEditingId.value = item.id
 		buildFormTitle.value = item.title
 		buildFormNote.value = item.note
-		selectedHardwareParts.value = item.parts
+		selectedHardwareParts.value = item.parts.map((part : HardwarePartItem) : HardwarePartItem => normalizeHardwarePart(part))
 		buildFormVisible.value = true
 		activePickerType.value = 'CPU'
 		hardwareKeyword.value = ''
@@ -1867,6 +2019,9 @@
 		}
 		buildFormVisible.value = false
 		buildEditingId.value = 0
+		partPickerVisible.value = false
+		productPickerVisible.value = false
+		activeStandardPart.value = null
 	}
 
 	function saveBuild() {
@@ -1908,6 +2063,7 @@
 				title: buildFormTitle.value.trim(),
 				note: buildFormNote.value.trim(),
 				partIds: partIds,
+				partSelections: getSelectedPartSnapshots(),
 				source: 'MANUAL'
 			},
 			success: (res) => {
@@ -2468,7 +2624,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					postBuildList.value = body.data as BuildConfigItem[]
+					postBuildList.value = (body.data as any[]).map((item : any) : BuildConfigItem => normalizeBuildConfigItem(item))
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -3033,6 +3189,9 @@
 		buildEditingId.value = 0
 		buildFormVisible.value = false
 		partPickerVisible.value = false
+		productPickerVisible.value = false
+		productOptions.value = []
+		activeStandardPart.value = null
 		buildDetailVisible.value = false
 		chatBuildPickerVisible.value = false
 		communityPosts.value = []
@@ -3166,7 +3325,7 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					backendReconnectPending.value = false
-					buildList.value = body.data as BuildConfigItem[]
+					buildList.value = (body.data as any[]).map((item : any) : BuildConfigItem => normalizeBuildConfigItem(item))
 					clampBuildPage()
 					return
 				}
@@ -3206,6 +3365,11 @@
 		return type
 	}
 
+	function getHardwareTypeShortLabel(type : string) : string {
+		const label = getHardwareTypeLabel(type)
+		return label.length > 2 ? label.substring(0, 2) : label
+	}
+
 	function getSelectedPart(type : string) : any {
 		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
 			if (selectedHardwareParts.value[i].type == type) {
@@ -3219,12 +3383,40 @@
 		return getSelectedPart(type) != null
 	}
 
+	function isBoardCpuBundle(part : HardwarePartItem | null) : boolean {
+		if (part == null) {
+			return false
+		}
+		const text = ((part.productTitle == null ? '' : part.productTitle) + ' ' + (part.model == null ? '' : part.model)).toUpperCase()
+		return text.indexOf('主板CPU套装') >= 0
+			|| text.indexOf('主板+CPU') >= 0
+			|| text.indexOf('板U') >= 0
+			|| (text.indexOf('主板') >= 0 && text.indexOf('CPU') >= 0 && text.indexOf('套装') >= 0)
+			|| (/CPU\s*\+/.test(text) && /[ABHXZ]\d{3,4}[A-Z]{0,3}/.test(text))
+	}
+
+	function getSelectedBoardCpuBundle() : HardwarePartItem | null {
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			if (isBoardCpuBundle(selectedHardwareParts.value[i])) {
+				return selectedHardwareParts.value[i]
+			}
+		}
+		return null
+	}
+
+	function isPartTypeLockedByBundle(type : string) : boolean {
+		return type == 'MOTHERBOARD' && getSelectedBoardCpuBundle() != null
+	}
+
 	function getSelectedPartName(type : string) : string {
 		const part = getSelectedPart(type)
 		if (part == null) {
+			if (isPartTypeLockedByBundle(type)) {
+				return '已由板U套装包含'
+			}
 			return '请选择' + getHardwareTypeLabel(type)
 		}
-		return part.brand + ' ' + part.model
+		return getCompactPartTitle(part, 28)
 	}
 
 	function getSelectedPartPrice(type : string) : string {
@@ -3232,10 +3424,21 @@
 		if (part == null) {
 			return ''
 		}
-		return '¥' + part.price
+		return getPartPriceLabel(part)
+	}
+
+	function getSelectedPartImage(type : string) : string {
+		const part = getSelectedPart(type)
+		if (part == null || part.productImage == null) {
+			return ''
+		}
+		return part.productImage
 	}
 
 	function getPartSelectorClass(type : string) : string {
+		if (isPartTypeLockedByBundle(type)) {
+			return 'part-selector-row part-selector-row-locked'
+		}
 		if (hasPartCompatibilityIssue(type)) {
 			return 'part-selector-row part-selector-row-danger'
 		}
@@ -3246,10 +3449,8 @@
 		const cpu = getSelectedPart('CPU')
 		const motherboard = getSelectedPart('MOTHERBOARD')
 		const memory = getSelectedPart('MEMORY')
-		const gpu = getSelectedPart('GPU')
 		const psu = getSelectedPart('PSU')
 		const pcCase = getSelectedPart('CASE')
-		const cooler = getSelectedPart('COOLER')
 		if ((type == 'CPU' || type == 'MOTHERBOARD') && cpu != null && motherboard != null && cpu.socketType.length > 0 && motherboard.socketType.length > 0 && cpu.socketType != motherboard.socketType) {
 			return true
 		}
@@ -3267,12 +3468,6 @@
 				return true
 			}
 		}
-		if ((type == 'GPU' || type == 'CASE') && gpu != null && pcCase != null && gpu.gpuLengthMm > 0 && pcCase.gpuLengthMm > 0 && gpu.gpuLengthMm > pcCase.gpuLengthMm) {
-			return true
-		}
-		if ((type == 'COOLER' || type == 'CASE') && cooler != null && pcCase != null && cooler.coolerHeightMm > 0 && pcCase.coolerHeightMm > 0 && cooler.coolerHeightMm > pcCase.coolerHeightMm) {
-			return true
-		}
 		if ((type == 'MOTHERBOARD' || type == 'CASE') && motherboard != null && pcCase != null && motherboard.formFactor.length > 0 && pcCase.supportedFormFactors.length > 0 && pcCase.supportedFormFactors.toUpperCase().indexOf(motherboard.formFactor.toUpperCase()) < 0) {
 			return true
 		}
@@ -3287,7 +3482,31 @@
 		return ids
 	}
 
+	function getSelectedPartSnapshots() : any[] {
+		const snapshots = [] as any[]
+		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
+			const part = selectedHardwareParts.value[i]
+			snapshots.push({
+				hardwarePartId: part.id,
+				title: getPartDisplayTitle(part),
+				price: part.productPrice > 0 ? part.productPrice : part.price,
+				image: part.productImage,
+				link: part.productLink,
+				skuId: part.skuId,
+				matchedModel: part.matchedModel.length > 0 ? part.matchedModel : part.model
+			})
+		}
+		return snapshots
+	}
+
 	function openPartPicker(type : string) {
+		if (isPartTypeLockedByBundle(type)) {
+			uni.showToast({
+				title: '板U套装已包含主板',
+				icon: 'none'
+			})
+			return
+		}
 		activePickerType.value = type
 		hardwareKeyword.value = ''
 		partPickerVisible.value = true
@@ -3299,10 +3518,72 @@
 	}
 
 	function loadHardwareOptions() {
+		loadStandardHardwareOptions()
+	}
+
+	function openProductPicker(part : HardwarePartItem) {
+		activeStandardPart.value = normalizeHardwarePart(part)
+		productPickerTitle.value = part.model + ' 京东商品'
+		productKeyword.value = part.model + ' ' + getHardwareTypeLabel(part.type)
+		productOptions.value = []
+		partPickerVisible.value = false
+		productPickerVisible.value = true
+		loadProductOptions()
+	}
+
+	function closeProductPicker() {
+		productPickerVisible.value = false
+		activeStandardPart.value = null
+		productOptions.value = []
+	}
+
+	function loadProductOptions() {
 		if (token.value.length == 0) {
-			hardwareOptions.value = []
+			productOptions.value = []
 			return
 		}
+		const part = activeStandardPart.value
+		if (part == null) {
+			productOptions.value = []
+			return
+		}
+		const keyword = productKeyword.value.trim().length > 0 ? productKeyword.value.trim() : part.model + ' ' + getHardwareTypeLabel(part.type)
+		productLoading.value = true
+		let url = apiBaseUrl + '/api/jd-products/search?type=' + part.type + '&partId=' + part.id + '&keyword=' + encodeURIComponent(keyword)
+		uni.request({
+			url: url,
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const products = body.data as any[]
+					productOptions.value = products
+						.map((item : any) : HardwarePartItem => normalizeJdProductPart(item))
+						.filter((item : HardwarePartItem) : boolean => item.productPrice > 0 && item.productTitle.length > 0 && item.productLink.length > 0)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			},
+			fail: () => {
+				productOptions.value = []
+				uni.showToast({
+					title: '暂时搜索不到京东商品',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				productLoading.value = false
+			}
+		})
+	}
+
+	function loadStandardHardwareOptions() {
 		let url = apiBaseUrl + '/api/hardware-parts?type=' + activePickerType.value
 		if (hardwareKeyword.value.trim().length > 0) {
 			url += '&keyword=' + encodeURIComponent(hardwareKeyword.value.trim())
@@ -3316,7 +3597,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					hardwareOptions.value = body.data as HardwarePartItem[]
+					hardwareOptions.value = (body.data as HardwarePartItem[]).map((item : HardwarePartItem) : HardwarePartItem => normalizeHardwarePart(item))
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -3333,22 +3614,103 @@
 		})
 	}
 
+	function normalizeJdProductPart(item : any) : HardwarePartItem {
+		const price = Number(item.price == null ? 0 : item.price)
+		return {
+			id: Number(item.hardwarePartId == null ? 0 : item.hardwarePartId),
+			type: item.type == null ? activePickerType.value : item.type as string,
+			brand: '',
+			model: item.matchedModel == null || item.matchedModel.length == 0 ? '' : item.matchedModel as string,
+			price: price,
+			productTitle: item.title == null ? '' : item.title as string,
+			productPrice: price,
+			productImage: item.image == null ? '' : item.image as string,
+			productLink: item.link == null ? '' : item.link as string,
+			skuId: item.skuId == null ? '' : item.skuId as string,
+			matchedModel: item.matchedModel == null ? '' : item.matchedModel as string,
+			performanceScore: Number(item.performanceScore == null ? 0 : item.performanceScore),
+			socketType: item.socketType == null ? '' : item.socketType as string,
+			memoryType: item.memoryType == null ? '' : item.memoryType as string,
+			formFactor: item.formFactor == null ? '' : item.formFactor as string,
+			wattage: Number(item.wattage == null ? 0 : item.wattage),
+			gpuLengthMm: Number(item.gpuLengthMm == null ? 0 : item.gpuLengthMm),
+			coolerHeightMm: Number(item.coolerHeightMm == null ? 0 : item.coolerHeightMm),
+			supportedFormFactors: item.supportedFormFactors == null ? '' : item.supportedFormFactors as string,
+			specs: item.specs == null ? '' : item.specs as string,
+			enabled: true
+		}
+	}
+
+	function normalizeHardwarePart(item : any) : HardwarePartItem {
+		const model = item == null || item.model == null ? '' : item.model as string
+		const matchedModel = item == null || item.matchedModel == null || item.matchedModel.length == 0 ? model : item.matchedModel as string
+		return {
+			id: Number(item == null || item.id == null ? 0 : item.id),
+			type: item == null || item.type == null ? '' : item.type as string,
+			brand: '',
+			model: model,
+			price: Number(item == null || item.price == null ? 0 : item.price),
+			productTitle: item == null || item.productTitle == null ? '' : item.productTitle as string,
+			productPrice: Number(item == null || item.productPrice == null ? 0 : item.productPrice),
+			productImage: item == null || item.productImage == null ? '' : item.productImage as string,
+			productLink: item == null || item.productLink == null ? '' : item.productLink as string,
+			skuId: item == null || item.skuId == null ? '' : item.skuId as string,
+			matchedModel: matchedModel,
+			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore),
+			socketType: item == null || item.socketType == null ? '' : item.socketType as string,
+			memoryType: item == null || item.memoryType == null ? '' : item.memoryType as string,
+			formFactor: item == null || item.formFactor == null ? '' : item.formFactor as string,
+			wattage: Number(item == null || item.wattage == null ? 0 : item.wattage),
+			gpuLengthMm: Number(item == null || item.gpuLengthMm == null ? 0 : item.gpuLengthMm),
+			coolerHeightMm: Number(item == null || item.coolerHeightMm == null ? 0 : item.coolerHeightMm),
+			supportedFormFactors: item == null || item.supportedFormFactors == null ? '' : item.supportedFormFactors as string,
+			specs: item == null || item.specs == null ? '' : item.specs as string,
+			enabled: item == null || item.enabled == null ? true : Boolean(item.enabled)
+		} as HardwarePartItem
+	}
+
+	function normalizeBuildConfigItem(item : any) : BuildConfigItem {
+		const messages = item != null && Array.isArray(item.compatibilityMessages) ? item.compatibilityMessages as string[] : [] as string[]
+		const parts = item != null && Array.isArray(item.parts) ? item.parts as any[] : [] as any[]
+		return {
+			id: Number(item == null || item.id == null ? 0 : item.id),
+			title: item == null || item.title == null ? '' : item.title as string,
+			note: item == null || item.note == null ? '' : item.note as string,
+			totalPrice: Number(item == null || item.totalPrice == null ? 0 : item.totalPrice),
+			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore),
+			compatibilityStatus: item == null || item.compatibilityStatus == null ? 'WARN' : item.compatibilityStatus as string,
+			compatibilityMessages: messages,
+			parts: parts.map((part : any) : HardwarePartItem => normalizeHardwarePart(part)),
+			summary: item == null || item.summary == null ? '' : item.summary as string,
+			content: item == null || item.content == null ? '' : item.content as string,
+			source: item == null || item.source == null ? '' : item.source as string,
+			favorite: item == null || item.favorite == null ? false : Boolean(item.favorite),
+			updatedAt: item == null || item.updatedAt == null ? '' : item.updatedAt as string
+		} as BuildConfigItem
+	}
+
 	function selectHardwarePart(part : HardwarePartItem) {
 		const next = [] as HardwarePartItem[]
 		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
-			if (selectedHardwareParts.value[i].type != part.type) {
+			if (isBoardCpuBundle(part)) {
+				if (selectedHardwareParts.value[i].type != 'CPU' && selectedHardwareParts.value[i].type != 'MOTHERBOARD') {
+					next.push(selectedHardwareParts.value[i])
+				}
+			} else if (selectedHardwareParts.value[i].type != part.type) {
 				next.push(selectedHardwareParts.value[i])
 			}
 		}
 		next.push(part)
 		selectedHardwareParts.value = next
 		partPickerVisible.value = false
+		productPickerVisible.value = false
+		activeStandardPart.value = null
 	}
 
 	function getCurrentBuildTotalPrice() : number {
 		let total = 0
 		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
-			total += selectedHardwareParts.value[i].price
+			total += getPartDisplayPrice(selectedHardwareParts.value[i])
 		}
 		return total
 	}
@@ -3360,7 +3722,6 @@
 		const gpu = getSelectedPart('GPU')
 		const memory = getSelectedPart('MEMORY')
 		const storage = getSelectedPart('STORAGE')
-		const motherboard = getSelectedPart('MOTHERBOARD')
 		if (cpu != null) {
 			weighted += cpu.performanceScore * 30
 			weight += 30
@@ -3376,10 +3737,6 @@
 		if (storage != null) {
 			weighted += storage.performanceScore * 10
 			weight += 10
-		}
-		if (motherboard != null) {
-			weighted += motherboard.performanceScore * 8
-			weight += 8
 		}
 		if (weight == 0) {
 			return 0
@@ -3406,10 +3763,8 @@
 		const cpu = getSelectedPart('CPU')
 		const motherboard = getSelectedPart('MOTHERBOARD')
 		const memory = getSelectedPart('MEMORY')
-		const gpu = getSelectedPart('GPU')
 		const psu = getSelectedPart('PSU')
 		const pcCase = getSelectedPart('CASE')
-		const cooler = getSelectedPart('COOLER')
 		if (cpu == null) {
 			messages.push('建议补充 CPU。')
 		}
@@ -3441,12 +3796,6 @@
 			if (psu.wattage > 0 && psu.wattage < estimatedWattage) {
 				messages.push('电源额定功率建议至少 ' + estimatedWattage + 'W，当前为 ' + psu.wattage + 'W。')
 			}
-		}
-		if (gpu != null && pcCase != null && gpu.gpuLengthMm > 0 && pcCase.gpuLengthMm > 0 && gpu.gpuLengthMm > pcCase.gpuLengthMm) {
-			messages.push('显卡长度 ' + gpu.gpuLengthMm + 'mm 超出机箱支持的 ' + pcCase.gpuLengthMm + 'mm。')
-		}
-		if (cooler != null && pcCase != null && cooler.coolerHeightMm > 0 && pcCase.coolerHeightMm > 0 && cooler.coolerHeightMm > pcCase.coolerHeightMm) {
-			messages.push('散热器高度 ' + cooler.coolerHeightMm + 'mm 超出机箱支持的 ' + pcCase.coolerHeightMm + 'mm。')
 		}
 		if (motherboard != null && pcCase != null && motherboard.formFactor.length > 0 && pcCase.supportedFormFactors.length > 0 && pcCase.supportedFormFactors.toUpperCase().indexOf(motherboard.formFactor.toUpperCase()) < 0) {
 			messages.push('主板版型 ' + motherboard.formFactor + ' 不在机箱支持范围内。')
@@ -3491,25 +3840,111 @@
 		if (part.wattage > 0) {
 			text += text.length == 0 ? part.wattage + 'W' : ' · ' + part.wattage + 'W'
 		}
-		if (part.gpuLengthMm > 0) {
-			text += text.length == 0 ? part.gpuLengthMm + 'mm' : ' · ' + part.gpuLengthMm + 'mm'
-		}
-		if (part.coolerHeightMm > 0) {
-			text += text.length == 0 ? part.coolerHeightMm + 'mm' : ' · ' + part.coolerHeightMm + 'mm'
-		}
 		if (text.length == 0) {
 			text = part.specs.length > 0 ? part.specs : '通用规格'
 		}
 		return text
 	}
 
+	function getPartDisplayTitle(part : HardwarePartItem) : string {
+		if (part.productTitle != null && part.productTitle.length > 0) {
+			return part.productTitle
+		}
+		return part.model
+	}
+
+	function getCompactPartTitle(part : HardwarePartItem, maxLength : number) : string {
+		return shortenText(getPartDisplayTitle(part), maxLength)
+	}
+
+	function shortenText(value : string, maxLength : number) : string {
+		if (value == null) {
+			return ''
+		}
+		const text = value.replace(/\s+/g, ' ').trim()
+		if (text.length <= maxLength) {
+			return text
+		}
+		return text.substring(0, Math.max(0, maxLength - 3)) + '...'
+	}
+
+	function getPartOptionSpecText(part : HardwarePartItem) : string {
+		const model = part.matchedModel != null && part.matchedModel.length > 0 ? part.matchedModel : part.model
+		const spec = getPartSpecText(part)
+		if (isBoardCpuBundle(part)) {
+			return '板U套装 · ' + model + ' · ' + spec
+		}
+		return model + ' · ' + spec
+	}
+
+	function getPartScoreLabel(part : HardwarePartItem) : string {
+		if (!hasPartPerformanceScore(part.type)) {
+			return '标准型号'
+		}
+		return '性能 ' + part.performanceScore + ' 分'
+	}
+
+	function getPartDetailSpecLine(part : HardwarePartItem) : string {
+		const spec = getPartSpecText(part)
+		if (!hasPartPerformanceScore(part.type)) {
+			return spec
+		}
+		return '性能 ' + part.performanceScore + ' · ' + spec
+	}
+
+	function hasPartPerformanceScore(type : string) : boolean {
+		return type == 'CPU' || type == 'GPU' || type == 'MEMORY' || type == 'STORAGE'
+	}
+
+	function getPartDisplayPrice(part : HardwarePartItem) : number {
+		if (part.productPrice != null && part.productPrice > 0) {
+			return part.productPrice
+		}
+		return part.price
+	}
+
+	function getPartPriceLabel(part : HardwarePartItem) : string {
+		const price = getPartDisplayPrice(part)
+		return price > 0 ? '¥' + price : '暂无价格'
+	}
+
+	function openPartProduct(part : HardwarePartItem) {
+		if (part.productLink == null || part.productLink.length == 0) {
+			return
+		}
+		// #ifdef H5
+		window.open(part.productLink, '_blank')
+		// #endif
+		// #ifndef H5
+		uni.setClipboardData({
+			data: part.productLink,
+			success: () => {
+				uni.showToast({
+					title: '京东链接已复制',
+					icon: 'none'
+				})
+			}
+		})
+		// #endif
+	}
+
 	function openBuildDetail(item : BuildConfigItem) {
-		selectedBuildDetail.value = item
+		selectedBuildDetail.value = normalizeBuildConfigItem(item)
 		buildDetailVisible.value = true
 	}
 
 	function closeBuildDetail() {
 		buildDetailVisible.value = false
+	}
+
+	function openBuildPageDetail(item : BuildConfigItem) {
+		selectedBuildDetail.value = normalizeBuildConfigItem(item)
+		buildPageDetailVisible.value = true
+		buildDetailVisible.value = false
+	}
+
+	function closeBuildPageDetail() {
+		buildPageDetailVisible.value = false
 	}
 
 	function openChatBuildDetail(buildConfigId : number) {
@@ -3528,7 +3963,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					selectedBuildDetail.value = body.data as BuildConfigItem
+					selectedBuildDetail.value = normalizeBuildConfigItem(body.data)
 					buildDetailVisible.value = true
 					return
 				}
@@ -3563,6 +3998,9 @@
 					if (buildDetailVisible.value) {
 						selectedBuildDetail.value.favorite = !selectedBuildDetail.value.favorite
 					}
+					if (buildPageDetailVisible.value && selectedBuildDetail.value.id == item.id) {
+						selectedBuildDetail.value.favorite = !selectedBuildDetail.value.favorite
+					}
 					loadBuildConfigs()
 					return
 				}
@@ -3585,6 +4023,9 @@
 				const body = res.data as any
 				if (body != null && body.code == 0) {
 					buildList.value = buildList.value.filter((item) : boolean => item.id != id)
+					if (buildPageDetailVisible.value && selectedBuildDetail.value.id == id) {
+						buildPageDetailVisible.value = false
+					}
 					clampBuildPage()
 					uni.showToast({
 						title: '配置已删除',
@@ -3817,6 +4258,34 @@
 		}
 		clearInterval(historyRefreshTimer)
 		historyRefreshTimer = 0
+	}
+
+	function currentChatThinkingStep() {
+		const index = Math.min(chatThinkingStepIndex.value, chatThinkingSteps.length - 1)
+		return chatThinkingSteps[index]
+	}
+
+	function startChatThinkingTimer() {
+		chatThinkingStepIndex.value = 0
+		stopChatThinkingTimer()
+		chatThinkingTimer = setInterval(() => {
+			if (chatThinkingStepIndex.value < chatThinkingSteps.length - 1) {
+				chatThinkingStepIndex.value += 1
+			}
+		}, 4200)
+	}
+
+	function stopChatThinkingTimer() {
+		if (chatThinkingTimer == 0) {
+			return
+		}
+		clearInterval(chatThinkingTimer)
+		chatThinkingTimer = 0
+	}
+
+	function isRequestTimeout(error : any) : boolean {
+		const text = JSON.stringify(error == null ? {} : error).toLowerCase()
+		return text.indexOf('timeout') >= 0 || text.indexOf('time out') >= 0
 	}
 
 	function scheduleBackendReconnect() {
@@ -4394,9 +4863,9 @@
 	}
 
 	.message-bubble-breathing {
-		width: 122px;
-		height: 44px;
-		padding: 0 12px;
+		width: 244px;
+		min-height: 58px;
+		padding: 10px 12px;
 		flex-direction: row;
 		align-items: center;
 		border-color: #edf2f7;
@@ -4420,6 +4889,11 @@
 		animation-iteration-count: infinite;
 	}
 
+	.thinking-content {
+		flex: 1;
+		min-width: 0;
+	}
+
 	.thinking-mark-text {
 		font-size: 10px;
 		line-height: 14px;
@@ -4432,6 +4906,41 @@
 		line-height: 18px;
 		font-weight: 800;
 		color: #344054;
+	}
+
+	.breathing-subtitle {
+		margin-top: 2px;
+		font-size: 11px;
+		line-height: 16px;
+		color: #98a2b3;
+	}
+
+	.thinking-dots {
+		width: 28px;
+		height: 18px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+	.thinking-dot {
+		width: 4px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #98a2b3;
+		margin-left: 3px;
+		animation-name: thinkingDotPulse;
+		animation-duration: 1200ms;
+		animation-timing-function: ease-in-out;
+		animation-iteration-count: infinite;
+	}
+
+	.thinking-dot-two {
+		animation-delay: 160ms;
+	}
+
+	.thinking-dot-three {
+		animation-delay: 320ms;
 	}
 
 	@keyframes thinkingBreathe {
@@ -4461,6 +4970,21 @@
 		100% {
 			transform: scale(0.9);
 			background-color: #344054;
+		}
+	}
+
+	@keyframes thinkingDotPulse {
+		0% {
+			opacity: 0.35;
+			transform: translateY(0);
+		}
+		50% {
+			opacity: 1;
+			transform: translateY(-3px);
+		}
+		100% {
+			opacity: 0.35;
+			transform: translateY(0);
 		}
 	}
 
@@ -5129,6 +5653,8 @@
 	}
 
 	.build-form-input {
+		width: 100%;
+		box-sizing: border-box;
 		height: 48px;
 		border-radius: 18px;
 		background-color: #f6f7fb;
@@ -5140,6 +5666,8 @@
 	}
 
 	.build-form-textarea {
+		width: 100%;
+		box-sizing: border-box;
 		height: 126px;
 		border-radius: 18px;
 		background-color: #f6f7fb;
@@ -5216,9 +5744,37 @@
 		border-color: #ffb4ab;
 	}
 
+	.part-selector-row-locked {
+		background-color: #eef4ff;
+		border-width: 1px;
+		border-color: #d6e6ff;
+	}
+
 	.part-selector-main {
 		flex: 1;
+		min-width: 0;
 		padding-right: 12px;
+	}
+
+	.part-selector-image {
+		width: 42px;
+		height: 42px;
+		border-radius: 13px;
+		background-color: #eef2f8;
+		margin-right: 10px;
+		flex-shrink: 0;
+	}
+
+	.part-selector-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.part-selector-fallback-text {
+		font-size: 11px;
+		line-height: 15px;
+		font-weight: 900;
+		color: #667085;
 	}
 
 	.part-selector-label {
@@ -5230,9 +5786,13 @@
 
 	.part-selector-value,
 	.part-selector-placeholder {
+		width: 100%;
 		margin-top: 2px;
 		font-size: 14px;
 		line-height: 20px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.part-selector-value {
@@ -5245,10 +5805,13 @@
 	}
 
 	.part-selector-price {
+		flex-shrink: 0;
+		max-width: 74px;
 		font-size: 14px;
 		line-height: 20px;
 		font-weight: 900;
 		color: #007aff;
+		text-align: right;
 	}
 
 	.compat-list {
@@ -5351,26 +5914,44 @@
 		border-color: #edf0f5;
 	}
 
+	.part-option-image {
+		width: 58px;
+		height: 58px;
+		border-radius: 16px;
+		margin-right: 11px;
+		background-color: #eef2f8;
+		flex-shrink: 0;
+	}
+
 	.part-option-main {
 		flex: 1;
+		min-width: 0;
 		padding-right: 12px;
 	}
 
 	.part-option-title {
+		width: 100%;
 		font-size: 14px;
 		line-height: 20px;
 		font-weight: 900;
 		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.part-option-spec {
+		width: 100%;
 		margin-top: 3px;
 		font-size: 12px;
 		line-height: 18px;
 		color: #667085;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.part-option-side {
+		flex-shrink: 0;
 		align-items: flex-end;
 	}
 
@@ -5386,6 +5967,53 @@
 		font-size: 12px;
 		line-height: 17px;
 		color: #98a2b3;
+	}
+
+	.product-picker {
+		padding-bottom: 22px;
+	}
+
+	.product-option {
+		height: 108px;
+		min-height: 108px;
+		padding: 12px;
+		align-items: center;
+	}
+
+	.product-option-main {
+		height: 78px;
+		justify-content: center;
+		padding-right: 8px;
+	}
+
+	.product-option-title {
+		max-height: 40px;
+	}
+
+	.product-option-spec {
+		max-width: 170px;
+	}
+
+	.product-option-side {
+		width: 66px;
+		align-self: stretch;
+		justify-content: center;
+	}
+
+	.product-image-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.product-image-fallback-text {
+		font-size: 12px;
+		line-height: 16px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.product-loading {
+		height: 90px;
 	}
 
 	.part-empty {
@@ -5483,20 +6111,75 @@
 		margin-bottom: 8px;
 		border-width: 1px;
 		border-color: #edf0f5;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.detail-part-image {
+		width: 58px;
+		height: 58px;
+		border-radius: 16px;
+		margin-right: 11px;
+		background-color: #eef2f8;
+		flex-shrink: 0;
+	}
+
+	.detail-part-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.detail-part-fallback-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.detail-part-main {
+		flex: 1;
+		min-width: 0;
+		padding-right: 10px;
 	}
 
 	.detail-part-title {
+		width: 100%;
 		font-size: 14px;
 		line-height: 20px;
 		font-weight: 900;
 		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.detail-part-meta {
+		width: 100%;
 		margin-top: 4px;
 		font-size: 12px;
 		line-height: 18px;
 		color: #667085;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.detail-part-product {
+		width: 100%;
+		margin-top: 4px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #98a2b3;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.detail-part-link {
+		flex-shrink: 0;
+		font-size: 13px;
+		line-height: 19px;
+		font-weight: 900;
+		color: #007aff;
 	}
 
 	.detail-note {
@@ -5523,6 +6206,46 @@
 		justify-content: space-between;
 	}
 
+	.build-page-head {
+		align-items: center;
+	}
+
+	.page-back-button {
+		width: 38px;
+		height: 38px;
+		border-radius: 19px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+		flex-shrink: 0;
+	}
+
+	.page-back-chevron {
+		position: relative;
+		width: 16px;
+		height: 16px;
+	}
+
+	.page-back-chevron-line {
+		position: absolute;
+		left: 2px;
+		width: 11px;
+		height: 2px;
+		border-radius: 1px;
+		background-color: #111827;
+	}
+
+	.page-back-chevron-line-top {
+		top: 4px;
+		transform: rotate(-45deg);
+	}
+
+	.page-back-chevron-line-bottom {
+		top: 10px;
+		transform: rotate(45deg);
+	}
+
 	.page-head-main {
 		flex: 1;
 		padding-right: 12px;
@@ -5537,6 +6260,11 @@
 
 	.page-title-inset {
 		margin-left: 4px;
+	}
+
+	.build-detail-page-title {
+		font-size: 24px;
+		line-height: 32px;
 	}
 
 	.page-subtitle {
@@ -5652,6 +6380,115 @@
 
 	.build-scroll {
 		height: 465px;
+	}
+
+	.build-list-pane {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.build-page-detail-scroll {
+		height: 610px;
+	}
+
+	.build-page-detail-card,
+	.build-page-section {
+		width: 100%;
+		border-radius: 26px;
+		background-color: #ffffff;
+		padding: 16px;
+		margin-bottom: 14px;
+	}
+
+	.build-page-detail-metrics {
+		margin-bottom: 10px;
+	}
+
+	.build-page-detail-summary {
+		font-size: 15px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-page-detail-note {
+		margin-top: 8px;
+		font-size: 13px;
+		line-height: 20px;
+		color: #667085;
+	}
+
+	.build-page-section-title {
+		font-size: 16px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #111827;
+		margin-bottom: 10px;
+	}
+
+	.build-page-part-row {
+		width: 100%;
+		min-height: 82px;
+		border-radius: 22px;
+		background-color: #f8fafc;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 11px;
+		margin-bottom: 9px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-page-part-image {
+		width: 58px;
+		height: 58px;
+		border-radius: 16px;
+		margin-right: 11px;
+		background-color: #eef2f8;
+		flex-shrink: 0;
+	}
+
+	.build-page-part-main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.build-page-part-title {
+		width: 100%;
+		font-size: 14px;
+		line-height: 19px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-page-part-meta,
+	.build-page-part-spec {
+		width: 100%;
+		margin-top: 3px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #667085;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-page-part-link {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #007aff;
+		margin-left: 8px;
+		flex-shrink: 0;
+	}
+
+	.build-page-actions {
+		width: 100%;
+		flex-direction: row;
+		margin-bottom: 28px;
 	}
 
 	.build-list {
@@ -5910,20 +6747,67 @@
 		flex-direction: row;
 		flex-wrap: wrap;
 		align-items: flex-start;
+		justify-content: space-between;
 		margin-top: 9px;
 	}
 
-	.build-part-chip {
-		max-width: 295px;
-		flex-shrink: 0;
-		font-size: 12px;
-		line-height: 18px;
-		color: #667085;
-		background-color: #f3f6fb;
+	.build-part-product {
+		width: 48%;
+		height: 58px;
+		border-radius: 18px;
+		background-color: #f6f9ff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		flex-direction: row;
+		align-items: center;
+		padding: 7px;
+		margin-right: 0;
+		margin-bottom: 8px;
+	}
+
+	.build-part-product-image {
+		width: 42px;
+		height: 42px;
 		border-radius: 13px;
-		padding: 4px 8px;
-		margin-right: 6px;
-		margin-bottom: 6px;
+		background-color: #eef2f8;
+		margin-right: 8px;
+		flex-shrink: 0;
+	}
+
+	.build-part-product-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-part-product-fallback-text {
+		font-size: 11px;
+		line-height: 15px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.build-part-product-main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.build-part-product-title {
+		width: 100%;
+		font-size: 12px;
+		line-height: 16px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-part-product-meta {
+		width: 100%;
+		margin-top: 3px;
+		font-size: 11px;
+		line-height: 15px;
+		color: #667085;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
