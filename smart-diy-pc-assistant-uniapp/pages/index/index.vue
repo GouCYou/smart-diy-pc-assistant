@@ -681,7 +681,7 @@
 				<scroll-view class="part-option-scroll" scroll-y="true">
 					<view v-for="part in hardwareOptions" :key="part.id" class="part-option" @click="openProductPicker(part)">
 						<view class="part-option-main">
-							<text class="part-option-title">{{ part.model }}</text>
+							<text class="part-option-title">{{ getStandardPartModelLabel(part) }}</text>
 							<text class="part-option-spec">{{ getPartSpecText(part) }}</text>
 						</view>
 						<view class="part-option-side">
@@ -1832,7 +1832,7 @@
 					}
 					chatMessages.value.push({
 						role: 'assistant',
-						content: formatAiContent(data.content as string),
+						content: normalizeAiReply(data.content),
 						buildConfigId: generatedBuildId,
 						buildConfigTitle: generatedBuildTitle
 					})
@@ -1860,6 +1860,16 @@
 						buildConfigTitle: ''
 					})
 					openAuthPage()
+					return
+				}
+				const responseMessage = getApiResponseMessage(body)
+				if (responseMessage.length > 0) {
+					chatMessages.value.push({
+						role: 'assistant',
+						content: responseMessage,
+						buildConfigId: 0,
+						buildConfigTitle: ''
+					})
 					return
 				}
 				chatMessages.value.push({
@@ -3517,8 +3527,9 @@
 
 	function openProductPicker(part : HardwarePartItem) {
 		activeStandardPart.value = normalizeHardwarePart(part)
-		productPickerTitle.value = part.model + ' 京东商品'
-		productKeyword.value = part.model + ' ' + getHardwareTypeLabel(part.type)
+		const modelLabel = getStandardPartModelLabel(part)
+		productPickerTitle.value = modelLabel + ' 京东商品'
+		productKeyword.value = modelLabel + ' ' + getHardwareTypeLabel(part.type)
 		productOptions.value = []
 		partPickerVisible.value = false
 		productPickerVisible.value = true
@@ -3541,7 +3552,7 @@
 			productOptions.value = []
 			return
 		}
-		const keyword = productKeyword.value.trim().length > 0 ? productKeyword.value.trim() : part.model + ' ' + getHardwareTypeLabel(part.type)
+		const keyword = productKeyword.value.trim().length > 0 ? productKeyword.value.trim() : getStandardPartModelLabel(part) + ' ' + getHardwareTypeLabel(part.type)
 		productLoading.value = true
 		let url = apiBaseUrl + '/api/jd-products/search?type=' + part.type + '&partId=' + part.id + '&keyword=' + encodeURIComponent(keyword)
 		uni.request({
@@ -3844,7 +3855,7 @@
 		if (part.productTitle != null && part.productTitle.length > 0) {
 			return part.productTitle
 		}
-		return part.model
+		return getStandardPartModelLabel(part)
 	}
 
 	function getCompactPartTitle(part : HardwarePartItem, maxLength : number) : string {
@@ -3864,11 +3875,116 @@
 
 	function getPartOptionSpecText(part : HardwarePartItem) : string {
 		const model = part.matchedModel != null && part.matchedModel.length > 0 ? part.matchedModel : part.model
+		const modelLabel = getStandardPartModelText(part.type, model)
 		const spec = getPartSpecText(part)
 		if (isBoardCpuBundle(part)) {
-			return '板U套装 · ' + model + ' · ' + spec
+			return '板U套装 · ' + modelLabel + ' · ' + spec
 		}
-		return model + ' · ' + spec
+		return modelLabel + ' · ' + spec
+	}
+
+	function getStandardPartModelLabel(part : HardwarePartItem) : string {
+		if (part == null || part.model == null) {
+			return ''
+		}
+		return getStandardPartModelText(part.type, part.model)
+	}
+
+	function getStandardPartModelText(type : string, value : string) : string {
+		if (value == null || value.length == 0) {
+			return ''
+		}
+		const model = value.toUpperCase()
+		if (type == 'COOLER') {
+			if (model.indexOf('360') >= 0) {
+				return '360 一体式水冷'
+			}
+			if (model.indexOf('280') >= 0) {
+				return '280 一体式水冷'
+			}
+			if (model.indexOf('240') >= 0) {
+				return '240 一体式水冷'
+			}
+			if (model.indexOf('DUAL TOWER') >= 0 || model.indexOf('双塔') >= 0) {
+				return '双塔风冷散热器'
+			}
+			if (model.indexOf('LOW PROFILE') >= 0 || model.indexOf('下压') >= 0) {
+				return '下压式散热器'
+			}
+			if (model.indexOf('TOWER') >= 0 || model.indexOf('风冷') >= 0) {
+				return '塔式风冷散热器'
+			}
+		}
+		if (type == 'CASE') {
+			if (model.indexOf('E-ATX') >= 0 || model.indexOf('EATX') >= 0) {
+				return 'E-ATX 全塔机箱'
+			}
+			if (model.indexOf('M-ATX') >= 0 || model.indexOf('MATX') >= 0) {
+				return 'M-ATX 紧凑机箱'
+			}
+			if (model.indexOf('ITX') >= 0) {
+				return 'ITX 迷你机箱'
+			}
+			if (model.indexOf('AIRFLOW') >= 0 || model.indexOf('风道') >= 0) {
+				return 'ATX 风道机箱'
+			}
+			return 'ATX 中塔机箱'
+		}
+		if (type == 'PSU') {
+			const wattage = getFirstMatch(model, /(\d{3,4})\s*W/)
+			const standard = model.indexOf('ATX 3.1') >= 0 || model.indexOf('ATX3.1') >= 0 ? 'ATX 3.1' : model.indexOf('ATX 3.0') >= 0 || model.indexOf('ATX3.0') >= 0 ? 'ATX 3.0' : ''
+			const cert = model.indexOf('BRONZE') >= 0 || model.indexOf('铜牌') >= 0 ? '铜牌' : model.indexOf('GOLD') >= 0 || model.indexOf('金牌') >= 0 ? '金牌' : ''
+			return joinStandardLabel([wattage, standard, cert, '电源'])
+		}
+		if (type == 'MEMORY') {
+			const capacity = getFirstMatch(model, /(\d{1,3})\s*G(?:B)?/)
+			const memoryType = model.indexOf('DDR4') >= 0 ? 'DDR4' : model.indexOf('DDR5') >= 0 ? 'DDR5' : ''
+			const speed = getFirstMatch(model, /(3200|3600|4800|5200|5600|6000|6200|6400|6800|7200|7600|8000|8400)/)
+			return joinStandardLabel([capacity.length > 0 ? capacity + 'GB' : '', memoryType, speed, '台式机内存'])
+		}
+		if (type == 'STORAGE') {
+			const capacity = getFirstMatch(model, /(\d+(?:\.\d+)?)\s*(TB|T|GB|G)/)
+			const displayCapacity = formatStorageCapacity(capacity)
+			const gen = model.indexOf('PCIE 5.0') >= 0 || model.indexOf('PCIE5') >= 0 || model.indexOf('GEN5') >= 0 ? 'PCIe 5.0' : model.indexOf('PCIE 4.0') >= 0 || model.indexOf('PCIE4') >= 0 || model.indexOf('GEN4') >= 0 ? 'PCIe 4.0' : ''
+			const protocol = model.indexOf('NVME') >= 0 ? 'NVMe' : ''
+			return joinStandardLabel([displayCapacity, gen, protocol, '固态硬盘'])
+		}
+		return value
+	}
+
+	function getFirstMatch(value : string, regex : RegExp) : string {
+		const match = value.match(regex)
+		if (match == null || match.length <= 1) {
+			return ''
+		}
+		if (match.length > 2 && regex.source.indexOf('TB|T|GB|G') >= 0) {
+			return match[1] + match[2]
+		}
+		return match[1]
+	}
+
+	function formatStorageCapacity(value : string) : string {
+		if (value.length == 0) {
+			return ''
+		}
+		const upper = value.toUpperCase()
+		if (upper.endsWith('TB')) {
+			return upper
+		}
+		if (upper.endsWith('T')) {
+			return upper.substring(0, upper.length - 1) + 'TB'
+		}
+		if (upper.endsWith('GB')) {
+			return upper
+		}
+		if (upper.endsWith('G')) {
+			return upper.substring(0, upper.length - 1) + 'GB'
+		}
+		return value
+	}
+
+	function joinStandardLabel(parts : string[]) : string {
+		return parts.filter((item : string) : boolean => item != null && item.length > 0).join(' ')
 	}
 
 	function getPartScoreLabel(part : HardwarePartItem) : string {
@@ -4364,6 +4480,29 @@
 			.replace(/#/g, '')
 			.replace(/^\s*[-*]\s+/gm, '')
 			.trim()
+	}
+
+	function normalizeAiReply(content : any) : string {
+		let text = ''
+		if (content != null) {
+			text = String(content)
+		}
+		const formatted = formatAiContent(text)
+		if (formatted.length == 0) {
+			return 'AI 服务这次没有生成有效回复，请稍后再试。'
+		}
+		return formatted
+	}
+
+	function getApiResponseMessage(body : any) : string {
+		if (body == null || body.message == null) {
+			return ''
+		}
+		const message = String(body.message).trim()
+		if (message.length == 0 || message == '成功') {
+			return ''
+		}
+		return message
 	}
 
 	function handleTouchStart(event : TouchEvent) {

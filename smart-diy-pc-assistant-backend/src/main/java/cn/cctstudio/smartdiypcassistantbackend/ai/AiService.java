@@ -131,9 +131,22 @@ public class AiService {
 
         IntentAnalysis intent = intentAnalysisService.analyze(request.message());
         BuildConfigResponse attachedBuild = request.buildConfigId() == null ? null : buildConfigService.get(userId, request.buildConfigId());
-        BuildConfigResponse generatedBuild = maybeGenerateBuildConfig(userId, request.message(), attachedBuild);
+        BuildGenerationResult buildGeneration = maybeGenerateBuildConfig(userId, request.message(), attachedBuild);
+        BuildConfigResponse generatedBuild = buildGeneration.build();
         String conversationContext = buildConversationContext(conversation.getId());
         String buildContext = buildAiConfigContext(attachedBuild, generatedBuild);
+        if (buildGeneration.failed()) {
+            return saveAssistantAndReturn(
+                    conversation,
+                    createBuildGenerationFailureReply(buildGeneration.failureMessage()),
+                    false,
+                    false,
+                    intent.intent(),
+                    intent.subIntent(),
+                    safety,
+                    null
+            );
+        }
         if (generatedBuild != null) {
             return saveAssistantAndReturn(
                     conversation,
@@ -261,17 +274,28 @@ public class AiService {
         return builder.toString().trim();
     }
 
-    private BuildConfigResponse maybeGenerateBuildConfig(Long userId, String message, BuildConfigResponse attachedBuild) {
+    private BuildGenerationResult maybeGenerateBuildConfig(Long userId, String message, BuildConfigResponse attachedBuild) {
         if (!shouldGenerateBuild(message, attachedBuild != null)) {
-            return null;
+            return BuildGenerationResult.none();
         }
-        BuildPlan plan = selectBuildPlan(extractBudget(message), message);
+        BuildPlan plan;
+        try {
+            plan = selectBuildPlan(extractBudget(message), message);
+        } catch (BusinessException exception) {
+            return BuildGenerationResult.failed(exception.getMessage());
+        }
         String title = createBuildTitle(message, attachedBuild != null, plan.totalPrice());
         String note = attachedBuild == null
                 ? createBuildNote(message)
                 : "基于《" + attachedBuild.title() + "》按你的新要求自动调整。需求：" + trim(message, 120);
         List<Long> partIds = plan.parts().stream().map(HardwarePart::getId).toList();
-        return buildConfigService.create(userId, new BuildConfigRequest(title, note, partIds, plan.selections(), BuildConfigSource.AI));
+        return BuildGenerationResult.generated(buildConfigService.create(userId, new BuildConfigRequest(title, note, partIds, plan.selections(), BuildConfigSource.AI)));
+    }
+
+    private String createBuildGenerationFailureReply(String failureMessage) {
+        String reason = StringUtils.hasText(failureMessage) ? failureMessage : "自动匹配商品时没有拿到完整结果";
+        return "我识别到你想生成配置单，但这次没有保存成功。原因是：" + reason
+                + "\n\n为了避免把无价格、无链接或不可购买的商品写进配置单，我不会用本地参考价强行生成。你可以稍后再试，或者先到配置页手动选择京东商品。";
     }
 
     private String createGeneratedBuildReply(boolean adjusted, BuildConfigResponse build) {
@@ -994,7 +1018,34 @@ public class AiService {
                 buildContext,
                 message
         );
-        return model.generate(prompt);
+        try {
+            String reply = model.generate(prompt);
+            if (!StringUtils.hasText(reply)) {
+                return "AI 服务这次没有生成有效回复，请稍后再试。";
+            }
+            return reply.trim();
+        } catch (RuntimeException exception) {
+            return "AI 服务暂时响应失败，请稍后再试。";
+        }
+    }
+
+    private record BuildGenerationResult(BuildConfigResponse build, String failureMessage) {
+
+        private static BuildGenerationResult none() {
+            return new BuildGenerationResult(null, "");
+        }
+
+        private static BuildGenerationResult generated(BuildConfigResponse build) {
+            return new BuildGenerationResult(build, "");
+        }
+
+        private static BuildGenerationResult failed(String failureMessage) {
+            return new BuildGenerationResult(null, failureMessage);
+        }
+
+        private boolean failed() {
+            return StringUtils.hasText(failureMessage);
+        }
     }
 
     private record BuildPlan(List<HardwarePart> parts, List<BuildPartSelectionRequest> selections, int totalPrice, int performanceScore) {
