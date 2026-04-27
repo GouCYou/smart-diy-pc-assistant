@@ -1,13 +1,10 @@
-# Smart DIY PC Assistant
+# Smart DIY 装机助手
 
-<p align="center">
-  🇨🇳 简体中文 ·
-  <a href="README.zh-TW.md">🇹🇼 繁體中文</a> ·
-  <a href="README.en-US.md">🇺🇸 English</a>
-</p>
+🇨🇳 简体中文|
+<a href="README.zh-TW.md">🇹🇼 繁體中文</a>|
+<a href="README.en-US.md">🇺🇸 English</a>
 
-Smart DIY 装机助手是一个面向 DIY PC 装机场景的全栈项目。系统只维护标准硬件型号库，京东商品只作为实时价格、图片和购买链接来源，避免把带品牌、带店铺信息的电商商品直接混入硬件数据库。
-
+面向 DIY PC 装机场景的智能化助手，通过录入标准硬件型号库，自动获取京东商品作为实时价格、图片和购买链接来源。
 项目包含用户端、管理端和 Spring Boot 后端，覆盖 AI 装机对话、配置单生成、京东商品搜索、硬件兼容性检查、社区动态、热点新闻、个人空间、用户管理和账号安全等功能。
 
 ## 目录
@@ -26,14 +23,11 @@ Smart DIY 装机助手是一个面向 DIY PC 装机场景的全栈项目。系�
 
 ## 演示截图
 
-<!--
-将截图放到 docs/screenshots/ 后在这里引用。
-
-![用户端首页](docs/screenshots/user-home.png)
+<img width="369" height="803" alt="image" src="https://github.com/user-attachments/assets/27c2a9a8-d787-4a1c-a494-59a4f8042727" />
+<img width="366" height="802" alt="image" src="https://github.com/user-attachments/assets/ed12b66d-abfd-4bed-9052-a9a944842eae" />
 ![配置详情](docs/screenshots/build-detail.png)
 ![AI 对话](docs/screenshots/ai-chat.png)
 ![管理面板](docs/screenshots/admin-dashboard.png)
--->
 
 ## 核心功能
 
