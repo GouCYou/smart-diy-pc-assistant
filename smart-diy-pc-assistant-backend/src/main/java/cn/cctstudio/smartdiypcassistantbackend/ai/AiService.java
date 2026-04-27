@@ -31,6 +31,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
@@ -40,6 +41,7 @@ import java.util.regex.Pattern;
 public class AiService {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
+    private static final Duration CHAT_DUPLICATE_TTL = Duration.ofMinutes(2);
 
     private final AiProperties properties;
     private final StringRedisTemplate redisTemplate;
@@ -82,6 +84,19 @@ public class AiService {
     @Transactional
     public ChatResponse chat(Long userId, ChatRequest request) {
         userAccessService.requireAvailable(userId);
+        String duplicateKey = chatDuplicateKey(userId, request);
+        if (!acquireChatDuplicateGuard(duplicateKey)) {
+            throw new BusinessException("这条消息正在处理中，请稍候");
+        }
+        try {
+            return doChat(userId, request);
+        } catch (RuntimeException ex) {
+            releaseChatDuplicateGuard(duplicateKey);
+            throw ex;
+        }
+    }
+
+    private ChatResponse doChat(Long userId, ChatRequest request) {
         ChatConversation conversation = resolveConversation(userId, request.conversationId(), request.message());
         messageRepository.save(new ChatMessage(conversation.getId(), "user", request.message()));
 
@@ -171,6 +186,31 @@ public class AiService {
         );
     }
 
+    private String chatDuplicateKey(Long userId, ChatRequest request) {
+        String message = request.message() == null ? "" : request.message().trim().replaceAll("\\s+", " ");
+        if (!StringUtils.hasText(message)) {
+            return "";
+        }
+        String conversationPart = request.conversationId() == null ? "new" : request.conversationId().toString();
+        String buildPart = request.buildConfigId() == null ? "none" : request.buildConfigId().toString();
+        String signature = conversationPart + ":" + buildPart + ":" + message;
+        return "ai:chat:dedupe:" + userId + ":" + Integer.toHexString(signature.hashCode());
+    }
+
+    private boolean acquireChatDuplicateGuard(String duplicateKey) {
+        if (!StringUtils.hasText(duplicateKey)) {
+            return true;
+        }
+        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(duplicateKey, "1", CHAT_DUPLICATE_TTL);
+        return Boolean.TRUE.equals(acquired);
+    }
+
+    private void releaseChatDuplicateGuard(String duplicateKey) {
+        if (StringUtils.hasText(duplicateKey)) {
+            redisTemplate.delete(duplicateKey);
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<ConversationResponse> listConversations(Long userId) {
         return conversationRepository.findTop30ByUserIdOrderByUpdatedAtDesc(userId).stream()
@@ -225,7 +265,7 @@ public class AiService {
         if (!shouldGenerateBuild(message, attachedBuild != null)) {
             return null;
         }
-        BuildPlan plan = selectBuildPlan(extractBudget(message));
+        BuildPlan plan = selectBuildPlan(extractBudget(message), message);
         String title = createBuildTitle(message, attachedBuild != null, plan.totalPrice());
         String note = attachedBuild == null
                 ? createBuildNote(message)
@@ -387,7 +427,8 @@ public class AiService {
         return null;
     }
 
-    private BuildPlan selectBuildPlan(int budget) {
+    private BuildPlan selectBuildPlan(int budget, String message) {
+        BuildPreferences preferences = buildPreferences(message);
         Map<HardwarePartType, List<HardwarePart>> parts = new EnumMap<>(HardwarePartType.class);
         for (HardwarePart part : hardwarePartRepository.findByEnabledTrue()) {
             parts.computeIfAbsent(part.getType(), ignored -> new ArrayList<>()).add(part);
@@ -418,12 +459,23 @@ public class AiService {
         psus = purchasableCandidates(psus, productSelections, HardwarePartType.PSU);
         cases = purchasableCandidates(cases, productSelections, HardwarePartType.CASE);
         coolers = purchasableCandidates(coolers, productSelections, HardwarePartType.COOLER);
+        if (preferences.preferNvidiaGpu()) {
+            List<HardwarePart> nvidiaGpus = gpus.stream()
+                    .filter(part -> part.getModel().toUpperCase(Locale.ROOT).startsWith("RTX"))
+                    .toList();
+            if (!nvidiaGpus.isEmpty()) {
+                gpus = nvidiaGpus;
+            }
+        }
 
         BuildPlan best = null;
         BuildPlan cheapest = null;
         for (HardwarePart cpu : cpus) {
             for (HardwarePart motherboard : motherboards) {
                 if (!same(cpu.getSocketType(), motherboard.getSocketType())) {
+                    continue;
+                }
+                if (!isMotherboardBalancedForCpu(cpu, motherboard)) {
                     continue;
                 }
                 for (HardwarePart memory : memories) {
@@ -444,10 +496,16 @@ public class AiService {
                                         continue;
                                     }
                                     for (HardwarePart cooler : coolers) {
+                                        if (!isCoolerAdequateForCpu(cpu, cooler)) {
+                                            continue;
+                                        }
                                         List<HardwarePart> selected = List.of(cpu, motherboard, gpu, memory, storage, psu, pcCase, cooler);
                                         List<BuildPartSelectionRequest> selections = selected.stream()
                                                 .map(part -> productSelections.get(part.getId()))
                                                 .toList();
+                                        if (hasColorConflict(selections, preferences)) {
+                                            continue;
+                                        }
                                         BuildPlan plan = new BuildPlan(selected, selections, totalPrice(selected, selections), performanceScore(selected));
                                         if (cheapest == null || plan.totalPrice() < cheapest.totalPrice()) {
                                             cheapest = plan;
@@ -480,6 +538,120 @@ public class AiService {
             throw new BusinessException("京东暂时没有找到可购买的 " + hardwareTypeLabel(type) + " 商品，请稍后重试或换个预算范围。");
         }
         return result;
+    }
+
+    private BuildPreferences buildPreferences(String message) {
+        String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        boolean productivity = containsAny(text, "生产力", "剪辑", "渲染", "建模", "设计", "cuda", "ai", "深度学习", "视频");
+        boolean explicitAmdGpu = containsAny(text, "amd显卡", "a卡", "radeon", "rx ");
+        String color = "";
+        if (containsAny(text, "白色", "纯白", "海景房", "white")) {
+            color = "WHITE";
+        } else if (containsAny(text, "黑色", "全黑", "black")) {
+            color = "BLACK";
+        }
+        return new BuildPreferences(productivity && !explicitAmdGpu, color);
+    }
+
+    private boolean isMotherboardBalancedForCpu(HardwarePart cpu, HardwarePart motherboard) {
+        CpuTier cpuTier = cpuTier(cpu);
+        BoardTier boardTier = boardTier(motherboard);
+        return switch (cpuTier) {
+            case ENTRY -> boardTier == BoardTier.ENTRY || boardTier == BoardTier.MAINSTREAM;
+            case MAINSTREAM -> boardTier != BoardTier.ENTHUSIAST;
+            case PERFORMANCE -> boardTier != BoardTier.ENTRY;
+            case FLAGSHIP -> boardTier == BoardTier.PERFORMANCE || boardTier == BoardTier.ENTHUSIAST;
+        };
+    }
+
+    private boolean isCoolerAdequateForCpu(HardwarePart cpu, HardwarePart cooler) {
+        CpuTier cpuTier = cpuTier(cpu);
+        String model = cooler.getModel().toUpperCase(Locale.ROOT);
+        boolean aio = model.contains("AIO") || model.contains("360") || model.contains("280") || model.contains("240");
+        boolean strongAir = model.contains("DUAL TOWER");
+        if (cpuTier == CpuTier.FLAGSHIP || cpu.getWattage() >= 170) {
+            return aio;
+        }
+        if (cpuTier == CpuTier.PERFORMANCE || cpu.getWattage() >= 125) {
+            return aio || strongAir;
+        }
+        return true;
+    }
+
+    private CpuTier cpuTier(HardwarePart cpu) {
+        String model = cpu.getModel().toUpperCase(Locale.ROOT);
+        if (containsAny(model, "CORE ULTRA 3", "CORE I3", "I3-", "RYZEN 3")) {
+            return CpuTier.ENTRY;
+        }
+        if (containsAny(model, "CORE ULTRA 9", "CORE I9", "I9-", "RYZEN 9")) {
+            return CpuTier.FLAGSHIP;
+        }
+        if (containsAny(model, "CORE ULTRA 7", "CORE I7", "I7-", "RYZEN 7")) {
+            return cpu.getWattage() >= 170 ? CpuTier.FLAGSHIP : CpuTier.PERFORMANCE;
+        }
+        if (containsAny(model, "CORE ULTRA 5", "CORE I5", "I5-", "RYZEN 5")) {
+            boolean unlocked = containsAny(model, "KF", "K PLUS", "X3D") || model.endsWith("K") || model.endsWith("X");
+            return unlocked || cpu.getWattage() >= 125 ? CpuTier.PERFORMANCE : CpuTier.MAINSTREAM;
+        }
+        if (cpu.getWattage() >= 170) {
+            return CpuTier.FLAGSHIP;
+        }
+        if (cpu.getWattage() >= 125) {
+            return CpuTier.PERFORMANCE;
+        }
+        return CpuTier.MAINSTREAM;
+    }
+
+    private BoardTier boardTier(HardwarePart motherboard) {
+        String model = motherboard.getModel().toUpperCase(Locale.ROOT);
+        if (model.contains("Z890") || model.contains("X870") || model.contains("X670E")) {
+            return BoardTier.ENTHUSIAST;
+        }
+        if (model.contains("B650E") || model.contains("B850") || model.contains("B860") || model.contains("X670") || model.contains("Z790")) {
+            return BoardTier.PERFORMANCE;
+        }
+        if (model.startsWith("H") || model.startsWith("A")) {
+            return BoardTier.ENTRY;
+        }
+        return BoardTier.MAINSTREAM;
+    }
+
+    private boolean hasColorConflict(List<BuildPartSelectionRequest> selections, BuildPreferences preferences) {
+        String gpuColor = "";
+        String caseColor = "";
+        for (BuildPartSelectionRequest selection : selections) {
+            if (selection == null || !StringUtils.hasText(selection.title())) {
+                continue;
+            }
+            String color = productColor(selection.title());
+            if (!StringUtils.hasText(color)) {
+                continue;
+            }
+            if (StringUtils.hasText(preferences.preferredColor()) && !preferences.preferredColor().equals(color)) {
+                return true;
+            }
+            String title = selection.title();
+            if (title.contains("显卡") || title.toUpperCase(Locale.ROOT).contains("RTX") || title.toUpperCase(Locale.ROOT).contains("RX ")) {
+                gpuColor = color;
+            }
+            if (title.contains("机箱")) {
+                caseColor = color;
+            }
+        }
+        return StringUtils.hasText(gpuColor)
+                && StringUtils.hasText(caseColor)
+                && !gpuColor.equals(caseColor);
+    }
+
+    private String productColor(String title) {
+        String text = title == null ? "" : title.toLowerCase(Locale.ROOT);
+        if (containsAny(text, "白色", "纯白", "雪", "white", "吹雪")) {
+            return "WHITE";
+        }
+        if (containsAny(text, "黑色", "黑", "black", "暗黑")) {
+            return "BLACK";
+        }
+        return "";
     }
 
     private boolean hasAvailableSelection(BuildPartSelectionRequest selection) {
@@ -590,14 +762,20 @@ public class AiService {
     }
 
     private int motherboardGenerationRank(String model) {
-        if (model.contains("Z890") || model.contains("X870") || model.contains("B860") || model.contains("B850") || model.contains("H810")) {
+        if (model.contains("Z890") || model.contains("X870") || model.contains("X670")) {
+            return 2600;
+        }
+        if (model.contains("B860") || model.contains("B850") || model.contains("Z790")) {
             return 2400;
         }
-        if (model.contains("B650") || model.contains("X670") || model.contains("Z790") || model.contains("B760")) {
+        if (model.contains("B650") || model.contains("B760")) {
             return 1800;
         }
         if (model.contains("B550")) {
             return 1200;
+        }
+        if (model.contains("H810")) {
+            return 900;
         }
         return 0;
     }
@@ -612,11 +790,6 @@ public class AiService {
         }
         if (plan.performanceScore() != current.performanceScore()) {
             return plan.performanceScore() > current.performanceScore();
-        }
-        int planBudgetDiff = Math.abs(budget - plan.totalPrice());
-        int currentBudgetDiff = Math.abs(budget - current.totalPrice());
-        if (planBudgetDiff != currentBudgetDiff) {
-            return planBudgetDiff < currentBudgetDiff;
         }
         return plan.totalPrice() < current.totalPrice();
     }
@@ -825,6 +998,23 @@ public class AiService {
     }
 
     private record BuildPlan(List<HardwarePart> parts, List<BuildPartSelectionRequest> selections, int totalPrice, int performanceScore) {
+    }
+
+    private record BuildPreferences(boolean preferNvidiaGpu, String preferredColor) {
+    }
+
+    private enum CpuTier {
+        ENTRY,
+        MAINSTREAM,
+        PERFORMANCE,
+        FLAGSHIP
+    }
+
+    private enum BoardTier {
+        ENTRY,
+        MAINSTREAM,
+        PERFORMANCE,
+        ENTHUSIAST
     }
 
     private boolean hasPerformanceScore(HardwarePartType type) {

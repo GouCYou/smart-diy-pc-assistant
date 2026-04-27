@@ -182,6 +182,9 @@ public class JdProductSearchService {
             if (!matchesSelectedVariant(title, matchedPart)) {
                 continue;
             }
+            if (!matchesCoolerIntent(title, matchedPart)) {
+                continue;
+            }
             String priceText = item.select(".p-price i").text().trim();
             Integer price = parsePrice(priceText);
             String image = normalizeImage(firstText(
@@ -248,6 +251,9 @@ public class JdProductSearchService {
                 if (!matchesSelectedVariant(title, matchedPart)) {
                     continue;
                 }
+                if (!matchesCoolerIntent(title, matchedPart)) {
+                    continue;
+                }
                 String image = normalizeImage(item.path("imageUrl").asText(""));
                 String link = normalizeLink(firstText(item.path("landUrl").asText(""), "https://item.jd.com/" + skuId + ".html"));
                 String shopName = item.path("shopName").asText("");
@@ -263,6 +269,16 @@ public class JdProductSearchService {
 
     private List<String> productKeywords(String originalKeyword, HardwarePart part) {
         List<String> keywords = new ArrayList<>();
+        if (part.getType() == HardwarePartType.CASE) {
+            addCaseKeywords(keywords, part);
+            addKeyword(keywords, originalKeyword);
+            return keywords;
+        }
+        if (part.getType() == HardwarePartType.COOLER) {
+            addCoolerKeywords(keywords, part);
+            addKeyword(keywords, originalKeyword);
+            return keywords;
+        }
         addKeyword(keywords, originalKeyword);
         addKeyword(keywords, part.getModel() + " " + typeKeyword(part.getType()));
         String modelKey = modelMatcher.extractModel(part.getModel(), part.getType());
@@ -284,8 +300,65 @@ public class JdProductSearchService {
             addKeyword(keywords, modelKey + " 主板");
         } else if (part.getType() == HardwarePartType.GPU) {
             addKeyword(keywords, modelKey + " 显卡");
+        } else if (part.getType() == HardwarePartType.CASE) {
+            addCaseKeywords(keywords, part);
+        } else if (part.getType() == HardwarePartType.COOLER) {
+            addCoolerKeywords(keywords, part);
         }
         return keywords;
+    }
+
+    private void addCaseKeywords(List<String> keywords, HardwarePart part) {
+        String model = part.getModel().toUpperCase(Locale.ROOT);
+        String formFactor = part.getFormFactor() == null ? "" : part.getFormFactor().toUpperCase(Locale.ROOT);
+        if (model.contains("E-ATX") || formFactor.contains("E-ATX")) {
+            addKeyword(keywords, "E-ATX 机箱");
+            addKeyword(keywords, "全塔 机箱");
+            return;
+        }
+        if (model.contains("M-ATX") || formFactor.contains("M-ATX")) {
+            addKeyword(keywords, "M-ATX 机箱");
+            addKeyword(keywords, "MATX 机箱");
+            return;
+        }
+        if (model.contains("ITX") || formFactor.contains("ITX")) {
+            addKeyword(keywords, "ITX 机箱");
+            addKeyword(keywords, "迷你 机箱");
+            return;
+        }
+        addKeyword(keywords, "ATX 机箱");
+        addKeyword(keywords, "中塔 机箱");
+    }
+
+    private void addCoolerKeywords(List<String> keywords, HardwarePart part) {
+        String model = part.getModel().toUpperCase(Locale.ROOT);
+        if (model.contains("360")) {
+            addKeyword(keywords, "360 水冷");
+            addKeyword(keywords, "360 一体式水冷");
+            return;
+        }
+        if (model.contains("280")) {
+            addKeyword(keywords, "280 水冷");
+            addKeyword(keywords, "280 一体式水冷");
+            return;
+        }
+        if (model.contains("240")) {
+            addKeyword(keywords, "240 水冷");
+            addKeyword(keywords, "240 一体式水冷");
+            return;
+        }
+        if (model.contains("DUAL TOWER")) {
+            addKeyword(keywords, "双塔 风冷 散热器");
+            addKeyword(keywords, "CPU 双塔散热器");
+            return;
+        }
+        if (model.contains("LOW PROFILE")) {
+            addKeyword(keywords, "下压式 散热器");
+            addKeyword(keywords, "ITX CPU 散热器");
+            return;
+        }
+        addKeyword(keywords, "塔式 风冷 散热器");
+        addKeyword(keywords, "CPU 风冷散热器");
     }
 
     private void addKeyword(List<String> keywords, String keyword) {
@@ -453,8 +526,42 @@ public class JdProductSearchService {
             case STORAGE -> title.contains("固态") || title.contains("硬盘") || normalizedTitle.contains("SSD") || normalizedTitle.contains("NVME");
             case PSU -> title.contains("电源") || normalizedTitle.contains(" PSU");
             case CASE -> title.contains("机箱");
-            case COOLER -> title.contains("散热") || title.contains("风冷") || title.contains("水冷");
+            case COOLER -> (title.contains("散热器") || title.contains("风冷") || title.contains("水冷") || normalizedTitle.contains("CPU"))
+                    && !title.contains("机箱风扇")
+                    && !title.contains("风扇套装");
         };
+    }
+
+    private boolean matchesCoolerIntent(String title, HardwarePart part) {
+        if (part == null || part.getType() != HardwarePartType.COOLER || !StringUtils.hasText(title)) {
+            return true;
+        }
+        String normalizedTitle = title.toUpperCase(Locale.ROOT);
+        String model = part.getModel().toUpperCase(Locale.ROOT);
+        boolean fanOnly = title.contains("机箱风扇")
+                || title.contains("风扇套装")
+                || (title.contains("散热风扇") && !title.contains("CPU") && !title.contains("散热器"));
+        if (fanOnly) {
+            return false;
+        }
+        if (model.contains("360")) {
+            return title.contains("水冷") && normalizedTitle.contains("360");
+        }
+        if (model.contains("280")) {
+            return title.contains("水冷") && normalizedTitle.contains("280");
+        }
+        if (model.contains("240")) {
+            return title.contains("水冷") && normalizedTitle.contains("240");
+        }
+        if (model.contains("DUAL TOWER")) {
+            return !title.contains("水冷")
+                    && (title.contains("双塔") || title.contains("风冷") || title.contains("散热器"));
+        }
+        if (model.contains("LOW PROFILE")) {
+            return title.contains("下压") || title.contains("下吹") || normalizedTitle.contains("ITX");
+        }
+        return !title.contains("水冷")
+                && (title.contains("塔式") || title.contains("风冷") || title.contains("散热器") || normalizedTitle.contains("CPU"));
     }
 
     private boolean isCpuMotherboardBundleTitle(String title) {

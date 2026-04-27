@@ -178,14 +178,20 @@ public class HardwarePartService {
     }
 
     private int motherboardRank(String model) {
-        if (model.contains("Z890") || model.contains("X870") || model.contains("B860") || model.contains("B850") || model.contains("H810")) {
+        if (model.contains("Z890") || model.contains("X870") || model.contains("X670")) {
+            return 2600;
+        }
+        if (model.contains("B860") || model.contains("B850") || model.contains("Z790")) {
             return 2400;
         }
-        if (model.contains("B650") || model.contains("X670") || model.contains("Z790") || model.contains("B760")) {
+        if (model.contains("B650") || model.contains("B760")) {
             return 1800;
         }
         if (model.contains("B550")) {
             return 1200;
+        }
+        if (model.contains("H810")) {
+            return 900;
         }
         return 0;
     }

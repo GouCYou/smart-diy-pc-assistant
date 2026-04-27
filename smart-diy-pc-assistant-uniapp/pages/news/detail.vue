@@ -45,12 +45,7 @@
 							<text class="article-action-text">{{ news.favoriteCount }}</text>
 						</view>
 						<view class="article-action">
-							<view class="comment-action-icon">
-								<view class="comment-action-dot"></view>
-								<view class="comment-action-dot"></view>
-								<view class="comment-action-dot"></view>
-								<view class="comment-action-tail"></view>
-							</view>
+							<image class="comment-action-image" src="/static/icons/comment.svg" mode="aspectFit"></image>
 							<text class="article-action-text">{{ news.commentCount }}</text>
 						</view>
 					</view>
@@ -893,6 +888,13 @@
 		left: 3px;
 		bottom: -3px;
 		transform: rotate(45deg);
+	}
+
+	.comment-action-image {
+		width: 18px;
+		height: 18px;
+		margin-right: 5px;
+		flex-shrink: 0;
 	}
 
 	.article-like-active,

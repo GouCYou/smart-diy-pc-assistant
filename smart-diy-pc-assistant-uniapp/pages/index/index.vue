@@ -88,7 +88,7 @@
 					</view>
 				</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
-				<view :class="draft.length > 0 || attachedBuildId > 0 ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
+				<view :class="(draft.length > 0 || attachedBuildId > 0) && !chatLoading ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
 					<view class="send-arrow-line"></view>
 					<view class="send-arrow-head send-arrow-head-top"></view>
 					<view class="send-arrow-head send-arrow-head-bottom"></view>
@@ -345,12 +345,7 @@
 								<text class="post-action-text">{{ post.favoriteCount }}</text>
 							</view>
 							<view class="post-action">
-								<view class="comment-action-icon">
-									<view class="comment-action-dot"></view>
-									<view class="comment-action-dot"></view>
-									<view class="comment-action-dot"></view>
-									<view class="comment-action-tail"></view>
-								</view>
+								<image class="comment-action-image" src="/static/icons/comment.svg" mode="aspectFit"></image>
 								<text class="post-action-text">{{ post.commentCount }}</text>
 							</view>
 						</view>
@@ -384,6 +379,7 @@
 					<text class="page-title page-title-inset">热点</text>
 				</view>
 				<view class="news-sort-switch">
+					<view :class="newsSort == 'latest' ? 'news-sort-indicator news-sort-indicator-0' : 'news-sort-indicator news-sort-indicator-1'"></view>
 					<view :class="newsSort == 'latest' ? 'news-sort-item news-sort-item-active' : 'news-sort-item'" @click="setNewsSort('latest')">
 						<text :class="newsSort == 'latest' ? 'news-sort-text news-sort-text-active' : 'news-sort-text'">最新</text>
 					</view>
@@ -400,8 +396,8 @@
 				<input class="section-search-input" v-model="newsSearchKeyword" placeholder="搜索新闻标题、标签或内容" placeholder-class="section-search-placeholder" @input="resetNewsPage()" />
 			</view>
 
-			<scroll-view v-if="getFilteredNewsList().length > 0" class="news-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="newsRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshNews">
-				<view class="news-feed">
+			<scroll-view class="news-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="newsRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshNews">
+				<view v-if="getFilteredNewsList().length > 0" class="news-feed">
 					<view v-for="(item, index) in getPagedNewsList()" :key="item.id" :class="index == 0 && newsPage == 1 ? 'tech-news-card tech-news-card-featured' : 'tech-news-card'" @click="openNewsDetail(item.id)">
 						<view class="tech-news-cover-wrap">
 							<image v-if="item.coverUrl.length > 0" class="tech-news-cover" :src="item.coverUrl" mode="aspectFill"></image>
@@ -430,12 +426,7 @@
 									<text class="tech-news-action-text">{{ item.favoriteCount }}</text>
 								</view>
 								<view class="tech-news-action">
-									<view class="comment-action-icon">
-										<view class="comment-action-dot"></view>
-										<view class="comment-action-dot"></view>
-										<view class="comment-action-dot"></view>
-										<view class="comment-action-tail"></view>
-									</view>
+									<image class="comment-action-image" src="/static/icons/comment.svg" mode="aspectFit"></image>
 									<text class="tech-news-action-text">{{ item.commentCount }}</text>
 								</view>
 							</view>
@@ -452,17 +443,17 @@
 					</view>
 					<view class="news-bottom-spacer"></view>
 				</view>
-			</scroll-view>
 
-			<view v-if="getFilteredNewsList().length == 0 && !newsLoading" class="empty-state empty-state-news">
-				<view class="empty-illustration empty-news">
-					<view class="news-line news-line-long"></view>
-					<view class="news-line"></view>
-					<view class="news-line news-line-short"></view>
+				<view v-if="getFilteredNewsList().length == 0 && !newsLoading" class="empty-state empty-state-news">
+					<view class="empty-illustration empty-news">
+						<view class="news-line news-line-long"></view>
+						<view class="news-line"></view>
+						<view class="news-line news-line-short"></view>
+					</view>
+					<text class="empty-title">{{ getNewsEmptyTitle() }}</text>
+					<text class="empty-desc">{{ getNewsEmptyDesc() }}</text>
 				</view>
-				<text class="empty-title">{{ getNewsEmptyTitle() }}</text>
-				<text class="empty-desc">{{ getNewsEmptyDesc() }}</text>
-			</view>
+			</scroll-view>
 		</view>
 
 		<view v-if="activeTab == 4" :class="getPageClass('normal-page')">
@@ -1245,6 +1236,7 @@
 	const conversationList = ref([] as ConversationSummary[])
 	const currentConversationId = ref(0)
 	const chatLoading = ref(false)
+	let chatRequestLocked = false
 	const historyRefreshing = ref(false)
 	const historyPressLocked = ref(false)
 	const deleteActionConversationId = ref(0)
@@ -1781,6 +1773,9 @@
 	}
 
 	function submitMessage() {
+		if (chatRequestLocked || chatLoading.value) {
+			return
+		}
 		let text = draft.value.trim()
 		if (text.length == 0 && attachedBuildId.value > 0) {
 			text = '帮我看看这套配置怎么样？'
@@ -1796,9 +1791,7 @@
 			openAuthPage()
 			return
 		}
-		if (chatLoading.value) {
-			return
-		}
+		chatRequestLocked = true
 		const sentBuildId = attachedBuildId.value
 		const sentBuildTitle = attachedBuildTitle.value
 		chatMessages.value.push({
@@ -1889,6 +1882,7 @@
 			},
 			complete: () => {
 				chatLoading.value = false
+				chatRequestLocked = false
 				stopChatThinkingTimer()
 			}
 		})
@@ -2106,11 +2100,11 @@
 			openAuthPage()
 			return
 		}
-		postContent.value = ''
-		postImageUrls.value = []
-		postBuildId.value = 0
-		postBuildTitle.value = ''
-		postFormVisible.value = true
+		uni.navigateTo({
+			url: '/pages/post/create',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
 	}
 
 	function closePostForm() {
@@ -6193,6 +6187,9 @@
 		background-color: #f6f7fb;
 		height: 100vh;
 		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
 	}
 
 	.page-head {
@@ -7082,12 +7079,15 @@
 	}
 
 	.community-scroll {
-		height: 590px;
-		flex-shrink: 1;
+		flex: 1;
+		height: 0;
+		min-height: 0;
 	}
 
 	.community-list {
-		padding-bottom: 22px;
+		padding-bottom: 142px;
+		padding-bottom: calc(142px + constant(safe-area-inset-bottom));
+		padding-bottom: calc(142px + env(safe-area-inset-bottom));
 	}
 
 	.post-card {
@@ -7247,7 +7247,15 @@
 		animation-timing-function: ease-out;
 	}
 
+	.post-form {
+		width: calc(100% - 56px);
+		margin-left: 28px;
+		margin-right: 28px;
+		box-sizing: border-box;
+	}
+
 	.post-form-textarea {
+		width: 100%;
 		height: 150px;
 		border-radius: 22px;
 		background-color: #f6f7fb;
@@ -7255,9 +7263,11 @@
 		font-size: 15px;
 		line-height: 22px;
 		color: #111827;
+		box-sizing: border-box;
 	}
 
 	.post-form-tools {
+		width: 100%;
 		flex-direction: row;
 		margin-top: 14px;
 		margin-bottom: 12px;
@@ -7375,6 +7385,13 @@
 		left: 3px;
 		bottom: -3px;
 		transform: rotate(45deg);
+	}
+
+	.comment-action-image {
+		width: 18px;
+		height: 18px;
+		margin-right: 5px;
+		flex-shrink: 0;
 	}
 
 	.close-line-small {
@@ -7779,6 +7796,7 @@
 		background-color: #edf2f8;
 		flex-direction: row;
 		padding: 4px;
+		position: relative;
 	}
 
 	.news-sort-item {
@@ -7786,10 +7804,37 @@
 		border-radius: 15px;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+		z-index: 1;
 	}
 
 	.news-sort-item-active {
+		background-color: transparent;
+	}
+
+	.news-sort-indicator {
+		position: absolute;
+		left: 4px;
+		top: 4px;
+		width: 62px;
+		height: 30px;
+		border-radius: 15px;
 		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+		box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+		transition-property: transform;
+		transition-duration: 240ms;
+		transition-timing-function: ease-out;
+		z-index: 0;
+	}
+
+	.news-sort-indicator-0 {
+		transform: translateX(0);
+	}
+
+	.news-sort-indicator-1 {
+		transform: translateX(62px);
 	}
 
 	.news-sort-text {
@@ -7800,7 +7845,7 @@
 	}
 
 	.news-sort-text-active {
-		color: #0a84ff;
+		color: #111827;
 	}
 
 	.news-search {
@@ -7808,7 +7853,9 @@
 	}
 
 	.news-scroll {
-		height: 590px;
+		flex: 1;
+		height: 0;
+		min-height: 0;
 	}
 
 	.news-feed {

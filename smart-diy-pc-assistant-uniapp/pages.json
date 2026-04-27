@@ -43,6 +43,13 @@
 			}
 		},
 		{
+			"path": "pages/post/create",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "发布动态"
+			}
+		},
+		{
 			"path": "pages/news/detail",
 			"style": {
 				"navigationStyle": "custom",

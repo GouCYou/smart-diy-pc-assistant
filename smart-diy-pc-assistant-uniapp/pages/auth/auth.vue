@@ -732,14 +732,14 @@
 	}
 
 	.password-input {
-		padding-right: 56px;
+		padding-right: 44px;
 	}
 
 	.password-eye-button {
 		position: absolute;
 		right: 8px;
 		top: 0;
-		width: 44px;
+		width: 32px;
 		height: 52px;
 		align-items: center;
 		justify-content: center;
@@ -747,8 +747,8 @@
 
 	.eye-icon {
 		position: relative;
-		width: 26px;
-		height: 17px;
+		width: 18px;
+		height: 12px;
 		border-width: 2px;
 		border-style: solid;
 		border-color: #667085;
@@ -766,8 +766,8 @@
 	}
 
 	.eye-pupil {
-		width: 7px;
-		height: 7px;
+		width: 4px;
+		height: 4px;
 		border-radius: 999px;
 		background-color: #667085;
 		z-index: 1;
@@ -779,8 +779,8 @@
 
 	.eye-slash {
 		position: absolute;
-		width: 30px;
-		height: 3px;
+		width: 20px;
+		height: 2px;
 		border-radius: 999px;
 		background-color: #667085;
 		transform: rotate(-42deg);
