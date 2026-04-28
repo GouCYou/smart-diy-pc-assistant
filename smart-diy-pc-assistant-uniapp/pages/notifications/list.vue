@@ -66,6 +66,9 @@
 		title : string
 		content : string
 		actor : NotificationActor | null
+		relatedPostId : number
+		relatedCommentId : number
+		relatedNewsId : number
 		unread : boolean
 		createdAt : string
 	}
@@ -156,6 +159,9 @@
 			title: raw.title == null ? '' : raw.title as string,
 			content: raw.content == null ? '' : raw.content as string,
 			actor: actor,
+			relatedPostId: Number(raw.relatedPostId == null ? 0 : raw.relatedPostId),
+			relatedCommentId: Number(raw.relatedCommentId == null ? 0 : raw.relatedCommentId),
+			relatedNewsId: Number(raw.relatedNewsId == null ? 0 : raw.relatedNewsId),
 			unread: raw.unread == true,
 			createdAt: raw.createdAt == null ? '' : raw.createdAt as string
 		}
@@ -165,6 +171,33 @@
 		if (item.type == 'SYSTEM') {
 			uni.navigateTo({
 				url: '/pages/notifications/detail?id=' + item.id,
+				animationType: 'slide-in-right',
+				animationDuration: 260
+			})
+			return
+		}
+		if ((item.type == 'COMMUNITY_POST_REPLY' || item.type == 'COMMUNITY_POST_MENTION') && item.relatedPostId > 0) {
+			uni.setStorageSync('current_post_id', item.relatedPostId)
+			uni.navigateTo({
+				url: '/pages/post/detail?id=' + item.relatedPostId,
+				animationType: 'slide-in-right',
+				animationDuration: 260
+			})
+			return
+		}
+		if ((item.type == 'COMMUNITY_COMMENT_REPLY' || item.type == 'COMMUNITY_COMMENT_MENTION') && item.relatedPostId > 0) {
+			uni.setStorageSync('current_post_id', item.relatedPostId)
+			uni.navigateTo({
+				url: '/pages/post/detail?id=' + item.relatedPostId + '&commentId=' + item.relatedCommentId,
+				animationType: 'slide-in-right',
+				animationDuration: 260
+			})
+			return
+		}
+		if ((item.type == 'NEWS_COMMENT_REPLY' || item.type == 'NEWS_COMMENT_MENTION') && item.relatedNewsId > 0) {
+			uni.setStorageSync('current_news_id', item.relatedNewsId)
+			uni.navigateTo({
+				url: '/pages/news/detail?id=' + item.relatedNewsId + '&commentId=' + item.relatedCommentId,
 				animationType: 'slide-in-right',
 				animationDuration: 260
 			})

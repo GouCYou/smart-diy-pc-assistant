@@ -12,6 +12,7 @@ public record CommunityCommentResponse(
         Long parentCommentId,
         AuthorResponse replyTo,
         String content,
+        List<MentionResponse> mentions,
         List<String> imageUrls,
         BuildConfigResponse buildConfig,
         long likeCount,

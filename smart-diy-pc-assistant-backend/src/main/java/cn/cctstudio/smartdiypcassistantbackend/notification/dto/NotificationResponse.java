@@ -11,6 +11,9 @@ public record NotificationResponse(
         String title,
         String content,
         AuthorResponse actor,
+        Long relatedPostId,
+        Long relatedCommentId,
+        Long relatedNewsId,
         boolean unread,
         LocalDateTime createdAt
 ) {

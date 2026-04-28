@@ -3,12 +3,14 @@ package cn.cctstudio.smartdiypcassistantbackend.user;
 import cn.cctstudio.smartdiypcassistantbackend.common.ApiResponse;
 import cn.cctstudio.smartdiypcassistantbackend.security.UserPrincipal;
 import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserFollowListItemResponse;
+import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserMentionSearchResponse;
 import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserSpaceResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -21,6 +23,13 @@ public class UserSpaceController {
 
     public UserSpaceController(UserSpaceService userSpaceService) {
         this.userSpaceService = userSpaceService;
+    }
+
+    @GetMapping("/mentions/search")
+    public ApiResponse<List<UserMentionSearchResponse>> searchMentionUsers(
+            @RequestParam(defaultValue = "") String q
+    ) {
+        return ApiResponse.ok(userSpaceService.searchMentionUsers(q));
     }
 
     @GetMapping("/{id}/space")

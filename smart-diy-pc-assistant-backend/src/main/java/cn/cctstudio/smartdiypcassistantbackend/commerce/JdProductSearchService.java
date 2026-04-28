@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 @Service
 public class JdProductSearchService {
 
-    private static final int SEARCH_LIMIT = 20;
+    private static final int SEARCH_LIMIT = 36;
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
     private static final Pattern BOARD_CHIPSET_PATTERN = Pattern.compile("\\b[ABHXZ]\\d{3,4}[A-Z]{0,3}\\b", Pattern.CASE_INSENSITIVE);
@@ -71,11 +71,15 @@ public class JdProductSearchService {
     }
 
     public Optional<JdProduct> bestAvailableForPart(HardwarePart part) {
+        return bestAvailableForPart(part, "");
+    }
+
+    public Optional<JdProduct> bestAvailableForPart(HardwarePart part, String preferredColor) {
         String keyword = part.getModel() + " " + typeKeyword(part.getType());
         return searchProductsForPart(keyword, part, false).stream()
                 .filter(product -> part.getId().equals(product.hardwarePartId()))
                 .filter(this::isAvailableProduct)
-                .findFirst();
+                .max(Comparator.comparingInt(product -> productRank(part, product, preferredColor)));
     }
 
     public List<JdProduct> searchProductsForPart(String keyword, HardwarePart part) {
@@ -395,15 +399,22 @@ public class JdProductSearchService {
             addKeyword(keywords, capacity + "G " + type + " " + speed + " 内存条");
             if (capacity % 2 == 0) {
                 addKeyword(keywords, type + " " + speed + " " + (capacity / 2) + "Gx2 套条");
+                addKeyword(keywords, (capacity / 2) + "Gx2 " + type + " " + speed + " 内存");
             }
-            return;
+            addKeyword(keywords, capacity + "GB " + type + " 台式机内存");
+            addKeyword(keywords, type + " " + speed + " 台式机内存");
+            addKeyword(keywords, type + " " + speed + " 游戏内存");
+            addKeyword(keywords, capacity + "GB 内存条 台式机");
         }
         if (capacity > 0) {
             addKeyword(keywords, capacity + "GB " + type + " 台式机内存");
             addKeyword(keywords, capacity + "G " + type + " 内存条");
-            return;
+            if (capacity % 2 == 0) {
+                addKeyword(keywords, type + " " + (capacity / 2) + "Gx2 套条");
+            }
         }
         addKeyword(keywords, type + " 台式机内存");
+        addKeyword(keywords, type + " 内存条");
     }
 
     private void addStorageKeywords(List<String> keywords, HardwarePart part) {
@@ -459,6 +470,60 @@ public class JdProductSearchService {
 
     private boolean isAvailableProduct(JdProduct product) {
         return product != null && isAvailableProduct(product.title(), product.price(), product.link(), product.skuId());
+    }
+
+    private int productRank(HardwarePart part, JdProduct product, String preferredColor) {
+        int score = 0;
+        if (StringUtils.hasText(product.image())) {
+            score += 12;
+        }
+        if (StringUtils.hasText(product.shopName())) {
+            score += 4;
+        }
+        String color = productColor(product.title());
+        if (StringUtils.hasText(preferredColor)) {
+            if (preferredColor.equals(color)) {
+                score += 120;
+            } else if (!StringUtils.hasText(color)) {
+                score += 18;
+            } else {
+                score -= 45;
+            }
+        }
+        int referencePrice = part.getPrice();
+        int productPrice = product.price() == null ? 0 : product.price();
+        if (referencePrice > 0 && productPrice > 0) {
+            score -= Math.min(80, Math.abs(productPrice - referencePrice) / 25);
+            if (productPrice <= referencePrice * 1.18) {
+                score += 18;
+            }
+        }
+        String title = product.title().toUpperCase(Locale.ROOT);
+        String modelKey = modelMatcher.extractModel(part.getModel(), part.getType());
+        if (StringUtils.hasText(modelKey) && title.contains(modelKey.toUpperCase(Locale.ROOT))) {
+            score += 35;
+        }
+        return score;
+    }
+
+    private String productColor(String title) {
+        String text = title == null ? "" : title.toLowerCase(Locale.ROOT);
+        if (containsAnyText(text, "白色", "纯白", "雪", "white", "吹雪", "银白")) {
+            return "WHITE";
+        }
+        if (containsAnyText(text, "黑色", "雅黑", "曜黑", "暗黑", "black")) {
+            return "BLACK";
+        }
+        return "";
+    }
+
+    private boolean containsAnyText(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isAvailableProduct(String title, Integer price, String link, String skuId) {
@@ -700,7 +765,32 @@ public class JdProductSearchService {
             return false;
         }
         String speed = extractMemorySpeed(text);
-        return !StringUtils.hasText(speed) || normalizedTitle.contains(speed);
+        return !StringUtils.hasText(speed)
+                || normalizedTitle.contains(speed)
+                || titleContainsCompatibleMemorySpeed(title, speed);
+    }
+
+    private boolean titleContainsCompatibleMemorySpeed(String title, String targetSpeed) {
+        int target = parseNumber(targetSpeed);
+        if (target <= 0) {
+            return true;
+        }
+        Matcher matcher = MEMORY_SPEED_PATTERN.matcher(title == null ? "" : title);
+        while (matcher.find()) {
+            int speed = parseNumber(matcher.group(1));
+            if (speed > 0 && Math.abs(speed - target) <= 800) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int parseNumber(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     private boolean matchesStorageIntent(String title, HardwarePart part) {

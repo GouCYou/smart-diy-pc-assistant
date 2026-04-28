@@ -160,6 +160,60 @@ public class NotificationService {
         );
     }
 
+    @Transactional
+    public void notifyCommunityPostMention(Long actorId, Long recipientId, Long postId, String content) {
+        if (!shouldNotify(actorId, recipientId)) {
+            return;
+        }
+        AuthorResponse actor = author(actorId);
+        saveUserNotification(
+                recipientId,
+                actorId,
+                NotificationType.COMMUNITY_POST_MENTION,
+                actor.nickname() + " 在动态中提到了你",
+                replyContent(content),
+                postId,
+                null,
+                null
+        );
+    }
+
+    @Transactional
+    public void notifyCommunityCommentMention(Long actorId, Long recipientId, Long postId, Long commentId, String content) {
+        if (!shouldNotify(actorId, recipientId)) {
+            return;
+        }
+        AuthorResponse actor = author(actorId);
+        saveUserNotification(
+                recipientId,
+                actorId,
+                NotificationType.COMMUNITY_COMMENT_MENTION,
+                actor.nickname() + " 在评论中提到了你",
+                replyContent(content),
+                postId,
+                commentId,
+                null
+        );
+    }
+
+    @Transactional
+    public void notifyNewsCommentMention(Long actorId, Long recipientId, Long newsId, Long commentId, String content) {
+        if (!shouldNotify(actorId, recipientId)) {
+            return;
+        }
+        AuthorResponse actor = author(actorId);
+        saveUserNotification(
+                recipientId,
+                actorId,
+                NotificationType.NEWS_COMMENT_MENTION,
+                actor.nickname() + " 在新闻评论中提到了你",
+                replyContent(content),
+                null,
+                commentId,
+                newsId
+        );
+    }
+
     private void saveUserNotification(
             Long recipientId,
             Long actorId,
@@ -213,6 +267,9 @@ public class NotificationService {
                 notification.getTitle(),
                 notification.getContent(),
                 notification.getActorId() == null ? null : author(notification.getActorId()),
+                notification.getRelatedPostId(),
+                notification.getRelatedCommentId(),
+                notification.getRelatedNewsId(),
                 notification.isUnread(),
                 notification.getCreatedAt()
         );

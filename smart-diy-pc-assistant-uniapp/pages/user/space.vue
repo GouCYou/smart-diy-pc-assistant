@@ -82,7 +82,9 @@
 
 			<view v-if="activeSegment == 0 && !isSpaceHidden()" class="content-list">
 				<view v-for="post in space.posts" :key="post.id" class="post-card" @click="openPostDetail(post.id)">
-					<text class="post-content">{{ post.content }}</text>
+					<view class="post-content mention-content">
+						<text v-for="(token, index) in buildMentionTokens(post.content, post.mentions)" :key="'space-post-mention-' + post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+					</view>
 					<view v-if="post.imageUrls.length > 0" class="thumb-grid">
 						<image v-for="image in post.imageUrls.slice(0, 3)" :key="image" class="thumb" :src="image" mode="aspectFill"></image>
 					</view>
@@ -111,7 +113,9 @@
 						<text class="build-link-arrow">›</text>
 					</view>
 					<view v-if="item.type == 'post'" class="post-card" @click="openPostDetail(item.post.id)">
-						<text class="post-content">{{ item.post.content }}</text>
+						<view class="post-content mention-content">
+							<text v-for="(token, index) in buildMentionTokens(item.post.content, item.post.mentions)" :key="'favorite-post-mention-' + item.post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+						</view>
 						<text class="item-meta">收藏动态 · {{ item.post.author.nickname }} · {{ formatTime(item.time) }}</text>
 					</view>
 					<view v-if="item.type == 'news'" class="favorite-news-card" @click="openNewsDetail(item.news.id)">
@@ -180,8 +184,15 @@
 				</view>
 				<scroll-view class="detail-scroll" scroll-y="true">
 					<view v-for="part in selectedBuild.parts" :key="part.id" class="detail-part-row">
-						<text class="detail-part-title">{{ getHardwareTypeLabel(part.type) }} · {{ part.brand }} {{ part.model }}</text>
-						<text class="detail-part-meta">¥{{ part.price }} · 性能 {{ part.performanceScore }} · {{ getPartSpecText(part) }}</text>
+						<image v-if="part.productImage.length > 0" class="detail-part-image" :src="part.productImage" mode="aspectFill"></image>
+						<view v-else class="detail-part-image detail-part-fallback">
+							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
+						</view>
+						<view class="detail-part-main">
+							<text class="detail-part-title">{{ getCompactPartTitle(part, 46) }}</text>
+							<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<text class="detail-part-product">{{ getPartSpecText(part) }}</text>
+						</view>
 					</view>
 					<text v-if="selectedBuild.note.length > 0" class="detail-note">备注：{{ selectedBuild.note }}</text>
 				</scroll-view>
@@ -219,6 +230,7 @@
 	import { ref } from 'vue'
 	import { onLoad, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl } from '../../common/api'
+	import { MentionItem, MentionToken, buildMentionTokens, normalizeMentions } from '../../common/mention'
 
 	type AuthorItem = {
 		id : number
@@ -233,6 +245,12 @@
 		brand : string
 		model : string
 		price : number
+		productTitle : string
+		productPrice : number
+		productImage : string
+		productLink : string
+		skuId : string
+		matchedModel : string
 		performanceScore : number
 		socketType : string
 		memoryType : string
@@ -259,6 +277,7 @@
 		id : number
 		author : AuthorItem
 		content : string
+		mentions : MentionItem[]
 		imageUrls : string[]
 		likeCount : number
 		commentCount : number
@@ -444,9 +463,7 @@
 			value.favoritePosts[i] = normalizePost(value.favoritePosts[i])
 		}
 		for (let i = 0; i < value.favoriteBuilds.length; i++) {
-			value.favoriteBuilds[i].parts = value.favoriteBuilds[i].parts == null ? [] as HardwarePartItem[] : value.favoriteBuilds[i].parts
-			value.favoriteBuilds[i].note = value.favoriteBuilds[i].note == null ? '' : value.favoriteBuilds[i].note
-			value.favoriteBuilds[i].updatedAt = value.favoriteBuilds[i].updatedAt == null ? '' : value.favoriteBuilds[i].updatedAt
+			value.favoriteBuilds[i] = normalizeBuild(value.favoriteBuilds[i])
 		}
 		for (let i = 0; i < value.favoriteNews.length; i++) {
 			value.favoriteNews[i].summary = value.favoriteNews[i].summary == null ? '' : value.favoriteNews[i].summary
@@ -459,6 +476,32 @@
 		return value
 	}
 
+	function normalizeBuild(build : BuildConfigItem) : BuildConfigItem {
+		build.parts = build.parts == null ? [] as HardwarePartItem[] : build.parts
+		build.note = build.note == null ? '' : build.note
+		build.updatedAt = build.updatedAt == null ? '' : build.updatedAt
+		for (let i = 0; i < build.parts.length; i++) {
+			build.parts[i] = normalizeBuildPart(build.parts[i])
+		}
+		return build
+	}
+
+	function normalizeBuildPart(part : HardwarePartItem) : HardwarePartItem {
+		part.brand = part.brand == null ? '' : part.brand
+		part.model = part.model == null ? '' : part.model
+		part.productTitle = (part as any).productTitle == null ? '' : (part as any).productTitle as string
+		part.productPrice = (part as any).productPrice == null ? 0 : Number((part as any).productPrice)
+		part.productImage = normalizeMediaUrl((part as any).productImage == null ? '' : (part as any).productImage as string)
+		part.productLink = (part as any).productLink == null ? '' : (part as any).productLink as string
+		part.skuId = (part as any).skuId == null ? '' : (part as any).skuId as string
+		part.matchedModel = (part as any).matchedModel == null ? '' : (part as any).matchedModel as string
+		part.socketType = part.socketType == null ? '' : part.socketType
+		part.memoryType = part.memoryType == null ? '' : part.memoryType
+		part.formFactor = part.formFactor == null ? '' : part.formFactor
+		part.specs = part.specs == null ? '' : part.specs
+		return part
+	}
+
 	function normalizePost(post : CommunityPostItem) : CommunityPostItem {
 		if (post.author == null) {
 			post.author = { id: 0, username: '', nickname: '用户', avatarUrl: '' } as AuthorItem
@@ -466,11 +509,18 @@
 		if (post.author.avatarUrl != null) {
 			post.author.avatarUrl = normalizeMediaUrl(post.author.avatarUrl)
 		}
+		post.mentions = normalizeMentions((post as any).mentions)
 		post.imageUrls = post.imageUrls == null ? [] as string[] : post.imageUrls
 		for (let i = 0; i < post.imageUrls.length; i++) {
 			post.imageUrls[i] = normalizeMediaUrl(post.imageUrls[i])
 		}
 		return post
+	}
+
+	function openMentionToken(token : MentionToken) {
+		if (token.userId > 0) {
+			openUserSpace(token.userId)
+		}
 	}
 
 	function toggleFollow() {
@@ -628,7 +678,7 @@
 	}
 
 	function openBuildDetail(build : BuildConfigItem) {
-		selectedBuild.value = build
+		selectedBuild.value = normalizeBuild(build)
 		buildDetailVisible.value = true
 	}
 
@@ -778,6 +828,17 @@
 		})
 	}
 
+	function openUserSpace(id : number) {
+		if (id <= 0) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/space?userId=' + id,
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
 	function openFollowList(type : string) {
 		if (isSpaceHidden() || space.value.userId <= 0) {
 			return
@@ -865,6 +926,32 @@
 			return '散热'
 		}
 		return type
+	}
+
+	function getHardwareTypeShortLabel(type : string) : string {
+		if (type == 'MOTHERBOARD') {
+			return 'MB'
+		}
+		if (type == 'STORAGE') {
+			return 'SSD'
+		}
+		if (type == 'COOLER') {
+			return '散'
+		}
+		return getHardwareTypeLabel(type).slice(0, 2)
+	}
+
+	function getCompactPartTitle(part : HardwarePartItem, maxLength : number) : string {
+		const title = part.productTitle != null && part.productTitle.length > 0 ? part.productTitle : part.model
+		if (title.length <= maxLength) {
+			return title
+		}
+		return title.slice(0, maxLength) + '...'
+	}
+
+	function getPartPriceLabel(part : HardwarePartItem) : string {
+		const price = part.productPrice != null && part.productPrice > 0 ? part.productPrice : part.price
+		return price > 0 ? '¥' + price : '暂无价格'
 	}
 
 	function getPartSpecText(part : HardwarePartItem) : string {
@@ -1367,6 +1454,27 @@
 		color: #111827;
 	}
 
+	.mention-content {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+
+	.mention-token {
+		white-space: pre-wrap;
+		color: #111827;
+	}
+
+	.mention-token-active {
+		color: #0a84ff;
+		font-weight: 900;
+	}
+
+	.post-mention-token {
+		font-size: 16px;
+		line-height: 23px;
+	}
+
 	.thumb-grid {
 		flex-direction: row;
 		margin-top: 10px;
@@ -1731,10 +1839,36 @@
 	}
 
 	.detail-part-row {
+		flex-direction: row;
+		align-items: center;
+		gap: 10px;
 		border-radius: 18px;
 		background-color: #f8fafc;
 		padding: 12px;
 		margin-bottom: 8px;
+	}
+
+	.detail-part-image {
+		width: 54px;
+		height: 54px;
+		border-radius: 16px;
+		background-color: #eef2f7;
+	}
+
+	.detail-part-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.detail-part-fallback-text {
+		font-size: 12px;
+		font-weight: 900;
+		color: #98a2b3;
+	}
+
+	.detail-part-main {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.detail-part-title {
@@ -1745,11 +1879,16 @@
 	}
 
 	.detail-part-meta,
+	.detail-part-product,
 	.detail-note {
 		font-size: 12px;
 		line-height: 18px;
 		color: #667085;
 		margin-top: 4px;
+	}
+
+	.detail-part-product {
+		color: #98a2b3;
 	}
 
 	.inline-image-preview {

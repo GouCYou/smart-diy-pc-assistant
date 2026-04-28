@@ -46,6 +46,28 @@ CREATE TABLE `ai_conversation`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
+-- Table structure for ai_runtime_setting
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_runtime_setting`;
+CREATE TABLE `ai_runtime_setting`  (
+  `id` bigint NOT NULL,
+  `api_key` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `auto_build_enabled` bit(1) NOT NULL,
+  `base_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `build_trigger_mode` enum('CONSERVATIVE','BALANCED','SENSITIVE') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `color_match_mode` enum('STRICT','PREFER','FLEXIBLE') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `context_message_limit` int NULL DEFAULT NULL,
+  `extra_system_prompt` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  `model_name` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `reply_max_chars` int NULL DEFAULT NULL,
+  `reply_min_chars` int NULL DEFAULT NULL,
+  `require_purchasable_products` bit(1) NOT NULL,
+  `timeout_seconds` int NULL DEFAULT NULL,
+  `updated_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for community_comment
 -- ----------------------------
 DROP TABLE IF EXISTS `community_comment`;
@@ -280,7 +302,7 @@ CREATE TABLE `user_notification`  (
   `related_news_id` bigint NULL DEFAULT NULL,
   `related_post_id` bigint NULL DEFAULT NULL,
   `title` varchar(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `type` enum('SYSTEM','FOLLOW','COMMUNITY_POST_REPLY','COMMUNITY_COMMENT_REPLY','NEWS_COMMENT_REPLY') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `type` enum('SYSTEM','FOLLOW','COMMUNITY_POST_REPLY','COMMUNITY_COMMENT_REPLY','COMMUNITY_POST_MENTION','COMMUNITY_COMMENT_MENTION','NEWS_COMMENT_MENTION','NEWS_COMMENT_REPLY') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_user_notification_recipient_created`(`recipient_id` ASC, `created_at` DESC) USING BTREE,
   INDEX `idx_user_notification_unread`(`recipient_id` ASC, `read_at` ASC) USING BTREE

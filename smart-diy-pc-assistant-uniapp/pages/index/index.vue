@@ -317,7 +317,9 @@
 								<text class="post-head-delete-text">删除</text>
 							</view>
 						</view>
-						<text class="post-content post-content-clamped">{{ post.content }}</text>
+						<view class="post-content post-content-clamped mention-content">
+							<text v-for="(token, index) in buildMentionTokens(post.content, post.mentions)" :key="'post-mention-' + post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+						</view>
 						<view v-if="post.imageUrls.length > 0" class="post-image-grid">
 							<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click.stop="previewPostImages(post.imageUrls, image)"></image>
 						</view>
@@ -832,7 +834,30 @@
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
-				<textarea class="post-form-textarea" v-model="postContent" placeholder="分享装机想法、预算困惑或成品照片" placeholder-class="input-placeholder" />
+				<textarea class="post-form-textarea" v-model="postContent" placeholder="分享装机想法，输入 @ 艾特用户" placeholder-class="input-placeholder" @input="handlePostContentInputChange" @focus="refreshPostMentionDrawer" />
+				<view v-if="postMentionDrawerVisible" class="mention-drawer">
+					<view class="mention-drawer-handle"></view>
+					<view class="mention-search-row">
+						<text class="mention-search-mark">@</text>
+						<text class="mention-search-text">{{ postMentionQuery.length > 0 ? postMentionQuery : '搜索昵称' }}</text>
+					</view>
+					<scroll-view class="mention-user-scroll" scroll-y="true">
+						<view v-for="user in postMentionUsers" :key="user.userId" class="mention-user-row" @click="choosePostMention(user)">
+							<view class="mention-user-avatar">
+								<image v-if="user.avatarUrl.length > 0" class="mention-user-avatar-image" :src="user.avatarUrl" mode="aspectFill"></image>
+								<view v-else class="avatar-placeholder">
+									<view class="avatar-placeholder-head"></view>
+									<view class="avatar-placeholder-body"></view>
+								</view>
+							</view>
+							<text class="mention-user-name">{{ user.nickname }}</text>
+							<text class="mention-user-plus">添加</text>
+						</view>
+						<view v-if="postMentionUsers.length == 0" class="mention-empty">
+							<text class="mention-empty-text">{{ postMentionLoading ? '搜索中...' : '没有找到用户' }}</text>
+						</view>
+					</scroll-view>
+				</view>
 				<view v-if="postBuildId > 0" class="post-linked-build" @click="openPostBuildDetail(postBuildId)">
 					<view class="build-link-icon">
 						<view class="build-link-card">
@@ -1056,6 +1081,9 @@
 	import { ref } from 'vue'
 	import { onHide, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
+	import { MentionItem, MentionSearchUser, MentionToken, buildMentionTokens, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers, normalizeMentions } from '../../common/mention'
+
+	declare const plus : any
 
 	type ChatMessage = {
 		role : string
@@ -1138,6 +1166,7 @@
 		postId : number
 		author : AuthorItem
 		content : string
+		mentions : MentionItem[]
 		imageUrls : string[]
 		buildConfig : BuildConfigItem
 		likeCount : number
@@ -1149,6 +1178,7 @@
 		id : number
 		author : AuthorItem
 		content : string
+		mentions : MentionItem[]
 		imageUrls : string[]
 		buildConfig : BuildConfigItem
 		likeCount : number
@@ -1308,6 +1338,11 @@
 	const uploadProgressVisible = ref(false)
 	const uploadProgressTitle = ref('')
 	const uploadProgressPercent = ref(0)
+	const postMentionDrawerVisible = ref(false)
+	const postMentionLoading = ref(false)
+	const postMentionQuery = ref('')
+	const postMentionUsers = ref([] as MentionSearchUser[])
+	let postMentionSearchTimer : number = 0
 
 	const promptChips = [
 		'预算 6000 元，主玩 2K 游戏',
@@ -1338,6 +1373,7 @@
 	let backendReconnectTimer : number = 0
 	let chatThinkingTimer : number = 0
 	let backendProbeRunning = false
+	let unreadNotificationReady = false
 	const backendReconnectPending = ref(false)
 	const chatThinkingStepIndex = ref(0)
 
@@ -1414,6 +1450,7 @@
 			id: 0,
 			author: createEmptyAuthor(),
 			content: '',
+			mentions: [] as MentionItem[],
 			imageUrls: [] as string[],
 			buildConfig: createEmptyBuildConfig(),
 			likeCount: 0,
@@ -2137,6 +2174,54 @@
 		}
 		postFormVisible.value = false
 		postBuildPickerVisible.value = false
+		postMentionDrawerVisible.value = false
+	}
+
+	function handlePostContentInputChange(event : any) {
+		const value = event == null || event.detail == null ? '' : event.detail.value as string
+		postContent.value = value
+		refreshPostMentionDrawer()
+	}
+
+	function refreshPostMentionDrawer() {
+		const query = getActiveMentionQuery(postContent.value)
+		if (query == null) {
+			postMentionDrawerVisible.value = false
+			postMentionUsers.value = [] as MentionSearchUser[]
+			return
+		}
+		postMentionQuery.value = query
+		postMentionDrawerVisible.value = true
+		if (postMentionSearchTimer > 0) {
+			clearTimeout(postMentionSearchTimer)
+		}
+		postMentionSearchTimer = setTimeout(() => {
+			loadPostMentionUsers(query)
+		}, 140)
+	}
+
+	function loadPostMentionUsers(query : string) {
+		postMentionLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/users/mentions/search?q=' + encodeURIComponent(query),
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					postMentionUsers.value = normalizeMentionSearchUsers(body.data)
+				}
+			},
+			complete: () => {
+				postMentionLoading.value = false
+			}
+		})
+	}
+
+	function choosePostMention(user : MentionSearchUser) {
+		postContent.value = insertMention(postContent.value, user.nickname)
+		postMentionDrawerVisible.value = false
+		postMentionUsers.value = [] as MentionSearchUser[]
 	}
 
 	function loadCommunityPosts() {
@@ -2286,6 +2371,7 @@
 					postImageUrls.value = []
 					postBuildId.value = 0
 					postBuildTitle.value = ''
+					postMentionDrawerVisible.value = false
 					loadCommunityPosts()
 					uni.showToast({
 						title: '已发布',
@@ -2703,6 +2789,12 @@
 		})
 	}
 
+	function openMentionToken(token : MentionToken) {
+		if (token.userId > 0) {
+			openUserSpace(token.userId)
+		}
+	}
+
 	function closePostDetail() {
 		postDetailVisible.value = false
 		commentText.value = ''
@@ -2890,11 +2982,24 @@
 	}
 
 	function normalizeCommunityPost(post : CommunityPostItem) : CommunityPostItem {
+		if (post.author == null) {
+			post.author = createEmptyAuthor()
+		}
 		if (post.author.avatarUrl.length > 0) {
 			post.author.avatarUrl = normalizeMediaUrl(post.author.avatarUrl)
 		}
+		post.mentions = normalizeMentions((post as any).mentions)
+		if (post.imageUrls == null) {
+			post.imageUrls = [] as string[]
+		}
 		for (let i = 0; i < post.imageUrls.length; i++) {
 			post.imageUrls[i] = normalizeMediaUrl(post.imageUrls[i])
+		}
+		if (post.comments == null) {
+			post.comments = [] as CommunityCommentItem[]
+		}
+		for (let i = 0; i < post.comments.length; i++) {
+			post.comments[i].mentions = normalizeMentions((post.comments[i] as any).mentions)
 		}
 		return post
 	}
@@ -3233,6 +3338,7 @@
 		communitySegment.value = 0
 		postFormVisible.value = false
 		postBuildPickerVisible.value = false
+		postMentionDrawerVisible.value = false
 		postDetailVisible.value = false
 		postImageUrls.value = []
 		commentImageUrls.value = []
@@ -3281,6 +3387,7 @@
 		currentFollowingCount.value = 0
 		currentFollowerCount.value = 0
 		unreadNotificationCount.value = 0
+		unreadNotificationReady = false
 	}
 
 	function loadUnreadNotificationCount() {
@@ -3295,7 +3402,12 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					unreadNotificationCount.value = Number(body.data.count == null ? 0 : body.data.count)
+					const nextCount = Number(body.data.count == null ? 0 : body.data.count)
+					if (unreadNotificationReady && nextCount > unreadNotificationCount.value) {
+						triggerNativeNotification(nextCount - unreadNotificationCount.value)
+					}
+					unreadNotificationCount.value = nextCount
+					unreadNotificationReady = true
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -3303,6 +3415,16 @@
 				}
 			}
 		})
+	}
+
+	function triggerNativeNotification(increase : number) {
+		const title = '消息通知'
+		const content = increase > 1 ? '你有 ' + increase + ' 条新的消息通知' : '你有一条新的消息通知'
+		// #ifdef APP-PLUS
+		if (typeof plus != 'undefined' && plus.push != null && plus.push.createMessage != null) {
+			plus.push.createMessage(content, 'notifications', { title: title })
+		}
+		// #endif
 	}
 
 	function loadMyStats() {
@@ -4412,6 +4534,7 @@
 		historyRefreshTimer = setInterval(() => {
 			if (token.value.length > 0) {
 				loadConversations()
+				loadUnreadNotificationCount()
 			}
 		}, 15000)
 	}
@@ -6580,6 +6703,9 @@
 
 	.build-page-detail-scroll {
 		height: 610px;
+		animation-name: pageInRight;
+		animation-duration: 260ms;
+		animation-timing-function: ease-out;
 	}
 
 	.build-page-detail-card,
@@ -7353,6 +7479,28 @@
 		-webkit-box-orient: vertical;
 	}
 
+	.mention-content {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+
+	.mention-token {
+		white-space: pre-wrap;
+		color: #111827;
+	}
+
+	.mention-token-active {
+		color: #0a84ff;
+		font-weight: 900;
+	}
+
+	.post-mention-token {
+		font-size: 15px;
+		line-height: 23px;
+	}
+
 	.post-image-grid,
 	.form-image-grid {
 		flex-direction: row;
@@ -7471,6 +7619,131 @@
 		line-height: 22px;
 		color: #111827;
 		box-sizing: border-box;
+	}
+
+	.mention-drawer {
+		width: 100%;
+		max-height: 245px;
+		border-radius: 26px;
+		background-color: rgba(255, 255, 255, 0.96);
+		border-width: 1px;
+		border-color: rgba(237, 240, 245, 0.96);
+		box-shadow: 0 18px 48px rgba(16, 24, 40, 0.12);
+		padding: 8px;
+		margin-top: 10px;
+		box-sizing: border-box;
+		animation-name: mentionDrawerIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes mentionDrawerIn {
+		from {
+			opacity: 0;
+			transform: translateY(-8px) scale(0.98);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.mention-drawer-handle {
+		width: 36px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #d9e0ea;
+		align-self: center;
+		margin-top: 2px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-row {
+		height: 38px;
+		border-radius: 19px;
+		background-color: #f6f7fb;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 12px;
+		padding-right: 12px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-mark {
+		font-size: 17px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #0a84ff;
+		margin-right: 6px;
+	}
+
+	.mention-search-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.mention-user-scroll {
+		max-height: 180px;
+	}
+
+	.mention-user-row {
+		height: 50px;
+		border-radius: 18px;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.mention-user-row:active {
+		background-color: #f6f7fb;
+	}
+
+	.mention-user-avatar {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		margin-right: 10px;
+	}
+
+	.mention-user-avatar-image {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+	}
+
+	.mention-user-name {
+		flex: 1;
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.mention-user-plus {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #0a84ff;
+	}
+
+	.mention-empty {
+		height: 54px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mention-empty-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #98a2b3;
 	}
 
 	.post-form-tools {

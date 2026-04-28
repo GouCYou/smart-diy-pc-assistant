@@ -7,9 +7,11 @@ import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
 import cn.cctstudio.smartdiypcassistantbackend.news.NewsService;
 import cn.cctstudio.smartdiypcassistantbackend.notification.NotificationService;
 import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserFollowListItemResponse;
+import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserMentionSearchResponse;
 import cn.cctstudio.smartdiypcassistantbackend.user.dto.UserSpaceResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -113,6 +115,21 @@ public class UserSpaceService {
         return followRepository.findByFollowingIdOrderByCreatedAtDesc(profileUserId).stream()
                 .map(follow -> toFollowListItem(viewerId, follow.getFollowerId(), follow.getCreatedAt()))
                 .flatMap(Optional::stream)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserMentionSearchResponse> searchMentionUsers(String query) {
+        String keyword = query == null ? "" : query.trim();
+        List<User> users = StringUtils.hasText(keyword)
+                ? userRepository.findTop20ByEnabledTrueAndNicknameContainingIgnoreCaseOrderByCreatedAtDesc(keyword)
+                : userRepository.findTop20ByEnabledTrueOrderByCreatedAtDesc();
+        return users.stream()
+                .map(user -> new UserMentionSearchResponse(
+                        user.getId(),
+                        user.getNickname(),
+                        mediaUrlService.toPublicUrl(user.getAvatarKey())
+                ))
                 .toList();
     }
 

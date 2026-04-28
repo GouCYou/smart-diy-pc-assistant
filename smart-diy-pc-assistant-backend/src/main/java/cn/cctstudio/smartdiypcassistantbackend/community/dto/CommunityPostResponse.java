@@ -9,6 +9,7 @@ public record CommunityPostResponse(
         Long id,
         AuthorResponse author,
         String content,
+        List<MentionResponse> mentions,
         List<String> imageUrls,
         BuildConfigResponse buildConfig,
         long likeCount,

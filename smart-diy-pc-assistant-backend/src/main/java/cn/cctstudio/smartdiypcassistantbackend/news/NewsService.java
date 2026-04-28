@@ -3,11 +3,13 @@ package cn.cctstudio.smartdiypcassistantbackend.news;
 import cn.cctstudio.smartdiypcassistantbackend.community.dto.AuthorResponse;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
+import cn.cctstudio.smartdiypcassistantbackend.mention.UserMentionService;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentResponse;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsResponse;
 import cn.cctstudio.smartdiypcassistantbackend.notification.NotificationService;
+import cn.cctstudio.smartdiypcassistantbackend.user.User;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ public class NewsService {
     private final UserRepository userRepository;
     private final UserAccessService userAccessService;
     private final NotificationService notificationService;
+    private final UserMentionService userMentionService;
     private final MediaUrlService mediaUrlService;
 
     public NewsService(
@@ -41,6 +44,7 @@ public class NewsService {
             UserRepository userRepository,
             UserAccessService userAccessService,
             NotificationService notificationService,
+            UserMentionService userMentionService,
             MediaUrlService mediaUrlService
     ) {
         this.newsRepository = newsRepository;
@@ -51,6 +55,7 @@ public class NewsService {
         this.userRepository = userRepository;
         this.userAccessService = userAccessService;
         this.notificationService = notificationService;
+        this.userMentionService = userMentionService;
         this.mediaUrlService = mediaUrlService;
     }
 
@@ -147,6 +152,15 @@ public class NewsService {
         if (parentComment != null) {
             notificationService.notifyNewsCommentReply(userId, parentComment.getUserId(), newsId, comment.getId(), comment.getContent());
         }
+        for (User user : userMentionService.findMentionedUsers(comment.getContent())) {
+            notificationService.notifyNewsCommentMention(
+                    userId,
+                    user.getId(),
+                    newsId,
+                    comment.getId(),
+                    comment.getContent()
+            );
+        }
         return toCommentResponse(comment, userId);
     }
 
@@ -241,6 +255,7 @@ public class NewsService {
                         .map(parent -> author(parent.getUserId()))
                         .orElse(null),
                 comment.getContent(),
+                userMentionService.toResponses(comment.getContent()),
                 mediaUrlService.toPublicUrls(deserialize(comment.getImageUrls())),
                 newsCommentLikeRepository.countByCommentId(comment.getId()),
                 userId != null && userId > 0 && newsCommentLikeRepository.existsByCommentIdAndUserId(comment.getId(), userId),

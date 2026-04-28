@@ -9,7 +9,9 @@ import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostReques
 import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostResponse;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
+import cn.cctstudio.smartdiypcassistantbackend.mention.UserMentionService;
 import cn.cctstudio.smartdiypcassistantbackend.notification.NotificationService;
+import cn.cctstudio.smartdiypcassistantbackend.user.User;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserFollowRepository;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
@@ -35,6 +37,7 @@ public class CommunityService {
     private final UserFollowRepository userFollowRepository;
     private final BuildConfigService buildConfigService;
     private final NotificationService notificationService;
+    private final UserMentionService userMentionService;
     private final MediaUrlService mediaUrlService;
 
     public CommunityService(
@@ -48,6 +51,7 @@ public class CommunityService {
             UserFollowRepository userFollowRepository,
             BuildConfigService buildConfigService,
             NotificationService notificationService,
+            UserMentionService userMentionService,
             MediaUrlService mediaUrlService
     ) {
         this.postRepository = postRepository;
@@ -60,6 +64,7 @@ public class CommunityService {
         this.userFollowRepository = userFollowRepository;
         this.buildConfigService = buildConfigService;
         this.notificationService = notificationService;
+        this.userMentionService = userMentionService;
         this.mediaUrlService = mediaUrlService;
     }
 
@@ -126,6 +131,13 @@ public class CommunityService {
                 serialize(imageKeys),
                 buildConfigId
         ));
+        userMentionService.findMentionedUsers(post.getContent())
+                .forEach(user -> notificationService.notifyCommunityPostMention(
+                        userId,
+                        user.getId(),
+                        post.getId(),
+                        post.getContent()
+                ));
         return toPostResponse(post, userId, true);
     }
 
@@ -165,6 +177,7 @@ public class CommunityService {
                 buildConfigId
         ));
         sendCommunityCommentNotification(userId, post, parentComment, comment);
+        sendCommunityCommentMentionNotifications(userId, post, comment);
         return toCommentResponse(comment, userId);
     }
 
@@ -294,6 +307,18 @@ public class CommunityService {
         }
     }
 
+    private void sendCommunityCommentMentionNotifications(Long actorId, CommunityPost post, CommunityComment comment) {
+        for (User user : userMentionService.findMentionedUsers(comment.getContent())) {
+            notificationService.notifyCommunityCommentMention(
+                    actorId,
+                    user.getId(),
+                    post.getId(),
+                    comment.getId(),
+                    comment.getContent()
+            );
+        }
+    }
+
     private CommunityPostResponse toPostResponse(CommunityPost post, Long userId, boolean withComments) {
         BuildConfigResponse buildConfig = post.getBuildConfigId() == null ? null : buildConfigService.getPublic(post.getBuildConfigId());
         List<CommunityCommentResponse> comments = withComments
@@ -305,6 +330,7 @@ public class CommunityService {
                 post.getId(),
                 author(post.getUserId()),
                 post.getContent(),
+                userMentionService.toResponses(post.getContent()),
                 mediaUrlService.toPublicUrls(deserialize(post.getImageUrls())),
                 buildConfig,
                 postLikeRepository.countByPostId(post.getId()),
@@ -329,6 +355,7 @@ public class CommunityService {
                         .map(parent -> author(parent.getUserId()))
                         .orElse(null),
                 comment.getContent(),
+                userMentionService.toResponses(comment.getContent()),
                 mediaUrlService.toPublicUrls(deserialize(comment.getImageUrls())),
                 buildConfig,
                 commentLikeRepository.countByCommentId(comment.getId()),

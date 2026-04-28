@@ -130,6 +130,26 @@ type AdminSystemNotificationResponse = {
   createdAt: string
 }
 
+type AiBuildTriggerMode = 'CONSERVATIVE' | 'BALANCED' | 'SENSITIVE'
+type AiColorMatchMode = 'STRICT' | 'PREFER' | 'FLEXIBLE'
+
+type AiSettingsResponse = {
+  baseUrl: string
+  apiKey: string
+  apiKeyConfigured: boolean
+  modelName: string
+  timeoutSeconds: number
+  contextMessageLimit: number
+  replyMinChars: number
+  replyMaxChars: number
+  buildTriggerMode: AiBuildTriggerMode
+  autoBuildEnabled: boolean
+  requirePurchasableProducts: boolean
+  colorMatchMode: AiColorMatchMode
+  extraSystemPrompt: string
+  updatedAt: string
+}
+
 type BanPreset = 'PERMANENT' | '1H' | '1D' | '7D' | 'CUSTOM'
 
 const menuItems = [
@@ -154,6 +174,8 @@ const newsUploadProgressPercent = ref(0)
 const newsUploadProgressText = ref('')
 const savingHardware = ref(false)
 const sendingSystemNotification = ref(false)
+const savingAiSettings = ref(false)
+const aiSettingsLoaded = ref(false)
 const errorMessage = ref('')
 const username = ref('')
 const password = ref('')
@@ -220,6 +242,22 @@ const systemNoticeForm = reactive({
   title: '',
   content: '',
 })
+const aiSettingsForm = reactive<AiSettingsResponse>({
+  baseUrl: '',
+  apiKey: '',
+  apiKeyConfigured: false,
+  modelName: '',
+  timeoutSeconds: 30,
+  contextMessageLimit: 12,
+  replyMinChars: 180,
+  replyMaxChars: 420,
+  buildTriggerMode: 'SENSITIVE',
+  autoBuildEnabled: true,
+  requirePurchasableProducts: true,
+  colorMatchMode: 'PREFER',
+  extraSystemPrompt: '',
+  updatedAt: '',
+})
 const editingHardwareId = ref<number | null>(null)
 const hardwareTypeOptions: Array<{ label: string; value: HardwarePartType }> = [
   { label: 'CPU', value: 'CPU' },
@@ -258,6 +296,18 @@ const banPresetOptions: Array<{ label: string; value: BanPreset }> = [
   { label: '1 天', value: '1D' },
   { label: '7 天', value: '7D' },
   { label: '指定时间', value: 'CUSTOM' },
+]
+
+const aiTriggerOptions: Array<{ label: string; value: AiBuildTriggerMode; desc: string }> = [
+  { label: '灵敏', value: 'SENSITIVE', desc: '预算、用途和“出一台”这类表达都会优先生成配置单。' },
+  { label: '均衡', value: 'BALANCED', desc: '需要较明确的预算、用途或配件诉求才生成配置单。' },
+  { label: '保守', value: 'CONSERVATIVE', desc: '只在明确说配置单、装机或配电脑时生成。' },
+]
+
+const aiColorOptions: Array<{ label: string; value: AiColorMatchMode; desc: string }> = [
+  { label: '优先统一', value: 'PREFER', desc: '尽量让内存、显卡、机箱等外观颜色一致，缺货时允许折中。' },
+  { label: '严格统一', value: 'STRICT', desc: '用户指定颜色时尽量拒绝异色搭配。' },
+  { label: '灵活', value: 'FLEXIBLE', desc: '以性能、预算和可购买优先，不强制颜色一致。' },
 ]
 
 const filteredUserList = computed(() => {
@@ -449,6 +499,7 @@ function logout() {
   token.value = ''
   loggedIn.value = false
   activeMenu.value = 'dashboard'
+  aiSettingsLoaded.value = false
 }
 
 async function restoreAdminSession(savedToken: string, savedUser: string | null) {
@@ -484,6 +535,67 @@ async function loadUsers() {
   userList.value = await request<AdminUserItem[]>('/api/admin/users', {
     headers: authHeaders(),
   })
+}
+
+async function loadAiSettings() {
+  if (!token.value || aiSettingsLoaded.value) {
+    return
+  }
+  const data = await request<AiSettingsResponse>('/api/admin/ai-settings', {
+    headers: authHeaders(),
+  })
+  applyAiSettings(data)
+  aiSettingsLoaded.value = true
+}
+
+function applyAiSettings(data: AiSettingsResponse) {
+  aiSettingsForm.baseUrl = data.baseUrl || ''
+  aiSettingsForm.apiKey = data.apiKey || ''
+  aiSettingsForm.apiKeyConfigured = data.apiKeyConfigured
+  aiSettingsForm.modelName = data.modelName || ''
+  aiSettingsForm.timeoutSeconds = data.timeoutSeconds || 30
+  aiSettingsForm.contextMessageLimit = data.contextMessageLimit || 12
+  aiSettingsForm.replyMinChars = data.replyMinChars || 180
+  aiSettingsForm.replyMaxChars = data.replyMaxChars || 420
+  aiSettingsForm.buildTriggerMode = data.buildTriggerMode || 'SENSITIVE'
+  aiSettingsForm.autoBuildEnabled = data.autoBuildEnabled
+  aiSettingsForm.requirePurchasableProducts = data.requirePurchasableProducts
+  aiSettingsForm.colorMatchMode = data.colorMatchMode || 'PREFER'
+  aiSettingsForm.extraSystemPrompt = data.extraSystemPrompt || ''
+  aiSettingsForm.updatedAt = data.updatedAt || ''
+}
+
+async function saveAiSettings() {
+  savingAiSettings.value = true
+  errorMessage.value = ''
+  try {
+    const minChars = Number(aiSettingsForm.replyMinChars)
+    const maxChars = Number(aiSettingsForm.replyMaxChars)
+    const data = await request<AiSettingsResponse>('/api/admin/ai-settings', {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        baseUrl: aiSettingsForm.baseUrl,
+        apiKey: aiSettingsForm.apiKey,
+        modelName: aiSettingsForm.modelName,
+        timeoutSeconds: Number(aiSettingsForm.timeoutSeconds),
+        contextMessageLimit: Number(aiSettingsForm.contextMessageLimit),
+        replyMinChars: minChars,
+        replyMaxChars: Math.max(maxChars, minChars),
+        buildTriggerMode: aiSettingsForm.buildTriggerMode,
+        autoBuildEnabled: aiSettingsForm.autoBuildEnabled,
+        requirePurchasableProducts: aiSettingsForm.requirePurchasableProducts,
+        colorMatchMode: aiSettingsForm.colorMatchMode,
+        extraSystemPrompt: aiSettingsForm.extraSystemPrompt,
+      }),
+    })
+    applyAiSettings(data)
+    aiSettingsLoaded.value = true
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    savingAiSettings.value = false
+  }
 }
 
 async function updateUserRole(item: AdminUserItem, role: AdminUserItem['role']) {
@@ -1268,6 +1380,9 @@ function switchMenu(key: string) {
   if (key === 'community') {
     loadCommunityPosts()
   }
+  if (key === 'ai') {
+    loadAiSettings()
+  }
 }
 
 onMounted(() => {
@@ -1880,6 +1995,131 @@ onBeforeUnmount(() => {
             <span>最近一次发送</span>
             <strong>{{ lastSystemNotification.title }}</strong>
             <p>已发送给 {{ lastSystemNotification.recipientCount }} 位用户 · {{ formatTime(lastSystemNotification.createdAt) }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeMenu === 'ai'" class="content-area ai-settings-workbench">
+        <form class="editor-card ai-settings-editor" @submit.prevent="saveAiSettings">
+          <div class="section-head">
+            <div>
+              <h3>AI 对话参数</h3>
+              <p class="section-subtitle">控制模型连接、上下文记忆、回复长度和配置单自动生成策略。</p>
+            </div>
+            <span :class="aiSettingsForm.apiKeyConfigured ? 'ai-status ready' : 'ai-status'">
+              {{ aiSettingsForm.apiKeyConfigured ? '已配置密钥' : '缺少密钥' }}
+            </span>
+          </div>
+
+          <div class="form-grid ai-form-grid">
+            <label>
+              API Base URL
+              <input v-model="aiSettingsForm.baseUrl" placeholder="https://api.openai.com/v1" />
+            </label>
+            <label>
+              模型名称
+              <input v-model="aiSettingsForm.modelName" placeholder="gpt-4o-mini" />
+            </label>
+          </div>
+
+          <label>
+            API Key
+            <input v-model="aiSettingsForm.apiKey" autocomplete="off" placeholder="留空则使用服务器环境配置" type="password" />
+          </label>
+
+          <div class="form-grid ai-form-grid">
+            <label>
+              超时时间（秒）
+              <input v-model.number="aiSettingsForm.timeoutSeconds" min="5" max="180" type="number" />
+            </label>
+            <label>
+              会话记忆条数
+              <input v-model.number="aiSettingsForm.contextMessageLimit" min="4" max="30" type="number" />
+            </label>
+            <label>
+              回复最少字数
+              <input v-model.number="aiSettingsForm.replyMinChars" min="60" max="800" type="number" />
+            </label>
+            <label>
+              回复最多字数
+              <input v-model.number="aiSettingsForm.replyMaxChars" min="120" max="1200" type="number" />
+            </label>
+          </div>
+
+          <label>
+            管理员附加提示词
+            <textarea
+              v-model="aiSettingsForm.extraSystemPrompt"
+              class="ai-prompt-textarea"
+              maxlength="2000"
+              placeholder="例如：优先推荐可购买商品；预算冲突时先说明取舍；不要编造已保存配置单。"
+            ></textarea>
+          </label>
+
+          <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+          <div class="button-row">
+            <button class="primary-button" :disabled="savingAiSettings" type="submit">
+              {{ savingAiSettings ? '保存中...' : '保存 AI 设置' }}
+            </button>
+            <button class="ghost-button" type="button" @click="aiSettingsLoaded = false; loadAiSettings()">刷新</button>
+          </div>
+        </form>
+
+        <div class="list-card ai-policy-panel">
+          <div class="section-head">
+            <div>
+              <h3>装机生成策略</h3>
+              <p class="section-subtitle">让配置单生成、京东商品匹配和外观搭配更可控。</p>
+            </div>
+          </div>
+
+          <label class="toggle-row">
+            <span>
+              自动生成配置单
+              <em>用户表达预算、用途或“出一台”时直接保存真实配置单。</em>
+            </span>
+            <input v-model="aiSettingsForm.autoBuildEnabled" type="checkbox" />
+          </label>
+
+          <label class="toggle-row">
+            <span>
+              仅使用可购买京东商品
+              <em>避免把无链接、无价格或无 SKU 的商品写进配置单。</em>
+            </span>
+            <input v-model="aiSettingsForm.requirePurchasableProducts" type="checkbox" />
+          </label>
+
+          <div class="ai-option-group">
+            <span class="ai-option-title">生成触发灵敏度</span>
+            <button
+              v-for="option in aiTriggerOptions"
+              :key="option.value"
+              :class="aiSettingsForm.buildTriggerMode === option.value ? 'ai-option active' : 'ai-option'"
+              type="button"
+              @click="aiSettingsForm.buildTriggerMode = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <em>{{ option.desc }}</em>
+            </button>
+          </div>
+
+          <div class="ai-option-group">
+            <span class="ai-option-title">颜色搭配策略</span>
+            <button
+              v-for="option in aiColorOptions"
+              :key="option.value"
+              :class="aiSettingsForm.colorMatchMode === option.value ? 'ai-option active' : 'ai-option'"
+              type="button"
+              @click="aiSettingsForm.colorMatchMode = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <em>{{ option.desc }}</em>
+            </button>
+          </div>
+
+          <div class="ai-memory-card">
+            <span>当前记忆机制</span>
+            <p>每次回复会读取当前对话最近 {{ aiSettingsForm.contextMessageLimit }} 条消息作为短期上下文；暂未做跨会话长期记忆或向量记忆。</p>
           </div>
         </div>
       </section>
@@ -2625,14 +2865,150 @@ textarea {
   gap: 18px;
 }
 
+.ai-settings-workbench {
+  display: grid;
+  grid-template-columns: minmax(460px, 1fr) minmax(420px, 0.9fr);
+  gap: 18px;
+}
+
 .news-editor-card,
 .news-list-card {
   margin-top: 0;
 }
 
 .system-notice-editor,
-.system-notice-preview {
+.system-notice-preview,
+.ai-settings-editor,
+.ai-policy-panel {
   align-self: start;
+}
+
+.ai-form-grid {
+  margin-top: 4px;
+}
+
+.ai-status {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #ff3b30;
+  font-size: 12px;
+  font-weight: 900;
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.ai-status.ready {
+  color: #0a7a3d;
+  background: rgba(52, 199, 89, 0.12);
+}
+
+.ai-prompt-textarea {
+  min-height: 156px;
+  line-height: 1.75;
+}
+
+.toggle-row {
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid rgba(226, 233, 244, 0.92);
+  border-radius: 22px;
+  background: #f8fbff;
+}
+
+.toggle-row span,
+.toggle-row em {
+  display: block;
+}
+
+.toggle-row span {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.toggle-row em {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.toggle-row input {
+  width: 22px;
+  height: 22px;
+  justify-self: end;
+}
+
+.ai-option-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ai-option-title {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ai-option {
+  width: 100%;
+  border: 1px solid rgba(226, 233, 244, 0.92);
+  border-radius: 22px;
+  padding: 14px 16px;
+  text-align: left;
+  background: #fff;
+}
+
+.ai-option.active {
+  border-color: rgba(10, 132, 255, 0.28);
+  background: rgba(10, 132, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.1);
+}
+
+.ai-option strong,
+.ai-option em {
+  display: block;
+}
+
+.ai-option strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.ai-option em {
+  margin-top: 5px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ai-memory-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 24px;
+  color: var(--text);
+  background: linear-gradient(180deg, #f8fbff, #fff);
+  border: 1px solid rgba(226, 233, 244, 0.92);
+}
+
+.ai-memory-card span {
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-memory-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
 .system-notice-textarea {

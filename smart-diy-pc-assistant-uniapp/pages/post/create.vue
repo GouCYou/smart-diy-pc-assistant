@@ -14,7 +14,31 @@
 
 		<scroll-view class="create-scroll" scroll-y="true">
 			<view class="composer-card">
-				<textarea class="composer-textarea" v-model="content" placeholder="分享装机想法、预算困惑或成品照片" placeholder-class="input-placeholder" maxlength="-1" />
+				<textarea class="composer-textarea" v-model="content" placeholder="分享装机想法，输入 @ 艾特用户" placeholder-class="input-placeholder" maxlength="-1" @input="handleContentInputChange" @focus="refreshMentionDrawer" />
+			</view>
+
+			<view v-if="mentionDrawerVisible" class="mention-drawer">
+				<view class="mention-drawer-handle"></view>
+				<view class="mention-search-row">
+					<text class="mention-search-mark">@</text>
+					<text class="mention-search-text">{{ mentionQuery.length > 0 ? mentionQuery : '搜索昵称' }}</text>
+				</view>
+				<scroll-view class="mention-user-scroll" scroll-y="true">
+					<view v-for="user in mentionUsers" :key="user.userId" class="mention-user-row" @click="chooseContentMention(user)">
+						<view class="mention-user-avatar">
+							<image v-if="user.avatarUrl.length > 0" class="mention-user-avatar-image" :src="user.avatarUrl" mode="aspectFill"></image>
+							<view v-else class="avatar-placeholder">
+								<view class="avatar-placeholder-head"></view>
+								<view class="avatar-placeholder-body"></view>
+							</view>
+						</view>
+						<text class="mention-user-name">{{ user.nickname }}</text>
+						<text class="mention-user-plus">添加</text>
+					</view>
+					<view v-if="mentionUsers.length == 0" class="mention-empty">
+						<text class="mention-empty-text">{{ mentionLoading ? '搜索中...' : '没有找到用户' }}</text>
+					</view>
+				</scroll-view>
 			</view>
 
 			<view v-if="imageUrls.length > 0" class="image-grid">
@@ -111,6 +135,7 @@
 	import { ref } from 'vue'
 	import { onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL } from '../../common/api'
+	import { MentionSearchUser, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers } from '../../common/mention'
 
 	type BuildConfigItem = {
 		id : number
@@ -140,6 +165,11 @@
 	const progressVisible = ref(false)
 	const progressTitle = ref('正在发布')
 	const progressPercent = ref(0)
+	const mentionDrawerVisible = ref(false)
+	const mentionLoading = ref(false)
+	const mentionQuery = ref('')
+	const mentionUsers = ref([] as MentionSearchUser[])
+	let mentionSearchTimer : number = 0
 
 	onShow(() => {
 		loadAuth()
@@ -183,6 +213,53 @@
 
 	function canSubmit() : boolean {
 		return !publishing.value && content.value.trim().length > 0
+	}
+
+	function handleContentInputChange(event : any) {
+		const value = event == null || event.detail == null ? '' : event.detail.value as string
+		content.value = value
+		refreshMentionDrawer()
+	}
+
+	function refreshMentionDrawer() {
+		const query = getActiveMentionQuery(content.value)
+		if (query == null) {
+			mentionDrawerVisible.value = false
+			mentionUsers.value = [] as MentionSearchUser[]
+			return
+		}
+		mentionQuery.value = query
+		mentionDrawerVisible.value = true
+		if (mentionSearchTimer > 0) {
+			clearTimeout(mentionSearchTimer)
+		}
+		mentionSearchTimer = setTimeout(() => {
+			loadMentionUsers(query)
+		}, 140)
+	}
+
+	function loadMentionUsers(query : string) {
+		mentionLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/users/mentions/search?q=' + encodeURIComponent(query),
+			method: 'GET',
+			header: token.value.length == 0 ? {} : { 'Authorization': 'Bearer ' + token.value },
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					mentionUsers.value = normalizeMentionSearchUsers(body.data)
+				}
+			},
+			complete: () => {
+				mentionLoading.value = false
+			}
+		})
+	}
+
+	function chooseContentMention(user : MentionSearchUser) {
+		content.value = insertMention(content.value, user.nickname)
+		mentionDrawerVisible.value = false
+		mentionUsers.value = [] as MentionSearchUser[]
 	}
 
 	function pickImages() {
@@ -701,6 +778,157 @@
 		line-height: 24px;
 		color: #111827;
 		box-sizing: border-box;
+	}
+
+	.mention-drawer {
+		width: 100%;
+		max-height: 245px;
+		border-radius: 26px;
+		background-color: rgba(255, 255, 255, 0.96);
+		border-width: 1px;
+		border-color: rgba(237, 240, 245, 0.96);
+		box-shadow: 0 18px 48px rgba(16, 24, 40, 0.12);
+		padding: 8px;
+		margin-top: 10px;
+		box-sizing: border-box;
+		animation-name: mentionDrawerIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes mentionDrawerIn {
+		from {
+			opacity: 0;
+			transform: translateY(-8px) scale(0.98);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.mention-drawer-handle {
+		width: 36px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #d9e0ea;
+		align-self: center;
+		margin-top: 2px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-row {
+		height: 38px;
+		border-radius: 19px;
+		background-color: #f6f7fb;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 12px;
+		padding-right: 12px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-mark {
+		font-size: 17px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #0a84ff;
+		margin-right: 6px;
+	}
+
+	.mention-search-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.mention-user-scroll {
+		max-height: 180px;
+	}
+
+	.mention-user-row {
+		height: 50px;
+		border-radius: 18px;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.mention-user-row:active {
+		background-color: #f6f7fb;
+	}
+
+	.mention-user-avatar {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		margin-right: 10px;
+	}
+
+	.mention-user-avatar-image {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+	}
+
+	.avatar-placeholder {
+		flex-direction: column;
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.avatar-placeholder-head {
+		width: 32%;
+		height: 32%;
+		border-radius: 999px;
+		background-color: #98a2b3;
+		margin-bottom: 2px;
+	}
+
+	.avatar-placeholder-body {
+		width: 54%;
+		height: 28%;
+		border-radius: 999px 999px 0 0;
+		background-color: #98a2b3;
+	}
+
+	.mention-user-name {
+		flex: 1;
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.mention-user-plus {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #0a84ff;
+	}
+
+	.mention-empty {
+		height: 54px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mention-empty-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #98a2b3;
 	}
 
 	.input-placeholder {

@@ -12,7 +12,7 @@
 			<view class="nav-spacer"></view>
 		</view>
 
-		<scroll-view class="post-scroll" scroll-y="true">
+		<scroll-view class="post-scroll" scroll-y="true" :scroll-into-view="scrollIntoViewId" scroll-with-animation="true">
 			<view v-if="post.id > 0" class="post-card">
 				<view class="post-head">
 					<view class="post-avatar" @click.stop="openUserSpace(post.author.id)">
@@ -31,7 +31,9 @@
 					</view>
 				</view>
 
-				<text class="post-content">{{ post.content }}</text>
+				<view class="post-content mention-content">
+					<text v-for="(token, index) in buildMentionTokens(post.content, post.mentions)" :key="'post-mention-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+				</view>
 
 				<view v-if="post.imageUrls.length > 0" class="image-grid">
 					<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click="previewPostImage(image)"></image>
@@ -86,7 +88,7 @@
 					</view>
 				</view>
 
-				<view v-for="comment in getPagedComments()" :key="comment.id" class="comment-card" @click="replyToComment(comment)">
+				<view v-for="comment in getPagedComments()" :id="'comment-' + comment.id" :key="comment.id" :class="highlightCommentId == comment.id ? 'comment-card comment-card-highlight' : 'comment-card'" @click="replyToComment(comment)">
 					<view class="comment-top">
 						<view class="comment-avatar" @click.stop="openUserSpace(comment.author.id)">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="normalizeMediaUrl(comment.author.avatarUrl)" mode="aspectFill"></image>
@@ -110,7 +112,9 @@
 					<view v-if="comment.replyTo != null && comment.replyTo.id > 0" class="comment-reply-context">
 						<text class="comment-reply-context-text">回复 {{ getAuthorDisplayName(comment.replyTo) }}</text>
 					</view>
-					<text class="comment-content">{{ comment.content }}</text>
+					<view class="comment-content mention-content">
+						<text v-for="(token, index) in buildMentionTokens(comment.content, comment.mentions)" :key="'comment-mention-' + comment.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active comment-mention-token' : 'mention-token comment-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+					</view>
 					<view v-if="comment.imageUrls.length > 0" class="comment-image-grid">
 						<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click.stop="previewCommentImage(comment.imageUrls, image)"></image>
 					</view>
@@ -180,6 +184,30 @@
 			</view>
 		</view>
 
+		<view v-if="mentionDrawerVisible" class="mention-drawer">
+			<view class="mention-drawer-handle"></view>
+			<view class="mention-search-row">
+				<text class="mention-search-mark">@</text>
+				<text class="mention-search-text">{{ mentionQuery.length > 0 ? mentionQuery : '搜索昵称' }}</text>
+			</view>
+			<scroll-view class="mention-user-scroll" scroll-y="true">
+				<view v-for="user in mentionUsers" :key="user.userId" class="mention-user-row" @click="chooseCommentMention(user)">
+					<view class="mention-user-avatar">
+						<image v-if="user.avatarUrl.length > 0" class="mention-user-avatar-image" :src="user.avatarUrl" mode="aspectFill"></image>
+						<view v-else class="avatar-placeholder avatar-placeholder-small">
+							<view class="avatar-placeholder-head"></view>
+							<view class="avatar-placeholder-body"></view>
+						</view>
+					</view>
+					<text class="mention-user-name">{{ user.nickname }}</text>
+					<text class="mention-user-plus">添加</text>
+				</view>
+				<view v-if="mentionUsers.length == 0" class="mention-empty">
+					<text class="mention-empty-text">{{ mentionLoading ? '搜索中...' : '没有找到用户' }}</text>
+				</view>
+			</scroll-view>
+		</view>
+
 		<view class="comment-composer">
 			<view class="comment-image-button" @click="pickCommentImages">
 				<view class="tool-image-icon">
@@ -194,7 +222,7 @@
 					<view class="close-line close-line-two reply-close-line"></view>
 				</view>
 			</view>
-			<input class="comment-input" v-model="commentText" :placeholder="getCommentPlaceholder()" placeholder-class="input-placeholder" />
+			<input class="comment-input" v-model="commentText" :placeholder="getCommentPlaceholder()" placeholder-class="input-placeholder" @input="handleCommentInputChange" @focus="refreshMentionDrawer" />
 			<view :class="commentBuildId > 0 ? 'comment-attach-button comment-attach-button-active' : 'comment-attach-button'" @click="openCommentBuildPicker">
 				<view class="comment-build-symbol">
 					<view class="comment-build-symbol-head"></view>
@@ -298,9 +326,10 @@
 </template>
 
 <script setup lang="ts">
-	import { ref } from 'vue'
-	import { onHide, onShow } from '@dcloudio/uni-app'
+	import { nextTick, ref } from 'vue'
+	import { onHide, onLoad, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
+	import { MentionItem, MentionSearchUser, MentionToken, buildMentionTokens, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers, normalizeMentions } from '../../common/mention'
 
 	type AuthorItem = {
 		id : number
@@ -350,6 +379,7 @@
 		parentCommentId : number
 		replyTo : AuthorItem
 		content : string
+		mentions : MentionItem[]
 		imageUrls : string[]
 		buildConfig : BuildConfigItem
 		likeCount : number
@@ -361,6 +391,7 @@
 		id : number
 		author : AuthorItem
 		content : string
+		mentions : MentionItem[]
 		imageUrls : string[]
 		buildConfig : BuildConfigItem
 		likeCount : number
@@ -381,6 +412,9 @@
 	const loading = ref(false)
 	const commentSort = ref('latest')
 	const commentPage = ref(1)
+	const pendingCommentId = ref(0)
+	const highlightCommentId = ref(0)
+	const scrollIntoViewId = ref('')
 	const commentText = ref('')
 	const replyTargetCommentId = ref(0)
 	const replyTargetName = ref('')
@@ -409,12 +443,30 @@
 	const uploadProgressTitle = ref('')
 	const uploadProgressPercent = ref(0)
 	const backendReconnectPending = ref(false)
+	const mentionDrawerVisible = ref(false)
+	const mentionLoading = ref(false)
+	const mentionQuery = ref('')
+	const mentionUsers = ref([] as MentionSearchUser[])
 	let backendReconnectTimer : number = 0
 	let backendProbeRunning = false
+	let mentionSearchTimer : number = 0
 
 	loadLocalState()
 	loadCurrentUserId()
 	loadPostDetail()
+	onLoad((options : any) => {
+		const routePostId = Number(options == null || options.id == null ? 0 : options.id)
+		const routeCommentId = Number(options == null || options.commentId == null ? 0 : options.commentId)
+		if (routePostId > 0) {
+			postId.value = routePostId
+			uni.setStorageSync('current_post_id', routePostId)
+		}
+		if (routeCommentId > 0) {
+			pendingCommentId.value = routeCommentId
+			highlightCommentId.value = routeCommentId
+		}
+		loadPostDetail()
+	})
 	onShow(() => {
 		loadLocalState()
 		if (backendReconnectPending.value) {
@@ -454,6 +506,7 @@
 			id: 0,
 			author: createEmptyAuthor(),
 			content: '',
+			mentions: [] as MentionItem[],
 			imageUrls: [] as string[],
 			buildConfig: createEmptyBuildConfig(),
 			likeCount: 0,
@@ -515,6 +568,7 @@
 					backendReconnectPending.value = false
 					post.value = normalizePost(body.data as CommunityPostItem)
 					clampCommentPage()
+					focusPendingComment()
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -539,6 +593,7 @@
 			value.author.avatarUrl = normalizeMediaUrl(value.author.avatarUrl)
 		}
 		value.imageUrls = value.imageUrls == null ? [] as string[] : value.imageUrls
+		value.mentions = normalizeMentions((value as any).mentions)
 		value.comments = value.comments == null ? [] as CommunityCommentItem[] : value.comments
 		for (let i = 0; i < value.imageUrls.length; i++) {
 			value.imageUrls[i] = normalizeMediaUrl(value.imageUrls[i])
@@ -550,6 +605,7 @@
 			if (value.comments[i].replyTo == null) {
 				value.comments[i].replyTo = createEmptyAuthor()
 			}
+			value.comments[i].mentions = normalizeMentions((value.comments[i] as any).mentions)
 			if (value.comments[i].author.avatarUrl != null && value.comments[i].author.avatarUrl.length > 0) {
 				value.comments[i].author.avatarUrl = normalizeMediaUrl(value.comments[i].author.avatarUrl)
 			}
@@ -805,6 +861,7 @@
 						uploadProgressPercent.value = 100
 					}
 					const comment = body.data as CommunityCommentItem
+					comment.mentions = normalizeMentions((comment as any).mentions)
 					if (comment.buildConfig == null) {
 						comment.buildConfig = createEmptyBuildConfig()
 					}
@@ -852,6 +909,7 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					const updated = body.data as CommunityCommentItem
+					updated.mentions = normalizeMentions((updated as any).mentions)
 					for (let i = 0; i < post.value.comments.length; i++) {
 						if (post.value.comments[i].id == updated.id) {
 							for (let j = 0; j < updated.imageUrls.length; j++) {
@@ -923,7 +981,60 @@
 	}
 
 	function getCommentPlaceholder() : string {
-		return replyTargetCommentId.value > 0 ? '回复 ' + replyTargetName.value : '写评论'
+		return replyTargetCommentId.value > 0 ? '回复 ' + replyTargetName.value + '，输入 @ 艾特用户' : '写评论，输入 @ 艾特用户'
+	}
+
+	function openMentionToken(token : MentionToken) {
+		if (token.userId > 0) {
+			openUserSpace(token.userId)
+		}
+	}
+
+	function handleCommentInputChange(event : any) {
+		const value = event == null || event.detail == null ? '' : event.detail.value as string
+		commentText.value = value
+		refreshMentionDrawer()
+	}
+
+	function refreshMentionDrawer() {
+		const query = getActiveMentionQuery(commentText.value)
+		if (query == null) {
+			mentionDrawerVisible.value = false
+			mentionUsers.value = [] as MentionSearchUser[]
+			return
+		}
+		mentionQuery.value = query
+		mentionDrawerVisible.value = true
+		if (mentionSearchTimer > 0) {
+			clearTimeout(mentionSearchTimer)
+		}
+		mentionSearchTimer = setTimeout(() => {
+			loadMentionUsers(query)
+		}, 140)
+	}
+
+	function loadMentionUsers(query : string) {
+		mentionLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/users/mentions/search?q=' + encodeURIComponent(query),
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					mentionUsers.value = normalizeMentionSearchUsers(body.data)
+				}
+			},
+			complete: () => {
+				mentionLoading.value = false
+			}
+		})
+	}
+
+	function chooseCommentMention(user : MentionSearchUser) {
+		commentText.value = insertMention(commentText.value, user.nickname)
+		mentionDrawerVisible.value = false
+		mentionUsers.value = [] as MentionSearchUser[]
 	}
 
 	function getAuthorDisplayName(author : AuthorItem) : string {
@@ -942,6 +1053,7 @@
 	function setCommentSort(value : string) {
 		commentSort.value = value
 		commentPage.value = 1
+		focusPendingComment()
 	}
 
 	function getSortedComments() : CommunityCommentItem[] {
@@ -1000,6 +1112,26 @@
 		clampCommentPage()
 		const start = (commentPage.value - 1) * 10
 		return comments.slice(start, start + 10)
+	}
+
+	function focusPendingComment() {
+		if (pendingCommentId.value <= 0 || post.value.comments.length == 0) {
+			return
+		}
+		const comments = getSortedComments()
+		for (let i = 0; i < comments.length; i++) {
+			if (comments[i].id == pendingCommentId.value) {
+				commentPage.value = Math.floor(i / 10) + 1
+				highlightCommentId.value = pendingCommentId.value
+				nextTick(() => {
+					scrollIntoViewId.value = ''
+					setTimeout(() => {
+						scrollIntoViewId.value = 'comment-' + pendingCommentId.value
+					}, 80)
+				})
+				return
+			}
+		}
 	}
 
 	function pickCommentImages() {
@@ -1604,6 +1736,28 @@
 		color: #111827;
 	}
 
+	.mention-content {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+
+	.mention-token {
+		white-space: pre-wrap;
+		color: #111827;
+	}
+
+	.mention-token-active {
+		color: #0a84ff;
+		font-weight: 900;
+	}
+
+	.post-mention-token {
+		font-size: 16px;
+		line-height: 25px;
+	}
+
 	.image-grid,
 	.comment-image-grid {
 		flex-direction: row;
@@ -1962,6 +2116,14 @@
 		margin-bottom: 10px;
 		border-width: 1px;
 		border-color: #edf0f5;
+		transition-property: background-color, border-color, transform;
+		transition-duration: 260ms;
+	}
+
+	.comment-card-highlight {
+		background-color: #eef5ff;
+		border-color: rgba(10, 132, 255, 0.28);
+		transform: scale(1.01);
 	}
 
 	.comment-reply-context {
@@ -1988,6 +2150,11 @@
 		font-size: 14px;
 		line-height: 21px;
 		color: #111827;
+	}
+
+	.comment-mention-token {
+		font-size: 14px;
+		line-height: 21px;
 	}
 
 	.comment-empty {
@@ -2183,6 +2350,135 @@
 		align-items: center;
 		padding: 6px;
 		z-index: 21;
+	}
+
+	.mention-drawer {
+		position: fixed;
+		left: 20px;
+		right: 20px;
+		bottom: 82px;
+		bottom: calc(82px + constant(safe-area-inset-bottom));
+		bottom: calc(82px + env(safe-area-inset-bottom));
+		max-height: 245px;
+		border-radius: 26px;
+		background-color: rgba(255, 255, 255, 0.96);
+		border-width: 1px;
+		border-color: rgba(237, 240, 245, 0.96);
+		box-shadow: 0 18px 48px rgba(16, 24, 40, 0.14);
+		padding: 8px;
+		z-index: 22;
+		animation-name: mentionDrawerIn;
+		animation-duration: 220ms;
+		animation-timing-function: ease-out;
+	}
+
+	@keyframes mentionDrawerIn {
+		from {
+			opacity: 0;
+			transform: translateY(14px) scale(0.98);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.mention-drawer-handle {
+		width: 36px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #d9e0ea;
+		align-self: center;
+		margin-top: 2px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-row {
+		height: 38px;
+		border-radius: 19px;
+		background-color: #f6f7fb;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 12px;
+		padding-right: 12px;
+		margin-bottom: 8px;
+	}
+
+	.mention-search-mark {
+		font-size: 17px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #0a84ff;
+		margin-right: 6px;
+	}
+
+	.mention-search-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.mention-user-scroll {
+		max-height: 180px;
+	}
+
+	.mention-user-row {
+		height: 50px;
+		border-radius: 18px;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.mention-user-row:active {
+		background-color: #f6f7fb;
+	}
+
+	.mention-user-avatar {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #eef2f7;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		margin-right: 10px;
+	}
+
+	.mention-user-avatar-image {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+	}
+
+	.mention-user-name {
+		flex: 1;
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.mention-user-plus {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #0a84ff;
+	}
+
+	.mention-empty {
+		height: 54px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mention-empty-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #98a2b3;
 	}
 
 	.comment-reply-pill {

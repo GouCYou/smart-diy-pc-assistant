@@ -140,10 +140,12 @@ public class BuildConfigService {
     }
 
     private BuildConfigResponse toResponse(BuildConfig config) {
+        List<HardwarePart> parts = resolveParts(parsePartIds(config.getPartIds()), false);
+        List<BuildPartSelection> selections = fillMissingProductSnapshots(parts, parseSelections(config.getPartSelections()));
         return BuildConfigResponse.from(
                 config,
-                resolveParts(parsePartIds(config.getPartIds()), false),
-                parseSelections(config.getPartSelections())
+                parts,
+                selections
         );
     }
 
@@ -222,22 +224,40 @@ public class BuildConfigService {
         List<BuildPartSelection> filled = new ArrayList<>();
         for (HardwarePart part : parts) {
             BuildPartSelection current = selectionMap.get(part.getId());
-            if (current != null && current.price() != null && current.price() > 0 && StringUtils.hasText(current.title())) {
+            if (hasCompleteProductSnapshot(current)) {
                 filled.add(current);
                 continue;
             }
             JdProduct product = jdProductSearchService.bestForPart(part);
+            if (!StringUtils.hasText(product.title()) && current != null) {
+                filled.add(current);
+                continue;
+            }
             filled.add(new BuildPartSelection(
                     part.getId(),
-                    product.title(),
-                    product.price(),
-                    product.image(),
-                    product.link(),
-                    product.skuId(),
-                    StringUtils.hasText(product.matchedModel()) ? product.matchedModel() : part.getModel()
+                    firstSnapshotText(product.title(), current == null ? "" : current.title()),
+                    product.price() != null && product.price() > 0 ? product.price() : current == null ? 0 : current.price(),
+                    firstSnapshotText(product.image(), current == null ? "" : current.image()),
+                    firstSnapshotText(product.link(), current == null ? "" : current.link()),
+                    firstSnapshotText(product.skuId(), current == null ? "" : current.skuId()),
+                    firstSnapshotText(product.matchedModel(), current == null ? part.getModel() : current.matchedModel())
             ));
         }
         return filled;
+    }
+
+    private boolean hasCompleteProductSnapshot(BuildPartSelection selection) {
+        return selection != null
+                && selection.price() != null
+                && selection.price() > 0
+                && StringUtils.hasText(selection.title())
+                && StringUtils.hasText(selection.image())
+                && StringUtils.hasText(selection.link())
+                && StringUtils.hasText(selection.skuId());
+    }
+
+    private String firstSnapshotText(String primary, String fallback) {
+        return StringUtils.hasText(primary) ? primary : fallback == null ? "" : fallback;
     }
 
     private List<BuildPartSelection> parseSelections(String value) {
