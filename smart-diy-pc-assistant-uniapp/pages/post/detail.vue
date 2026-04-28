@@ -76,6 +76,7 @@
 				<view class="comment-headline">
 					<text class="comment-title">评论 {{ post.commentCount }}</text>
 					<view class="sort-switch">
+						<view :class="commentSort == 'latest' ? 'sort-indicator sort-indicator-0' : 'sort-indicator sort-indicator-1'"></view>
 						<view :class="commentSort == 'latest' ? 'sort-item sort-item-active' : 'sort-item'" @click="setCommentSort('latest')">
 							<text :class="commentSort == 'latest' ? 'sort-text sort-text-active' : 'sort-text'">最新</text>
 						</view>
@@ -85,7 +86,7 @@
 					</view>
 				</view>
 
-				<view v-for="comment in getPagedComments()" :key="comment.id" class="comment-card">
+				<view v-for="comment in getPagedComments()" :key="comment.id" class="comment-card" @click="replyToComment(comment)">
 					<view class="comment-top">
 						<view class="comment-avatar" @click.stop="openUserSpace(comment.author.id)">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="normalizeMediaUrl(comment.author.avatarUrl)" mode="aspectFill"></image>
@@ -98,19 +99,22 @@
 							<text class="comment-author">{{ comment.author.nickname }}</text>
 							<text class="comment-time">{{ formatTime(comment.createdAt) }}</text>
 						</view>
-						<view class="comment-like" @click="toggleCommentLike(comment.id)">
+						<view class="comment-like" @click.stop="toggleCommentLike(comment.id)">
 							<text :class="comment.liked ? 'comment-like-icon comment-like-active' : 'comment-like-icon'">♥</text>
 							<text class="comment-like-text">{{ comment.likeCount }}</text>
 						</view>
-						<view v-if="isMine(comment.author.id)" class="comment-delete" @click="confirmDeleteComment(comment.id)">
+						<view v-if="isMine(comment.author.id)" class="comment-delete" @click.stop="confirmDeleteComment(comment.id)">
 							<text class="comment-delete-text">删除</text>
 						</view>
 					</view>
+					<view v-if="comment.replyTo != null && comment.replyTo.id > 0" class="comment-reply-context">
+						<text class="comment-reply-context-text">回复 {{ getAuthorDisplayName(comment.replyTo) }}</text>
+					</view>
 					<text class="comment-content">{{ comment.content }}</text>
 					<view v-if="comment.imageUrls.length > 0" class="comment-image-grid">
-						<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click="previewCommentImage(comment.imageUrls, image)"></image>
+						<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click.stop="previewCommentImage(comment.imageUrls, image)"></image>
 					</view>
-					<view v-if="comment.buildConfig != null && comment.buildConfig.id > 0" class="comment-build-card" @click="openBuildDetail(comment.buildConfig)">
+					<view v-if="comment.buildConfig != null && comment.buildConfig.id > 0" class="comment-build-card" @click.stop="openBuildDetail(comment.buildConfig)">
 						<view class="comment-build-icon">
 							<view class="comment-build-card-mark">
 								<view class="comment-build-card-head"></view>
@@ -183,7 +187,14 @@
 					<view class="tool-image-hill"></view>
 				</view>
 			</view>
-			<input class="comment-input" v-model="commentText" placeholder="写评论" placeholder-class="input-placeholder" />
+			<view v-if="replyTargetCommentId > 0" class="comment-reply-pill" @click="clearCommentReply">
+				<text class="comment-reply-pill-text">回复 {{ replyTargetName }}</text>
+				<view class="comment-reply-pill-close">
+					<view class="close-line reply-close-line"></view>
+					<view class="close-line close-line-two reply-close-line"></view>
+				</view>
+			</view>
+			<input class="comment-input" v-model="commentText" :placeholder="getCommentPlaceholder()" placeholder-class="input-placeholder" />
 			<view :class="commentBuildId > 0 ? 'comment-attach-button comment-attach-button-active' : 'comment-attach-button'" @click="openCommentBuildPicker">
 				<view class="comment-build-symbol">
 					<view class="comment-build-symbol-head"></view>
@@ -336,6 +347,8 @@
 		id : number
 		postId : number
 		author : AuthorItem
+		parentCommentId : number
+		replyTo : AuthorItem
 		content : string
 		imageUrls : string[]
 		buildConfig : BuildConfigItem
@@ -369,6 +382,8 @@
 	const commentSort = ref('latest')
 	const commentPage = ref(1)
 	const commentText = ref('')
+	const replyTargetCommentId = ref(0)
+	const replyTargetName = ref('')
 	const commentImageUrls = ref([] as string[])
 	const commentImageSortActive = ref(false)
 	const draggingCommentImageIndex = ref(-1)
@@ -532,8 +547,14 @@
 			if (value.comments[i].author == null) {
 				value.comments[i].author = createEmptyAuthor()
 			}
+			if (value.comments[i].replyTo == null) {
+				value.comments[i].replyTo = createEmptyAuthor()
+			}
 			if (value.comments[i].author.avatarUrl != null && value.comments[i].author.avatarUrl.length > 0) {
 				value.comments[i].author.avatarUrl = normalizeMediaUrl(value.comments[i].author.avatarUrl)
+			}
+			if (value.comments[i].replyTo.avatarUrl != null && value.comments[i].replyTo.avatarUrl.length > 0) {
+				value.comments[i].replyTo.avatarUrl = normalizeMediaUrl(value.comments[i].replyTo.avatarUrl)
 			}
 			if (value.comments[i].buildConfig == null) {
 				value.comments[i].buildConfig = createEmptyBuildConfig()
@@ -773,6 +794,7 @@
 			data: {
 				content: content,
 				imageKeys: uploadedImageKeys,
+				parentCommentId: replyTargetCommentId.value > 0 ? replyTargetCommentId.value : null,
 				buildConfigId: commentBuildId.value > 0 ? commentBuildId.value : null
 			},
 			success: (res) => {
@@ -786,6 +808,12 @@
 					if (comment.buildConfig == null) {
 						comment.buildConfig = createEmptyBuildConfig()
 					}
+					if (comment.author == null) {
+						comment.author = createEmptyAuthor()
+					}
+					if (comment.replyTo == null) {
+						comment.replyTo = createEmptyAuthor()
+					}
 					for (let i = 0; i < comment.imageUrls.length; i++) {
 						comment.imageUrls[i] = normalizeMediaUrl(comment.imageUrls[i])
 					}
@@ -794,6 +822,7 @@
 					commentPage.value = 1
 					commentText.value = ''
 					commentImageUrls.value = []
+					clearCommentReply()
 					clearCommentBuild()
 					return
 				}
@@ -827,6 +856,9 @@
 						if (post.value.comments[i].id == updated.id) {
 							for (let j = 0; j < updated.imageUrls.length; j++) {
 								updated.imageUrls[j] = normalizeMediaUrl(updated.imageUrls[j])
+							}
+							if (updated.replyTo == null) {
+								updated.replyTo = createEmptyAuthor()
 							}
 							post.value.comments.splice(i, 1, updated)
 							break
@@ -875,6 +907,36 @@
 
 	function isMine(authorId : number) : boolean {
 		return currentUserId.value > 0 && authorId == currentUserId.value
+	}
+
+	function replyToComment(comment : CommunityCommentItem) {
+		if (!requireLogin() || comment.id <= 0) {
+			return
+		}
+		replyTargetCommentId.value = comment.id
+		replyTargetName.value = getAuthorDisplayName(comment.author)
+	}
+
+	function clearCommentReply() {
+		replyTargetCommentId.value = 0
+		replyTargetName.value = ''
+	}
+
+	function getCommentPlaceholder() : string {
+		return replyTargetCommentId.value > 0 ? '回复 ' + replyTargetName.value : '写评论'
+	}
+
+	function getAuthorDisplayName(author : AuthorItem) : string {
+		if (author == null) {
+			return '用户'
+		}
+		if (author.nickname != null && author.nickname.length > 0) {
+			return author.nickname
+		}
+		if (author.username != null && author.username.length > 0) {
+			return author.username
+		}
+		return '用户'
 	}
 
 	function setCommentSort(value : string) {
@@ -1786,7 +1848,7 @@
 	}
 
 	.post-favorite-active {
-		color: #007aff;
+		color: #ffcc00;
 	}
 
 	.post-action-text,
@@ -1841,6 +1903,7 @@
 		background-color: #f3f6fb;
 		flex-direction: row;
 		padding: 4px;
+		position: relative;
 	}
 
 	.sort-item {
@@ -1848,10 +1911,37 @@
 		border-radius: 14px;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+		z-index: 1;
 	}
 
 	.sort-item-active {
+		background-color: transparent;
+	}
+
+	.sort-indicator {
+		position: absolute;
+		left: 4px;
+		top: 4px;
+		width: 62px;
+		height: 28px;
+		border-radius: 14px;
 		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+		box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+		transition-property: transform;
+		transition-duration: 240ms;
+		transition-timing-function: ease-out;
+		z-index: 0;
+	}
+
+	.sort-indicator-0 {
+		transform: translateX(0);
+	}
+
+	.sort-indicator-1 {
+		transform: translateX(62px);
 	}
 
 	.sort-text {
@@ -1862,7 +1952,7 @@
 	}
 
 	.sort-text-active {
-		color: #007aff;
+		color: #111827;
 	}
 
 	.comment-card {
@@ -1872,6 +1962,21 @@
 		margin-bottom: 10px;
 		border-width: 1px;
 		border-color: #edf0f5;
+	}
+
+	.comment-reply-context {
+		align-self: flex-start;
+		margin-top: 8px;
+		border-radius: 12px;
+		background-color: #eef2f7;
+		padding: 4px 8px;
+	}
+
+	.comment-reply-context-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #667085;
 	}
 
 	.comment-like {
@@ -2078,6 +2183,46 @@
 		align-items: center;
 		padding: 6px;
 		z-index: 21;
+	}
+
+	.comment-reply-pill {
+		height: 32px;
+		max-width: 116px;
+		border-radius: 16px;
+		background-color: #eef5ff;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 10px;
+		padding-right: 7px;
+		margin-right: 6px;
+	}
+
+	.comment-reply-pill-text {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #0a84ff;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.comment-reply-pill-close {
+		position: relative;
+		width: 16px;
+		height: 16px;
+		border-radius: 8px;
+		background-color: rgba(10, 132, 255, 0.16);
+		margin-left: 4px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.reply-close-line {
+		width: 8px;
+		background-color: #0a84ff;
 	}
 
 	.comment-image-button {

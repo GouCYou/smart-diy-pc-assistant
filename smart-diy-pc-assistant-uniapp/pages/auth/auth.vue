@@ -33,7 +33,7 @@
 		</view>
 
 		<view :class="authMotionClass.length > 0 ? 'form ' + authMotionClass : 'form'">
-			<input v-if="authMode != 'reset'" class="form-input" v-model="username" :placeholder="authMode == 'login' ? '用户名或邮箱' : '用户名'" placeholder-class="input-placeholder" />
+			<input v-if="authMode != 'reset'" class="form-input" v-model="username" :placeholder="authMode == 'login' ? '用户名或邮箱' : '英文用户名'" placeholder-class="input-placeholder" @input="handleUsernameInput" />
 			<input v-if="authMode == 'register' || authMode == 'reset'" class="form-input" v-model="email" placeholder="邮箱" placeholder-class="input-placeholder" />
 			<view v-if="authMode == 'register' || authMode == 'reset'" class="captcha-row">
 				<input class="form-input captcha-input" v-model="captchaCode" maxlength="4" placeholder="验证码" placeholder-class="input-placeholder" />
@@ -308,6 +308,13 @@
 			})
 			return
 		}
+		if (authMode.value == 'register' && !isEnglishUsername(cleanUsername)) {
+			uni.showToast({
+				title: '用户名需英文开头，仅含英文数字下划线',
+				icon: 'none'
+			})
+			return
+		}
 		if ((authMode.value == 'register' || authMode.value == 'reset') && cleanPassword != cleanConfirmPassword) {
 			uni.showToast({
 				title: '两次输入的密码不一致',
@@ -427,6 +434,16 @@
 
 	function isStrongPassword(value : string) {
 		return /^(?=.*[A-Za-z])(?=.*\d).{8,20}$/.test(value)
+	}
+
+	function isEnglishUsername(value : string) {
+		return /^[A-Za-z][A-Za-z0-9_]{2,31}$/.test(value)
+	}
+
+	function handleUsernameInput() {
+		if (authMode.value == 'register') {
+			username.value = username.value.replace(/[^A-Za-z0-9_]/g, '')
+		}
 	}
 
 	onBeforeUnmount(() => {

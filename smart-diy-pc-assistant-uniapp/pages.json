@@ -36,6 +36,27 @@
 			}
 		},
 		{
+			"path": "pages/user/follows",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "关注列表"
+			}
+		},
+		{
+			"path": "pages/notifications/list",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "消息通知"
+			}
+		},
+		{
+			"path": "pages/notifications/detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "通知详情"
+			}
+		},
+		{
 			"path": "pages/post/detail",
 			"style": {
 				"navigationStyle": "custom",

@@ -9,6 +9,8 @@ public record CommunityCommentResponse(
         Long id,
         Long postId,
         AuthorResponse author,
+        Long parentCommentId,
+        AuthorResponse replyTo,
         String content,
         List<String> imageUrls,
         BuildConfigResponse buildConfig,

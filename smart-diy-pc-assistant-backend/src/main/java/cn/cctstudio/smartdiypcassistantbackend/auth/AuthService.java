@@ -79,6 +79,9 @@ public class AuthService {
         bootstrapDefaultAdmin();
         String username = request.username().trim();
         String email = request.email().trim().toLowerCase();
+        if (!username.matches("^[A-Za-z][A-Za-z0-9_]{2,31}$")) {
+            throw new BusinessException("用户名只能使用英文、数字和下划线，且需以英文字母开头");
+        }
         if (userRepository.findByUsername(username).isPresent()) {
             throw new BusinessException("用户名已存在");
         }

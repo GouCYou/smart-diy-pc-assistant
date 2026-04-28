@@ -23,6 +23,8 @@ public class NewsComment {
     @Column(nullable = false)
     private Long userId;
 
+    private Long parentCommentId;
+
     @Lob
     @Column(columnDefinition = "TEXT")
     private String content;
@@ -40,9 +42,10 @@ public class NewsComment {
     protected NewsComment() {
     }
 
-    public NewsComment(Long newsId, Long userId, String content, String imageUrls) {
+    public NewsComment(Long newsId, Long userId, Long parentCommentId, String content, String imageUrls) {
         this.newsId = newsId;
         this.userId = userId;
+        this.parentCommentId = parentCommentId;
         this.content = content;
         this.imageUrls = imageUrls;
         this.visible = true;
@@ -59,6 +62,10 @@ public class NewsComment {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public Long getParentCommentId() {
+        return parentCommentId;
     }
 
     public String getContent() {

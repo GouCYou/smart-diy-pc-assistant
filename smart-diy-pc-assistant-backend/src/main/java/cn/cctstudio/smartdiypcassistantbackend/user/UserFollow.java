@@ -41,4 +41,12 @@ public class UserFollow {
     public Long getFollowingId() {
         return followingId;
     }
+
+    public Long getFollowerId() {
+        return followerId;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
 }

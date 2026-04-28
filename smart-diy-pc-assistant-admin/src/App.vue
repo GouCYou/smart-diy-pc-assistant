@@ -123,6 +123,13 @@ type AdminUserItem = {
   updatedAt?: string
 }
 
+type AdminSystemNotificationResponse = {
+  title: string
+  content: string
+  recipientCount: number
+  createdAt: string
+}
+
 type BanPreset = 'PERMANENT' | '1H' | '1D' | '7D' | 'CUSTOM'
 
 const menuItems = [
@@ -131,6 +138,7 @@ const menuItems = [
   { key: 'components', label: '标准型号库', icon: '▦' },
   { key: 'news', label: '新闻热点', icon: '≡' },
   { key: 'community', label: '社区内容', icon: '✦' },
+  { key: 'notifications', label: '系统通知', icon: '●' },
   { key: 'ai', label: 'AI 设置', icon: 'AI' },
   { key: 'settings', label: '系统设置', icon: '⚙' },
 ]
@@ -145,6 +153,7 @@ const newsUploadProgressVisible = ref(false)
 const newsUploadProgressPercent = ref(0)
 const newsUploadProgressText = ref('')
 const savingHardware = ref(false)
+const sendingSystemNotification = ref(false)
 const errorMessage = ref('')
 const username = ref('')
 const password = ref('')
@@ -171,6 +180,7 @@ const banningUser = ref<AdminUserItem | null>(null)
 const banDialogPreset = ref<BanPreset>('PERMANENT')
 const banDialogCustomUntil = ref('')
 const failedUserAvatars = ref<Set<number>>(new Set())
+const lastSystemNotification = ref<AdminSystemNotificationResponse | null>(null)
 const hardwareKeyword = ref('')
 const hardwareTypeFilter = ref('ALL')
 const hardwareStatusFilter = ref('ALL')
@@ -205,6 +215,10 @@ const hardwareForm = reactive<HardwarePart>({
   supportedFormFactors: '',
   specs: '',
   enabled: true,
+})
+const systemNoticeForm = reactive({
+  title: '',
+  content: '',
 })
 const editingHardwareId = ref<number | null>(null)
 const hardwareTypeOptions: Array<{ label: string; value: HardwarePartType }> = [
@@ -758,6 +772,31 @@ async function deleteCommunityComment(id: number) {
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
+
+async function sendSystemNotification() {
+  const title = systemNoticeForm.title.trim()
+  const content = systemNoticeForm.content.trim()
+  if (!title || !content) {
+    errorMessage.value = '系统通知标题和内容不能为空'
+    return
+  }
+  sendingSystemNotification.value = true
+  errorMessage.value = ''
+  try {
+    const data = await request<AdminSystemNotificationResponse>('/api/admin/notifications/system', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ title, content }),
+    })
+    lastSystemNotification.value = data
+    systemNoticeForm.title = ''
+    systemNoticeForm.content = ''
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '发送失败'
+  } finally {
+    sendingSystemNotification.value = false
   }
 }
 
@@ -1790,6 +1829,61 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section v-else-if="activeMenu === 'notifications'" class="content-area notification-workbench">
+        <form class="editor-card system-notice-editor" @submit.prevent="sendSystemNotification">
+          <div class="section-head">
+            <div>
+              <h3>发送系统通知</h3>
+              <p class="section-subtitle">系统通知会进入所有启用用户的消息列表，并显示为未读红点。</p>
+            </div>
+          </div>
+
+          <label>
+            通知标题
+            <input v-model="systemNoticeForm.title" maxlength="80" placeholder="例如 版本更新公告" />
+          </label>
+          <label>
+            通知内容
+            <textarea
+              v-model="systemNoticeForm.content"
+              class="system-notice-textarea"
+              maxlength="5000"
+              placeholder="写下要发送给用户的完整通知内容"
+            ></textarea>
+          </label>
+
+          <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+          <div class="button-row">
+            <button class="primary-button" :disabled="sendingSystemNotification" type="submit">
+              {{ sendingSystemNotification ? '发送中...' : '发送通知' }}
+            </button>
+          </div>
+        </form>
+
+        <div class="list-card system-notice-preview">
+          <div class="section-head">
+            <div>
+              <h3>发送预览</h3>
+              <p class="section-subtitle">用户端会以 iOS 消息列表样式展示。</p>
+            </div>
+          </div>
+
+          <article class="notice-preview-card">
+            <div class="notice-preview-icon">i</div>
+            <div>
+              <strong>{{ systemNoticeForm.title.trim() || '系统通知标题' }}</strong>
+              <p>{{ systemNoticeForm.content.trim() || '系统通知内容会在这里预览，点开后进入通知详情页查看完整内容。' }}</p>
+            </div>
+          </article>
+
+          <div v-if="lastSystemNotification" class="notice-result-card">
+            <span>最近一次发送</span>
+            <strong>{{ lastSystemNotification.title }}</strong>
+            <p>已发送给 {{ lastSystemNotification.recipientCount }} 位用户 · {{ formatTime(lastSystemNotification.createdAt) }}</p>
+          </div>
+        </div>
+      </section>
+
       <section v-else class="content-area">
         <div class="wide-card empty-module">
           <h3>{{ currentMenuTitle }}</h3>
@@ -2525,9 +2619,77 @@ textarea {
   gap: 18px;
 }
 
+.notification-workbench {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 18px;
+}
+
 .news-editor-card,
 .news-list-card {
   margin-top: 0;
+}
+
+.system-notice-editor,
+.system-notice-preview {
+  align-self: start;
+}
+
+.system-notice-textarea {
+  min-height: 260px;
+  resize: vertical;
+  line-height: 1.8;
+}
+
+.notice-preview-card,
+.notice-result-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(226, 233, 244, 0.92);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.94));
+}
+
+.notice-preview-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 900;
+  background: linear-gradient(135deg, #0a84ff, #5ac8fa);
+}
+
+.notice-preview-card strong,
+.notice-result-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.notice-preview-card p,
+.notice-result-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.notice-result-card {
+  display: block;
+  margin-top: 14px;
+}
+
+.notice-result-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: #34c759;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .notion-editor {
@@ -3499,7 +3661,8 @@ textarea {
   .dashboard-charts,
   .hardware-toolbar,
   .user-toolbar,
-  .news-workbench {
+  .news-workbench,
+  .notification-workbench {
     grid-template-columns: 1fr;
   }
 

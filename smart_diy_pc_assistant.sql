@@ -54,6 +54,7 @@ CREATE TABLE `community_comment`  (
   `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `created_at` datetime(6) NOT NULL,
   `image_urls` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  `parent_comment_id` bigint NULL DEFAULT NULL,
   `post_id` bigint NOT NULL,
   `user_id` bigint NOT NULL,
   `visible` bit(1) NOT NULL,
@@ -147,6 +148,7 @@ CREATE TABLE `news_comment`  (
   `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `created_at` datetime(6) NOT NULL,
   `news_id` bigint NOT NULL,
+  `parent_comment_id` bigint NULL DEFAULT NULL,
   `user_id` bigint NOT NULL,
   `visible` bit(1) NOT NULL,
   `image_urls` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
@@ -262,6 +264,27 @@ CREATE TABLE `sys_user`  (
   UNIQUE INDEX `UK51bvuyvihefoh4kp5syh2jpi4`(`username` ASC) USING BTREE,
   UNIQUE INDEX `UKahtq5ew3v0kt1n7hf1sgp7p8l`(`email` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for user_notification
+-- ----------------------------
+DROP TABLE IF EXISTS `user_notification`;
+CREATE TABLE `user_notification`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `actor_id` bigint NULL DEFAULT NULL,
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  `read_at` datetime(6) NULL DEFAULT NULL,
+  `recipient_id` bigint NOT NULL,
+  `related_comment_id` bigint NULL DEFAULT NULL,
+  `related_news_id` bigint NULL DEFAULT NULL,
+  `related_post_id` bigint NULL DEFAULT NULL,
+  `title` varchar(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `type` enum('SYSTEM','FOLLOW','COMMUNITY_POST_REPLY','COMMUNITY_COMMENT_REPLY','NEWS_COMMENT_REPLY') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_user_notification_recipient_created`(`recipient_id` ASC, `created_at` DESC) USING BTREE,
+  INDEX `idx_user_notification_unread`(`recipient_id` ASC, `read_at` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_follow

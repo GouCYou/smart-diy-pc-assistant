@@ -27,7 +27,7 @@
 					<view class="article-content">
 						<view v-for="(block, index) in getContentBlocks()" :key="index">
 							<text v-if="block.type == 'text'" class="article-paragraph">{{ block.text }}</text>
-							<image v-if="block.type == 'image'" class="article-image" :src="block.imageUrl" mode="aspectFill" @click="previewImage(block.imageUrl)"></image>
+							<image v-if="block.type == 'image'" class="article-image" :src="block.imageUrl" mode="aspectFill" @click="previewNewsImage(block.imageUrl)"></image>
 						</view>
 					</view>
 					<view class="article-finished">
@@ -56,6 +56,7 @@
 				<view class="comment-headline">
 					<text class="comment-title">评论 {{ news.commentCount }}</text>
 					<view class="sort-switch">
+						<view :class="commentSort == 'latest' ? 'sort-indicator sort-indicator-0' : 'sort-indicator sort-indicator-1'"></view>
 						<view :class="commentSort == 'latest' ? 'sort-item sort-item-active' : 'sort-item'" @click="setCommentSort('latest')">
 							<text :class="commentSort == 'latest' ? 'sort-text sort-text-active' : 'sort-text'">最新</text>
 						</view>
@@ -65,7 +66,7 @@
 					</view>
 				</view>
 
-				<view v-for="comment in news.comments" :key="comment.id" class="comment-card">
+				<view v-for="comment in news.comments" :key="comment.id" class="comment-card" @click="replyToComment(comment)">
 					<view class="comment-top">
 						<view class="comment-avatar" @click.stop="openUserSpace(comment.author.id)">
 							<image v-if="comment.author.avatarUrl.length > 0" class="comment-avatar-image" :src="comment.author.avatarUrl" mode="aspectFill"></image>
@@ -78,14 +79,17 @@
 							<text class="comment-author">{{ comment.author.nickname || comment.author.username }}</text>
 							<text class="comment-time">{{ formatTime(comment.createdAt) }}</text>
 						</view>
-						<view class="comment-like" @click="toggleCommentLike(comment.id)">
+						<view class="comment-like" @click.stop="toggleCommentLike(comment.id)">
 							<text :class="comment.liked ? 'comment-like-icon comment-like-active' : 'comment-like-icon'">♥</text>
 							<text class="comment-like-text">{{ comment.likeCount }}</text>
 						</view>
 					</view>
+					<view v-if="comment.replyTo != null && comment.replyTo.id > 0" class="comment-reply-context">
+						<text class="comment-reply-context-text">回复 {{ getAuthorDisplayName(comment.replyTo) }}</text>
+					</view>
 					<text v-if="comment.content.length > 0" class="comment-content">{{ comment.content }}</text>
 					<view v-if="comment.imageUrls.length > 0" class="comment-image-grid">
-						<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click="previewCommentImage(comment.imageUrls, image)"></image>
+						<image v-for="image in comment.imageUrls" :key="image" class="comment-image" :src="normalizeMediaUrl(image)" mode="aspectFill" @click.stop="previewCommentImage(comment.imageUrls, image)"></image>
 					</view>
 				</view>
 
@@ -119,9 +123,41 @@
 						<view class="tool-image-hill"></view>
 					</view>
 				</view>
-				<input class="comment-input" v-model="commentText" placeholder="写评论" placeholder-class="input-placeholder" />
+				<view v-if="replyTargetCommentId > 0" class="comment-reply-pill" @click="clearCommentReply">
+					<text class="comment-reply-pill-text">回复 {{ replyTargetName }}</text>
+					<view class="comment-reply-pill-close">
+						<view class="close-line reply-close-line"></view>
+						<view class="close-line close-line-two reply-close-line"></view>
+					</view>
+				</view>
+				<input class="comment-input" v-model="commentText" :placeholder="getCommentPlaceholder()" placeholder-class="input-placeholder" />
 				<view class="comment-send" @click="submitComment">
 					<text class="comment-send-text">{{ commentSubmitting ? '...' : '发送' }}</text>
+				</view>
+			</view>
+		</view>
+		<view v-if="imagePreviewVisible" class="inline-image-preview" @click="closeImagePreview">
+			<view class="inline-preview-top">
+				<view class="inline-preview-back" @click.stop="closeImagePreview">
+					<view class="back-chevron">
+						<view class="back-chevron-line back-chevron-line-top inline-preview-chevron-line"></view>
+						<view class="back-chevron-line back-chevron-line-bottom inline-preview-chevron-line"></view>
+					</view>
+				</view>
+				<text class="inline-preview-count">{{ imagePreviewIndex + 1 }}/{{ imagePreviewUrls.length }}</text>
+				<view class="inline-preview-back inline-preview-placeholder"></view>
+			</view>
+			<movable-area class="inline-preview-area" :scale-area="true" @click.stop @wheel.stop="handleImagePreviewWheel">
+				<movable-view class="inline-preview-view" direction="all" :scale="true" :scale-min="0.5" :scale-max="4" :scale-value="imagePreviewScale">
+					<image class="inline-preview-image" :src="imagePreviewCurrent" mode="aspectFit"></image>
+				</movable-view>
+			</movable-area>
+			<view v-if="imagePreviewUrls.length > 1" class="inline-preview-bottom">
+				<view :class="imagePreviewIndex == 0 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="previousPreviewImage">
+					<text class="inline-preview-switch-text">上一张</text>
+				</view>
+				<view :class="imagePreviewIndex == imagePreviewUrls.length - 1 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="nextPreviewImage">
+					<text class="inline-preview-switch-text">下一张</text>
 				</view>
 			</view>
 		</view>
@@ -144,6 +180,8 @@
 		id : number
 		newsId : number
 		author : AuthorItem
+		parentCommentId : number
+		replyTo : AuthorItem
 		content : string
 		imageUrls : string[]
 		likeCount : number
@@ -185,8 +223,15 @@
 	const loading = ref(false)
 	const commentSort = ref('latest')
 	const commentText = ref('')
+	const replyTargetCommentId = ref(0)
+	const replyTargetName = ref('')
 	const commentImageUrls = ref([] as string[])
 	const commentSubmitting = ref(false)
+	const imagePreviewVisible = ref(false)
+	const imagePreviewUrls = ref([] as string[])
+	const imagePreviewIndex = ref(0)
+	const imagePreviewCurrent = ref('')
+	const imagePreviewScale = ref(1)
 
 	loadLocalState()
 
@@ -308,13 +353,15 @@
 			},
 			data: {
 				content: content,
-				imageKeys: uploadedImageKeys
+				imageKeys: uploadedImageKeys,
+				parentCommentId: replyTargetCommentId.value > 0 ? replyTargetCommentId.value : null
 			},
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					commentText.value = ''
 					commentImageUrls.value = []
+					clearCommentReply()
 					news.value.commentCount = news.value.commentCount + 1
 					loadComments()
 					return
@@ -455,6 +502,12 @@
 		if (comment.author.avatarUrl != null && comment.author.avatarUrl.length > 0) {
 			comment.author.avatarUrl = normalizeMediaUrl(comment.author.avatarUrl)
 		}
+		if (comment.replyTo == null) {
+			comment.replyTo = createEmptyAuthor()
+		}
+		if (comment.replyTo.avatarUrl != null && comment.replyTo.avatarUrl.length > 0) {
+			comment.replyTo.avatarUrl = normalizeMediaUrl(comment.replyTo.avatarUrl)
+		}
 		if (comment.imageUrls == null) {
 			comment.imageUrls = [] as string[]
 		}
@@ -468,13 +521,106 @@
 		return normalizeRemoteMediaUrl(url)
 	}
 
-	function previewImage(image : string) {
-		uni.previewImage({ urls: [image], current: image })
+	function replyToComment(comment : NewsCommentItem) {
+		if (!requireLogin() || comment.id <= 0) {
+			return
+		}
+		replyTargetCommentId.value = comment.id
+		replyTargetName.value = getAuthorDisplayName(comment.author)
+	}
+
+	function clearCommentReply() {
+		replyTargetCommentId.value = 0
+		replyTargetName.value = ''
+	}
+
+	function getCommentPlaceholder() : string {
+		return replyTargetCommentId.value > 0 ? '回复 ' + replyTargetName.value : '写评论'
+	}
+
+	function getAuthorDisplayName(author : AuthorItem) : string {
+		if (author == null) {
+			return '用户'
+		}
+		if (author.nickname != null && author.nickname.length > 0) {
+			return author.nickname
+		}
+		if (author.username != null && author.username.length > 0) {
+			return author.username
+		}
+		return '用户'
+	}
+
+	function previewNewsImage(image : string) {
+		const urls = [] as string[]
+		const blocks = getContentBlocks()
+		for (let i = 0; i < blocks.length; i++) {
+			if (blocks[i].type == 'image') {
+				urls.push(blocks[i].imageUrl)
+			}
+		}
+		openImagePreview(urls.length > 0 ? urls : [image], normalizeMediaUrl(image))
 	}
 
 	function previewCommentImage(images : string[], image : string) {
 		const urls = images.map((item) : string => normalizeMediaUrl(item))
-		uni.previewImage({ urls: urls, current: normalizeMediaUrl(image) })
+		openImagePreview(urls, normalizeMediaUrl(image))
+	}
+
+	function openImagePreview(images : string[], current : string) {
+		const normalized = [] as string[]
+		for (let i = 0; i < images.length; i++) {
+			normalized.push(normalizeMediaUrl(images[i]))
+		}
+		imagePreviewUrls.value = normalized
+		imagePreviewIndex.value = 0
+		for (let i = 0; i < normalized.length; i++) {
+			if (normalized[i] == current) {
+				imagePreviewIndex.value = i
+				break
+			}
+		}
+		imagePreviewCurrent.value = current
+		imagePreviewScale.value = 1
+		imagePreviewVisible.value = true
+	}
+
+	function closeImagePreview() {
+		imagePreviewVisible.value = false
+		imagePreviewScale.value = 1
+	}
+
+	function previousPreviewImage() {
+		if (imagePreviewIndex.value <= 0) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value - 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function nextPreviewImage() {
+		if (imagePreviewIndex.value >= imagePreviewUrls.value.length - 1) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value + 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function handleImagePreviewWheel(event : any) {
+		const delta = event.deltaY as number
+		if (delta == 0) {
+			return
+		}
+		let nextScale = imagePreviewScale.value + (delta < 0 ? 0.16 : -0.16)
+		if (nextScale < 0.5) {
+			nextScale = 0.5
+		}
+		if (nextScale > 4) {
+			nextScale = 4
+		}
+		imagePreviewScale.value = nextScale
 	}
 
 	function pickCommentImages() {
@@ -986,6 +1132,7 @@
 		background-color: #f3f6fb;
 		flex-direction: row;
 		padding: 4px;
+		position: relative;
 	}
 
 	.sort-item {
@@ -994,10 +1141,37 @@
 		border-radius: 14px;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+		z-index: 1;
 	}
 
 	.sort-item-active {
+		background-color: transparent;
+	}
+
+	.sort-indicator {
+		position: absolute;
+		left: 4px;
+		top: 4px;
+		width: 62px;
+		height: 28px;
+		border-radius: 14px;
 		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+		box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+		transition-property: transform;
+		transition-duration: 240ms;
+		transition-timing-function: ease-out;
+		z-index: 0;
+	}
+
+	.sort-indicator-0 {
+		transform: translateX(0);
+	}
+
+	.sort-indicator-1 {
+		transform: translateX(62px);
 	}
 
 	.sort-text {
@@ -1008,7 +1182,7 @@
 	}
 
 	.sort-text-active {
-		color: #0a84ff;
+		color: #111827;
 	}
 
 	.comment-card {
@@ -1100,6 +1274,22 @@
 		font-size: 14px;
 		line-height: 22px;
 		color: #111827;
+	}
+
+	.comment-reply-context {
+		display: flex;
+		align-self: flex-start;
+		margin-top: 8px;
+		border-radius: 12px;
+		background-color: #eef2f7;
+		padding: 4px 8px;
+	}
+
+	.comment-reply-context-text {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #667085;
 	}
 
 	.comment-image-grid {
@@ -1229,6 +1419,50 @@
 		box-shadow: 0 14px 36px rgba(16, 24, 40, 0.08);
 	}
 
+	.comment-reply-pill {
+		display: flex;
+		flex: 0 0 auto;
+		height: 32px;
+		max-width: 116px;
+		border-radius: 16px;
+		background-color: #eef5ff;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 10px;
+		padding-right: 7px;
+		margin-left: 4px;
+		margin-right: 6px;
+	}
+
+	.comment-reply-pill-text {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #0a84ff;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.comment-reply-pill-close {
+		display: flex;
+		position: relative;
+		width: 16px;
+		height: 16px;
+		border-radius: 8px;
+		background-color: rgba(10, 132, 255, 0.16);
+		margin-left: 4px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.reply-close-line {
+		width: 8px;
+		background-color: #0a84ff;
+	}
+
 	.comment-image-button {
 		display: flex;
 		flex: 0 0 auto;
@@ -1299,6 +1533,116 @@
 		font-size: 13px;
 		line-height: 18px;
 		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.inline-image-preview {
+		display: flex;
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(5, 7, 13, 0.84);
+		z-index: 80;
+	}
+
+	.inline-preview-top {
+		display: flex;
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		top: 44px;
+		top: calc(44px + constant(safe-area-inset-top));
+		top: calc(44px + env(safe-area-inset-top));
+		top: calc(20px + var(--status-bar-height));
+		width: auto;
+		max-width: none;
+		height: 42px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		z-index: 82;
+	}
+
+	.inline-preview-back {
+		display: flex;
+		position: relative;
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.86);
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-chevron-line {
+		background-color: #ffffff;
+	}
+
+	.inline-preview-placeholder {
+		background-color: transparent;
+	}
+
+	.inline-preview-count {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #ffffff;
+		text-shadow: 0 1px 8px rgba(17, 24, 39, 0.42);
+	}
+
+	.inline-preview-area,
+	.inline-preview-view {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-view {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-image {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-bottom {
+		display: flex;
+		position: fixed;
+		left: 24px;
+		right: 24px;
+		bottom: 28px;
+		bottom: calc(28px + constant(safe-area-inset-bottom));
+		bottom: calc(28px + env(safe-area-inset-bottom));
+		width: auto;
+		max-width: none;
+		flex-direction: row;
+		justify-content: space-between;
+		z-index: 82;
+	}
+
+	.inline-preview-switch {
+		display: flex;
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.78);
+		padding-left: 18px;
+		padding-right: 18px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-switch-disabled {
+		opacity: 0.35;
+	}
+
+	.inline-preview-switch-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
 		color: #ffffff;
 	}
 

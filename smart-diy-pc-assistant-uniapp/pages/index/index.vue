@@ -317,7 +317,7 @@
 								<text class="post-head-delete-text">删除</text>
 							</view>
 						</view>
-						<text class="post-content">{{ post.content }}</text>
+						<text class="post-content post-content-clamped">{{ post.content }}</text>
 						<view v-if="post.imageUrls.length > 0" class="post-image-grid">
 							<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click.stop="previewPostImages(post.imageUrls, image)"></image>
 						</view>
@@ -359,6 +359,7 @@
 							<text :class="communityPage >= getCommunityPageCount() ? 'pager-button-text pager-button-text-disabled' : 'pager-button-text'">下一页</text>
 						</view>
 					</view>
+					<view class="community-bottom-spacer"></view>
 				</view>
 
 				<view v-if="getFilteredCommunityPosts().length == 0 && !communityLoading" class="empty-state empty-state-soft">
@@ -509,6 +510,13 @@
 			</view>
 
 			<view class="menu-list">
+				<view class="menu-item" @click="openNotifications">
+					<view class="menu-main">
+						<text class="menu-text">消息通知</text>
+						<view v-if="unreadNotificationCount > 0" class="menu-red-dot"></view>
+					</view>
+					<text class="menu-arrow">›</text>
+				</view>
 				<view class="menu-item" @click="openSettings">
 					<text class="menu-text">设置</text>
 					<text class="menu-arrow">›</text>
@@ -558,6 +566,7 @@
 				<text :class="activeTab == 3 ? 'tab-label tab-label-active' : 'tab-label'">热点</text>
 			</view>
 			<view :class="activeTab == 4 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(4)">
+				<view v-if="unreadNotificationCount > 0" class="tab-red-dot"></view>
 				<view class="tab-glyph mine-glyph">
 					<view :class="activeTab == 4 ? 'mine-icon-head mine-icon-head-active' : 'mine-icon-head'"></view>
 					<view :class="activeTab == 4 ? 'mine-icon-body mine-icon-body-active' : 'mine-icon-body'"></view>
@@ -1258,6 +1267,7 @@
 	const currentPostCount = ref(0)
 	const currentFollowingCount = ref(0)
 	const currentFollowerCount = ref(0)
+	const unreadNotificationCount = ref(0)
 	const communityPosts = ref([] as CommunityPostItem[])
 	const communitySegment = ref(0)
 	const communitySearchKeyword = ref('')
@@ -1333,6 +1343,7 @@
 
 	loadAuth()
 	if (token.value.length > 0) {
+		loadUnreadNotificationCount()
 		loadConversations()
 		startHistoryRefreshTimer()
 	}
@@ -1345,9 +1356,11 @@
 			if (currentUserId.value == 0) {
 				loadProfile()
 			}
+			loadUnreadNotificationCount()
 			loadConversations()
 			startHistoryRefreshTimer()
 		} else {
+			unreadNotificationCount.value = 0
 			stopHistoryRefreshTimer()
 		}
 		if (activeTab.value == 4) {
@@ -1722,6 +1735,7 @@
 			loadAuth()
 			loadProfile()
 			loadMyStats()
+			loadUnreadNotificationCount()
 		}
 		if (index == 1) {
 			loadBuildConfigs()
@@ -2130,8 +2144,9 @@
 	}
 
 	function refreshCommunityPosts() {
+		const keepPage = communityPage.value
 		communityRefreshing.value = true
-		loadCommunityPostsWithForce(true)
+		loadCommunityPostsWithForce(true, keepPage)
 	}
 
 	function loadNews() {
@@ -2139,14 +2154,16 @@
 	}
 
 	function refreshNews() {
+		const keepPage = newsPage.value
 		newsRefreshing.value = true
-		loadNewsWithForce(true)
+		loadNewsWithForce(true, keepPage)
 	}
 
-	function loadNewsWithForce(force : boolean) {
+	function loadNewsWithForce(force : boolean, keepPage = 0) {
 		if (newsLoading.value && !force) {
 			return
 		}
+		const targetPage = keepPage > 0 ? keepPage : newsPage.value
 		newsLoading.value = true
 		uni.request({
 			url: apiBaseUrl + '/api/news?sort=' + newsSort.value,
@@ -2161,6 +2178,7 @@
 						list[i] = normalizeNewsItem(list[i])
 					}
 					newsList.value = list
+					newsPage.value = targetPage
 					clampNewsPage()
 					return
 				}
@@ -2178,10 +2196,11 @@
 		})
 	}
 
-	function loadCommunityPostsWithForce(force : boolean) {
+	function loadCommunityPostsWithForce(force : boolean, keepPage = 0) {
 		if (communityLoading.value && !force) {
 			return
 		}
+		const targetPage = keepPage > 0 ? keepPage : communityPage.value
 		communityLoading.value = true
 		uni.request({
 			url: apiBaseUrl + '/api/community/posts?segment=' + (communitySegment.value == 1 ? 'following' : 'recommended'),
@@ -2196,6 +2215,7 @@
 						posts[i] = normalizeCommunityPost(posts[i])
 					}
 					communityPosts.value = posts
+					communityPage.value = targetPage
 					clampCommunityPage()
 					return
 				}
@@ -3116,6 +3136,17 @@
 		})
 	}
 
+	function openNotifications() {
+		if (!requireLogin()) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/notifications/list',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
 	function loadAuth() {
 		const savedToken = uni.getStorageSync('app_token')
 		const savedUserId = uni.getStorageSync('app_user_id')
@@ -3249,6 +3280,29 @@
 		currentPostCount.value = 0
 		currentFollowingCount.value = 0
 		currentFollowerCount.value = 0
+		unreadNotificationCount.value = 0
+	}
+
+	function loadUnreadNotificationCount() {
+		if (token.value.length == 0) {
+			unreadNotificationCount.value = 0
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/notifications/unread-count',
+			method: 'GET',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					unreadNotificationCount.value = Number(body.data.count == null ? 0 : body.data.count)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+			}
+		})
 	}
 
 	function loadMyStats() {
@@ -6325,6 +6379,7 @@
 	.normal-page {
 		background-color: #f6f7fb;
 		height: 100vh;
+		padding-bottom: 0;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
@@ -7224,9 +7279,13 @@
 	}
 
 	.community-list {
-		padding-bottom: 142px;
-		padding-bottom: calc(142px + constant(safe-area-inset-bottom));
-		padding-bottom: calc(142px + env(safe-area-inset-bottom));
+		padding-bottom: 0;
+	}
+
+	.community-bottom-spacer {
+		height: 118px;
+		height: calc(118px + constant(safe-area-inset-bottom));
+		height: calc(118px + env(safe-area-inset-bottom));
 	}
 
 	.post-card {
@@ -7283,6 +7342,15 @@
 		font-size: 15px;
 		line-height: 23px;
 		color: #111827;
+	}
+
+	.post-content-clamped {
+		max-height: 69px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
 	}
 
 	.post-image-grid,
@@ -7343,7 +7411,7 @@
 	}
 
 	.post-favorite-icon-active {
-		color: #007aff;
+		color: #ffcc00;
 	}
 
 	.post-action-text {
@@ -8002,9 +8070,9 @@
 	}
 
 	.news-bottom-spacer {
-		height: 8px;
-		height: calc(8px + constant(safe-area-inset-bottom));
-		height: calc(8px + env(safe-area-inset-bottom));
+		height: 118px;
+		height: calc(118px + constant(safe-area-inset-bottom));
+		height: calc(118px + env(safe-area-inset-bottom));
 	}
 
 	.tech-news-card {
@@ -8368,6 +8436,23 @@
 		justify-content: space-between;
 	}
 
+	.menu-main {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.menu-red-dot,
+	.tab-red-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 4px;
+		background-color: #ff3b30;
+	}
+
+	.menu-red-dot {
+		margin-left: 8px;
+	}
+
 	.menu-item-pressed {
 		background-color: #fff1f0;
 		transform: scale(0.98);
@@ -8423,6 +8508,13 @@
 		justify-content: center;
 		position: relative;
 		z-index: 1;
+	}
+
+	.tab-red-dot {
+		position: absolute;
+		right: 24px;
+		top: 8px;
+		z-index: 2;
 	}
 
 	.tab-indicator {

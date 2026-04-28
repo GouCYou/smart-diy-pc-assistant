@@ -23,7 +23,7 @@
 				</view>
 				<view v-if="space.backgroundUrl.length > 0" class="hero-shade"></view>
 				<view class="hero-content">
-					<view class="avatar-wrap">
+					<view class="avatar-wrap" @click.stop="previewAvatar">
 						<image v-if="space.avatarUrl.length > 0" class="avatar-image" :src="space.avatarUrl" mode="aspectFill"></image>
 						<view v-else class="avatar-placeholder">
 							<view class="avatar-placeholder-head"></view>
@@ -40,11 +40,11 @@
 					</view>
 				</view>
 				<view class="stat-row">
-					<view class="stat-item">
+					<view class="stat-item" @click.stop="openFollowList('following')">
 						<text class="stat-number">{{ space.followingCount }}</text>
 						<text class="stat-label">关注</text>
 					</view>
-					<view class="stat-item">
+					<view class="stat-item" @click.stop="openFollowList('followers')">
 						<text class="stat-number">{{ space.followerCount }}</text>
 						<text class="stat-label">粉丝</text>
 					</view>
@@ -187,6 +187,31 @@
 				</scroll-view>
 			</view>
 		</view>
+		<view v-if="imagePreviewVisible" class="inline-image-preview" @click="closeImagePreview">
+			<view class="inline-preview-top">
+				<view class="inline-preview-back" @click.stop="closeImagePreview">
+					<view class="back-chevron">
+						<view class="back-chevron-line back-chevron-line-top inline-preview-chevron-line"></view>
+						<view class="back-chevron-line back-chevron-line-bottom inline-preview-chevron-line"></view>
+					</view>
+				</view>
+				<text class="inline-preview-count">{{ imagePreviewIndex + 1 }}/{{ imagePreviewUrls.length }}</text>
+				<view class="inline-preview-back inline-preview-placeholder"></view>
+			</view>
+			<movable-area class="inline-preview-area" :scale-area="true" @click.stop @wheel.stop="handleImagePreviewWheel">
+				<movable-view class="inline-preview-view" direction="all" :scale="true" :scale-min="0.5" :scale-max="4" :scale-value="imagePreviewScale">
+					<image class="inline-preview-image" :src="imagePreviewCurrent" mode="aspectFit"></image>
+				</movable-view>
+			</movable-area>
+			<view v-if="imagePreviewUrls.length > 1" class="inline-preview-bottom">
+				<view :class="imagePreviewIndex == 0 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="previousPreviewImage">
+					<text class="inline-preview-switch-text">上一张</text>
+				</view>
+				<view :class="imagePreviewIndex == imagePreviewUrls.length - 1 ? 'inline-preview-switch inline-preview-switch-disabled' : 'inline-preview-switch'" @click.stop="nextPreviewImage">
+					<text class="inline-preview-switch-text">下一张</text>
+				</view>
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -301,6 +326,11 @@
 	const backgroundPreviewVisible = ref(false)
 	const buildDetailVisible = ref(false)
 	const selectedBuild = ref(createEmptyBuildConfig())
+	const imagePreviewVisible = ref(false)
+	const imagePreviewUrls = ref([] as string[])
+	const imagePreviewIndex = ref(0)
+	const imagePreviewCurrent = ref('')
+	const imagePreviewScale = ref(1)
 	const space = ref(createEmptySpace())
 
 	onLoad((query) => {
@@ -484,6 +514,69 @@
 
 	function closeBackgroundPreview() {
 		backgroundPreviewVisible.value = false
+	}
+
+	function previewAvatar() {
+		if (space.value.avatarUrl.length == 0) {
+			return
+		}
+		openImagePreview([space.value.avatarUrl], space.value.avatarUrl)
+	}
+
+	function openImagePreview(images : string[], current : string) {
+		const normalized = [] as string[]
+		for (let i = 0; i < images.length; i++) {
+			normalized.push(normalizeMediaUrl(images[i]))
+		}
+		imagePreviewUrls.value = normalized
+		imagePreviewIndex.value = 0
+		for (let i = 0; i < normalized.length; i++) {
+			if (normalized[i] == current) {
+				imagePreviewIndex.value = i
+				break
+			}
+		}
+		imagePreviewCurrent.value = normalizeMediaUrl(current)
+		imagePreviewScale.value = 1
+		imagePreviewVisible.value = true
+	}
+
+	function closeImagePreview() {
+		imagePreviewVisible.value = false
+		imagePreviewScale.value = 1
+	}
+
+	function previousPreviewImage() {
+		if (imagePreviewIndex.value <= 0) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value - 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function nextPreviewImage() {
+		if (imagePreviewIndex.value >= imagePreviewUrls.value.length - 1) {
+			return
+		}
+		imagePreviewIndex.value = imagePreviewIndex.value + 1
+		imagePreviewCurrent.value = imagePreviewUrls.value[imagePreviewIndex.value]
+		imagePreviewScale.value = 1
+	}
+
+	function handleImagePreviewWheel(event : any) {
+		const delta = event.deltaY as number
+		if (delta == 0) {
+			return
+		}
+		let nextScale = imagePreviewScale.value + (delta < 0 ? 0.16 : -0.16)
+		if (nextScale < 0.5) {
+			nextScale = 0.5
+		}
+		if (nextScale > 4) {
+			nextScale = 4
+		}
+		imagePreviewScale.value = nextScale
 	}
 
 	function getFavoriteItems() : FavoriteItem[] {
@@ -680,6 +773,17 @@
 		uni.setStorageSync('current_news_id', id)
 		uni.navigateTo({
 			url: '/pages/news/detail',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
+	function openFollowList(type : string) {
+		if (isSpaceHidden() || space.value.userId <= 0) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/user/follows?userId=' + space.value.userId + '&type=' + type,
 			animationType: 'slide-in-right',
 			animationDuration: 260
 		})
@@ -1646,5 +1750,109 @@
 		line-height: 18px;
 		color: #667085;
 		margin-top: 4px;
+	}
+
+	.inline-image-preview {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(5, 7, 13, 0.84);
+		z-index: 80;
+	}
+
+	.inline-preview-top {
+		position: fixed;
+		left: 18px;
+		right: 18px;
+		top: 44px;
+		top: calc(44px + constant(safe-area-inset-top));
+		top: calc(44px + env(safe-area-inset-top));
+		top: calc(20px + var(--status-bar-height));
+		width: auto;
+		max-width: none;
+		height: 42px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		z-index: 82;
+	}
+
+	.inline-preview-back {
+		position: relative;
+		width: 42px;
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.86);
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-chevron-line {
+		background-color: #ffffff;
+	}
+
+	.inline-preview-placeholder {
+		background-color: transparent;
+	}
+
+	.inline-preview-count {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #ffffff;
+		text-shadow: 0 1px 8px rgba(17, 24, 39, 0.42);
+	}
+
+	.inline-preview-area,
+	.inline-preview-view {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-view {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-image {
+		width: 100%;
+		height: 100vh;
+	}
+
+	.inline-preview-bottom {
+		position: fixed;
+		left: 24px;
+		right: 24px;
+		bottom: 28px;
+		bottom: calc(28px + constant(safe-area-inset-bottom));
+		bottom: calc(28px + env(safe-area-inset-bottom));
+		width: auto;
+		max-width: none;
+		flex-direction: row;
+		justify-content: space-between;
+		z-index: 82;
+	}
+
+	.inline-preview-switch {
+		height: 42px;
+		border-radius: 21px;
+		background-color: rgba(17, 24, 39, 0.78);
+		padding-left: 18px;
+		padding-right: 18px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.inline-preview-switch-disabled {
+		opacity: 0.35;
+	}
+
+	.inline-preview-switch-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #ffffff;
 	}
 </style>

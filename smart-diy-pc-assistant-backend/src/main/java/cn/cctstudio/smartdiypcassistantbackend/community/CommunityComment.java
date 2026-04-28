@@ -24,6 +24,8 @@ public class CommunityComment {
     @Column(nullable = false)
     private Long userId;
 
+    private Long parentCommentId;
+
     @Lob
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
@@ -43,9 +45,10 @@ public class CommunityComment {
     protected CommunityComment() {
     }
 
-    public CommunityComment(Long postId, Long userId, String content, String imageUrls, Long buildConfigId) {
+    public CommunityComment(Long postId, Long userId, Long parentCommentId, String content, String imageUrls, Long buildConfigId) {
         this.postId = postId;
         this.userId = userId;
+        this.parentCommentId = parentCommentId;
         this.content = content;
         this.imageUrls = imageUrls;
         this.buildConfigId = buildConfigId;
@@ -63,6 +66,10 @@ public class CommunityComment {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public Long getParentCommentId() {
+        return parentCommentId;
     }
 
     public String getContent() {

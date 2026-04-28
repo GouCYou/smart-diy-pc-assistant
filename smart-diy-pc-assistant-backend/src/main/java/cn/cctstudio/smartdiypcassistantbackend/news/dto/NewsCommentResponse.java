@@ -9,6 +9,8 @@ public record NewsCommentResponse(
         Long id,
         Long newsId,
         AuthorResponse author,
+        Long parentCommentId,
+        AuthorResponse replyTo,
         String content,
         List<String> imageUrls,
         long likeCount,

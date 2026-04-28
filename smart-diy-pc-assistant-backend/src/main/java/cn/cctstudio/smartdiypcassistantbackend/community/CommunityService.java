@@ -9,6 +9,7 @@ import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostReques
 import cn.cctstudio.smartdiypcassistantbackend.community.dto.CommunityPostResponse;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
+import cn.cctstudio.smartdiypcassistantbackend.notification.NotificationService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserFollowRepository;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
@@ -33,6 +34,7 @@ public class CommunityService {
     private final UserAccessService userAccessService;
     private final UserFollowRepository userFollowRepository;
     private final BuildConfigService buildConfigService;
+    private final NotificationService notificationService;
     private final MediaUrlService mediaUrlService;
 
     public CommunityService(
@@ -45,6 +47,7 @@ public class CommunityService {
             UserAccessService userAccessService,
             UserFollowRepository userFollowRepository,
             BuildConfigService buildConfigService,
+            NotificationService notificationService,
             MediaUrlService mediaUrlService
     ) {
         this.postRepository = postRepository;
@@ -56,6 +59,7 @@ public class CommunityService {
         this.userAccessService = userAccessService;
         this.userFollowRepository = userFollowRepository;
         this.buildConfigService = buildConfigService;
+        this.notificationService = notificationService;
         this.mediaUrlService = mediaUrlService;
     }
 
@@ -144,19 +148,23 @@ public class CommunityService {
     @Transactional
     public CommunityCommentResponse createComment(Long userId, Long postId, CommunityCommentRequest request) {
         userAccessService.requireAvailable(userId);
-        findVisiblePost(postId);
+        CommunityPost post = findVisiblePost(postId);
         List<String> imageKeys = cleanImages(request.imageKeys());
         Long buildConfigId = request.buildConfigId();
         if (buildConfigId != null) {
             buildConfigService.get(userId, buildConfigId);
         }
+        CommunityComment parentComment = resolveParentComment(postId, request.parentCommentId());
+        Long parentCommentId = parentComment == null ? null : parentComment.getId();
         CommunityComment comment = commentRepository.save(new CommunityComment(
                 postId,
                 userId,
+                parentCommentId,
                 request.content().trim(),
                 serialize(imageKeys),
                 buildConfigId
         ));
+        sendCommunityCommentNotification(userId, post, parentComment, comment);
         return toCommentResponse(comment, userId);
     }
 
@@ -239,6 +247,53 @@ public class CommunityService {
                 .orElseThrow(() -> new BusinessException("帖子不存在"));
     }
 
+    private CommunityComment resolveParentComment(Long postId, Long parentCommentId) {
+        if (parentCommentId == null || parentCommentId <= 0) {
+            return null;
+        }
+        CommunityComment parent = commentRepository.findById(parentCommentId)
+                .filter(CommunityComment::isVisible)
+                .orElseThrow(() -> new BusinessException("回复的评论不存在"));
+        if (!Objects.equals(parent.getPostId(), postId)) {
+            throw new BusinessException("回复的评论不属于当前动态");
+        }
+        return parent;
+    }
+
+    private void sendCommunityCommentNotification(
+            Long actorId,
+            CommunityPost post,
+            CommunityComment parentComment,
+            CommunityComment comment
+    ) {
+        if (parentComment == null) {
+            notificationService.notifyCommunityPostReply(
+                    actorId,
+                    post.getUserId(),
+                    post.getId(),
+                    comment.getId(),
+                    comment.getContent()
+            );
+            return;
+        }
+        notificationService.notifyCommunityCommentReply(
+                actorId,
+                parentComment.getUserId(),
+                post.getId(),
+                comment.getId(),
+                comment.getContent()
+        );
+        if (!Objects.equals(post.getUserId(), parentComment.getUserId())) {
+            notificationService.notifyCommunityPostReply(
+                    actorId,
+                    post.getUserId(),
+                    post.getId(),
+                    comment.getId(),
+                    comment.getContent()
+            );
+        }
+    }
+
     private CommunityPostResponse toPostResponse(CommunityPost post, Long userId, boolean withComments) {
         BuildConfigResponse buildConfig = post.getBuildConfigId() == null ? null : buildConfigService.getPublic(post.getBuildConfigId());
         List<CommunityCommentResponse> comments = withComments
@@ -268,6 +323,11 @@ public class CommunityService {
                 comment.getId(),
                 comment.getPostId(),
                 author(comment.getUserId()),
+                comment.getParentCommentId(),
+                comment.getParentCommentId() == null ? null : commentRepository.findById(comment.getParentCommentId())
+                        .filter(CommunityComment::isVisible)
+                        .map(parent -> author(parent.getUserId()))
+                        .orElse(null),
                 comment.getContent(),
                 mediaUrlService.toPublicUrls(deserialize(comment.getImageUrls())),
                 buildConfig,

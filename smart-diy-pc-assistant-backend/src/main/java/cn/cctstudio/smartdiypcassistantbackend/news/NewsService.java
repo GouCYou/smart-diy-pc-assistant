@@ -7,6 +7,7 @@ import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsCommentResponse;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsRequest;
 import cn.cctstudio.smartdiypcassistantbackend.news.dto.NewsResponse;
+import cn.cctstudio.smartdiypcassistantbackend.notification.NotificationService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserRepository;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class NewsService {
     private final NewsCommentLikeRepository newsCommentLikeRepository;
     private final UserRepository userRepository;
     private final UserAccessService userAccessService;
+    private final NotificationService notificationService;
     private final MediaUrlService mediaUrlService;
 
     public NewsService(
@@ -38,6 +40,7 @@ public class NewsService {
             NewsCommentLikeRepository newsCommentLikeRepository,
             UserRepository userRepository,
             UserAccessService userAccessService,
+            NotificationService notificationService,
             MediaUrlService mediaUrlService
     ) {
         this.newsRepository = newsRepository;
@@ -47,6 +50,7 @@ public class NewsService {
         this.newsCommentLikeRepository = newsCommentLikeRepository;
         this.userRepository = userRepository;
         this.userAccessService = userAccessService;
+        this.notificationService = notificationService;
         this.mediaUrlService = mediaUrlService;
     }
 
@@ -137,7 +141,12 @@ public class NewsService {
         if (!StringUtils.hasText(content) && imageKeys.isEmpty()) {
             throw new BusinessException("评论内容或图片不能为空");
         }
-        NewsComment comment = newsCommentRepository.save(new NewsComment(newsId, userId, content, serialize(imageKeys)));
+        NewsComment parentComment = resolveParentComment(newsId, request.parentCommentId());
+        Long parentCommentId = parentComment == null ? null : parentComment.getId();
+        NewsComment comment = newsCommentRepository.save(new NewsComment(newsId, userId, parentCommentId, content, serialize(imageKeys)));
+        if (parentComment != null) {
+            notificationService.notifyNewsCommentReply(userId, parentComment.getUserId(), newsId, comment.getId(), comment.getContent());
+        }
         return toCommentResponse(comment, userId);
     }
 
@@ -180,6 +189,19 @@ public class NewsService {
                 .orElseThrow(() -> new BusinessException("新闻不存在"));
     }
 
+    private NewsComment resolveParentComment(Long newsId, Long parentCommentId) {
+        if (parentCommentId == null || parentCommentId <= 0) {
+            return null;
+        }
+        NewsComment parent = newsCommentRepository.findById(parentCommentId)
+                .filter(NewsComment::isVisible)
+                .orElseThrow(() -> new BusinessException("回复的评论不存在"));
+        if (!parent.getNewsId().equals(newsId)) {
+            throw new BusinessException("回复的评论不属于当前新闻");
+        }
+        return parent;
+    }
+
     private NewsResponse toNewsResponse(News news, Long userId, boolean withComments, String commentSort) {
         List<NewsCommentResponse> comments = withComments
                 ? sortComments(newsCommentRepository.findByNewsIdAndVisibleTrueOrderByCreatedAtAsc(news.getId()), commentSort)
@@ -213,6 +235,11 @@ public class NewsService {
                 comment.getId(),
                 comment.getNewsId(),
                 author(comment.getUserId()),
+                comment.getParentCommentId(),
+                comment.getParentCommentId() == null ? null : newsCommentRepository.findById(comment.getParentCommentId())
+                        .filter(NewsComment::isVisible)
+                        .map(parent -> author(parent.getUserId()))
+                        .orElse(null),
                 comment.getContent(),
                 mediaUrlService.toPublicUrls(deserialize(comment.getImageUrls())),
                 newsCommentLikeRepository.countByCommentId(comment.getId()),
