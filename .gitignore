@@ -7,6 +7,7 @@ dist-ssr/
 target/
 build/
 unpackage/
+smart-diy-pc-assistant-uniapp-old/
 coverage/
 .nyc_output/
 .vite/
