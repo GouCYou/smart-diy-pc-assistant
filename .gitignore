@@ -7,12 +7,23 @@ dist-ssr/
 target/
 build/
 unpackage/
+coverage/
+.nyc_output/
+.vite/
+*.tsbuildinfo
+*.class
+*.jar
+*.war
 
 # Local database exports
 smart_diy_pc_assistant_1.sql
 
 # Local Maven cache
 .m2/
+
+# Package manager caches
+.npm/
+.pnpm-store/
 
 # Logs
 logs/
@@ -35,6 +46,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+.eslintcache
+.stylelintcache
 
 # Local-only config and secrets
 *.local
