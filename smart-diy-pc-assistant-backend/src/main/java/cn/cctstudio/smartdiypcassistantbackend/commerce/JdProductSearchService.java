@@ -67,7 +67,7 @@ public class JdProductSearchService {
 
     public JdProduct bestForPart(HardwarePart part) {
         return bestAvailableForPart(part)
-                .orElse(toProductSnapshot(part, "", part.getPrice(), "", "", "", ""));
+                .orElse(toProductSnapshot(part, "", 0, "", "", "", ""));
     }
 
     public Optional<JdProduct> bestAvailableForPart(HardwarePart part) {
@@ -75,8 +75,12 @@ public class JdProductSearchService {
     }
 
     public Optional<JdProduct> bestAvailableForPart(HardwarePart part, String preferredColor) {
+        return bestAvailableForPart(part, preferredColor, false);
+    }
+
+    public Optional<JdProduct> bestAvailableForPart(HardwarePart part, String preferredColor, boolean allowCpuBundleFallback) {
         String keyword = part.getModel() + " " + typeKeyword(part.getType());
-        return searchProductsForPart(keyword, part, false).stream()
+        return searchProductsForPart(keyword, part, allowCpuBundleFallback).stream()
                 .filter(product -> part.getId().equals(product.hardwarePartId()))
                 .filter(this::isAvailableProduct)
                 .max(Comparator.comparingInt(product -> productRank(part, product, preferredColor)));
@@ -337,23 +341,43 @@ public class JdProductSearchService {
         if (model.contains("E-ATX") || formFactor.contains("E-ATX")) {
             addKeyword(keywords, "E-ATX 机箱");
             addKeyword(keywords, "EATX 全塔机箱");
-            addKeyword(keywords, "全塔 机箱");
+            addKeyword(keywords, "全塔机箱");
+            addKeyword(keywords, "大机箱");
+            addKeyword(keywords, "大塔机箱");
+            addGenericCaseKeywords(keywords);
             return;
         }
         if (model.contains("M-ATX") || formFactor.contains("M-ATX")) {
             addKeyword(keywords, "M-ATX 机箱");
-            addKeyword(keywords, "MATX 机箱");
-            addKeyword(keywords, "M-ATX 海景房机箱");
+            addKeyword(keywords, "MATX 小机箱");
+            addKeyword(keywords, "M-ATX 小机箱");
+            addKeyword(keywords, "紧凑机箱");
+            addKeyword(keywords, "小机箱");
+            addKeyword(keywords, "海景房机箱");
+            addGenericCaseKeywords(keywords);
             return;
         }
         if (model.contains("ITX") || formFactor.contains("ITX")) {
-            addKeyword(keywords, "ITX 机箱");
-            addKeyword(keywords, "迷你 机箱");
+            addKeyword(keywords, "ITX 小机箱");
+            addKeyword(keywords, "迷你机箱");
+            addKeyword(keywords, "小钢炮机箱");
+            addGenericCaseKeywords(keywords);
             return;
         }
         addKeyword(keywords, "ATX 机箱");
-        addKeyword(keywords, "中塔 机箱");
+        addKeyword(keywords, "中塔机箱");
+        addKeyword(keywords, "台式机中塔机箱");
+        addKeyword(keywords, "ATX 中塔机箱");
         addKeyword(keywords, "ATX 风道机箱");
+        addKeyword(keywords, "风道机箱");
+        addKeyword(keywords, "海景房机箱");
+        addGenericCaseKeywords(keywords);
+    }
+
+    private void addGenericCaseKeywords(List<String> keywords) {
+        addKeyword(keywords, "电脑机箱");
+        addKeyword(keywords, "台式机机箱");
+        addKeyword(keywords, "主机箱");
     }
 
     private void addCoolerKeywords(List<String> keywords, HardwarePart part) {
@@ -490,12 +514,18 @@ public class JdProductSearchService {
                 score -= 45;
             }
         }
-        int referencePrice = part.getPrice();
+        int referencePrice = referencePrice(part);
         int productPrice = product.price() == null ? 0 : product.price();
-        if (referencePrice > 0 && productPrice > 0) {
-            score -= Math.min(80, Math.abs(productPrice - referencePrice) / 25);
+        if (productPrice > 0) {
+            score -= Math.min(90, Math.abs(productPrice - referencePrice) / 30);
+            if (productPrice > referencePrice * 1.25) {
+                score -= Math.min(90, (productPrice - Math.round(referencePrice * 1.25f)) / 20);
+            }
             if (productPrice <= referencePrice * 1.18) {
                 score += 18;
+            }
+            if (productPrice <= referencePrice && productPrice >= referencePrice * 0.45) {
+                score += 10;
             }
         }
         String title = product.title().toUpperCase(Locale.ROOT);
@@ -506,12 +536,143 @@ public class JdProductSearchService {
         return score;
     }
 
+    private int referencePrice(HardwarePart part) {
+        return estimatedPartPrice(part);
+    }
+
+    private int estimatedPartPrice(HardwarePart part) {
+        String model = part.getModel().toUpperCase(Locale.ROOT);
+        return switch (part.getType()) {
+            case CPU -> estimatedCpuPrice(model);
+            case GPU -> estimatedGpuPrice(model);
+            case MOTHERBOARD -> estimatedMotherboardPrice(model);
+            case MEMORY -> estimatedMemoryPrice(model);
+            case STORAGE -> estimatedStoragePrice(model);
+            case PSU -> estimatedPsuPrice(model);
+            case CASE -> estimatedCasePrice(model);
+            case COOLER -> estimatedCoolerPrice(model);
+        };
+    }
+
+    private int estimatedCpuPrice(String model) {
+        if (model.contains("9950X3D2")) return 6500;
+        if (model.contains("9950X3D")) return 5200;
+        if (model.contains("9950X")) return 4300;
+        if (model.contains("9900X3D")) return 3800;
+        if (model.contains("9900X")) return 3200;
+        if (model.contains("9850X3D")) return 3600;
+        if (model.contains("9800X3D")) return 3400;
+        if (model.contains("9700X")) return 1900;
+        if (model.contains("9600X")) return 1400;
+        if (model.contains("7800X3D")) return 2500;
+        if (model.contains("7500F")) return 900;
+        if (model.contains("5700X3D")) return 1000;
+        if (model.contains("5600")) return 600;
+        if (model.contains("CORE ULTRA 9")) return 4200;
+        if (model.contains("CORE ULTRA 7")) return 2800;
+        if (model.contains("CORE ULTRA 5")) return 1800;
+        if (model.contains("14700")) return 2400;
+        if (model.contains("14600")) return 1500;
+        if (model.contains("13490")) return 1100;
+        if (model.contains("12400")) return 750;
+        return 1500;
+    }
+
+    private int estimatedGpuPrice(String model) {
+        if (model.contains("RTX 5090")) return 18000;
+        if (model.contains("RTX 5080")) return 8000;
+        if (model.contains("RTX 5070 TI")) return 5600;
+        if (model.contains("RTX 5070")) return 4200;
+        if (model.contains("RTX 5060 TI")) return 3000;
+        if (model.contains("RTX 5060")) return 2300;
+        if (model.contains("RTX 5050")) return 1600;
+        if (model.contains("RTX 4070 SUPER")) return 4300;
+        if (model.contains("RTX 4070")) return 3400;
+        if (model.contains("RTX 4060 TI")) return 2600;
+        if (model.contains("RTX 4060")) return 2100;
+        if (model.contains("RX 9070 XT")) return 4500;
+        if (model.contains("RX 9070")) return 3800;
+        if (model.contains("RX 9060 XT")) return 2600;
+        if (model.contains("RX 7800 XT")) return 3500;
+        if (model.contains("RX 7700 XT")) return 2900;
+        if (model.contains("ARC B580")) return 1600;
+        if (model.contains("ARC B570")) return 1300;
+        return 2500;
+    }
+
+    private int estimatedMotherboardPrice(String model) {
+        if (model.contains("X870E")) return 2500;
+        if (model.contains("X870")) return 1800;
+        if (model.contains("B850M")) return 900;
+        if (model.contains("B850")) return 1100;
+        if (model.contains("B650E")) return 1200;
+        if (model.contains("B650M")) return 700;
+        if (model.contains("B650")) return 900;
+        if (model.contains("Z890")) return 2000;
+        if (model.contains("B860M")) return 800;
+        if (model.contains("B860")) return 950;
+        if (model.contains("H810")) return 550;
+        if (model.contains("Z790")) return 1600;
+        if (model.contains("B760M")) return 700;
+        if (model.contains("B760")) return 850;
+        if (model.contains("B660M")) return 550;
+        if (model.contains("B550M")) return 550;
+        return 800;
+    }
+
+    private int estimatedMemoryPrice(String model) {
+        if (model.contains("64GB")) return 1100;
+        if (model.contains("32GB") && model.contains("DDR5") && (model.contains("7200") || model.contains("6400"))) return 750;
+        if (model.contains("32GB") && model.contains("DDR5")) return 600;
+        if (model.contains("16GB") && model.contains("DDR5")) return 320;
+        if (model.contains("32GB") && model.contains("DDR4")) return 420;
+        if (model.contains("16GB") && model.contains("DDR4")) return 240;
+        return 500;
+    }
+
+    private int estimatedStoragePrice(String model) {
+        if (model.contains("PCIE 5.0") && model.contains("2TB")) return 1400;
+        if (model.contains("PCIE 5.0") && model.contains("1TB")) return 800;
+        if (model.contains("4TB")) return 1700;
+        if (model.contains("2TB")) return 850;
+        if (model.contains("1TB")) return 450;
+        return 600;
+    }
+
+    private int estimatedPsuPrice(String model) {
+        if (model.contains("1000W")) return 900;
+        if (model.contains("850W") && model.contains("ATX 3.1")) return 650;
+        if (model.contains("750W") && model.contains("ATX 3.1")) return 520;
+        if (model.contains("650W") && model.contains("ATX 3.1")) return 420;
+        if (model.contains("850W")) return 580;
+        if (model.contains("750W")) return 450;
+        if (model.contains("650W") && model.contains("BRONZE")) return 280;
+        if (model.contains("650W")) return 360;
+        return 400;
+    }
+
+    private int estimatedCasePrice(String model) {
+        if (model.contains("E-ATX")) return 700;
+        if (model.contains("ITX")) return 450;
+        if (model.contains("M-ATX")) return 300;
+        return 350;
+    }
+
+    private int estimatedCoolerPrice(String model) {
+        if (model.contains("360")) return 520;
+        if (model.contains("280")) return 430;
+        if (model.contains("240")) return 300;
+        if (model.contains("DUAL TOWER")) return 190;
+        if (model.contains("LOW PROFILE")) return 160;
+        return 100;
+    }
+
     private String productColor(String title) {
         String text = title == null ? "" : title.toLowerCase(Locale.ROOT);
-        if (containsAnyText(text, "白色", "纯白", "雪", "white", "吹雪", "银白")) {
+        if (containsAnyText(text, "白色", "纯白", "雪", "white", "吹雪", "银白", "皓月", "冰川")) {
             return "WHITE";
         }
-        if (containsAnyText(text, "黑色", "雅黑", "曜黑", "暗黑", "black")) {
+        if (containsAnyText(text, "黑色", "雅黑", "曜黑", "暗黑", "black", "碳黑", "夜黑", "黑武士", "黑化")) {
             return "BLACK";
         }
         return "";
@@ -671,7 +832,9 @@ public class JdProductSearchService {
                     && !title.contains("充电器")
                     && !title.contains("服务器")
                     && !title.contains("笔记本");
-            case CASE -> title.contains("机箱");
+            case CASE -> title.contains("机箱")
+                    && !title.contains("机箱风扇")
+                    && !title.contains("风扇套装");
             case COOLER -> (title.contains("散热器") || title.contains("风冷") || title.contains("水冷") || normalizedTitle.contains("CPU"))
                     && !title.contains("机箱风扇")
                     && !title.contains("风扇套装");
@@ -714,7 +877,7 @@ public class JdProductSearchService {
         if (part == null || part.getType() != HardwarePartType.CASE || !StringUtils.hasText(title)) {
             return true;
         }
-        if (!title.contains("机箱")) {
+        if (!title.contains("机箱") || title.contains("机箱风扇") || title.contains("风扇套装")) {
             return false;
         }
         String normalizedTitle = title.toUpperCase(Locale.ROOT);
@@ -723,19 +886,25 @@ public class JdProductSearchService {
         boolean targetEatx = text.contains("E-ATX") || compact(text).contains("EATX");
         boolean targetMatx = text.contains("M-ATX") || compact(text).contains("MATX");
         boolean targetItx = text.contains("ITX");
-        boolean titleEatx = containsAnyCompact(title, "EATX") || title.contains("全塔") || title.contains("大塔");
-        boolean titleMatx = containsAnyCompact(title, "MATX") || title.contains("紧凑") || title.contains("小机箱");
-        boolean titleItx = normalizedTitle.contains("ITX") || normalizedTitle.contains("MINI") || title.contains("迷你");
+        boolean titleEatx = containsAnyCompact(title, "EATX") || title.contains("全塔") || title.contains("大塔") || title.contains("大机箱");
+        boolean titleMatx = containsAnyCompact(title, "MATX") || title.contains("紧凑") || title.contains("小机箱") || title.contains("小型机箱");
+        boolean titleItx = normalizedTitle.contains("ITX") || normalizedTitle.contains("MINI") || title.contains("迷你") || title.contains("小钢炮");
         if (targetEatx) {
-            return titleEatx;
+            return titleEatx || title.contains("兼容E-ATX") || title.contains("支持E-ATX");
         }
         if (targetMatx) {
-            return titleMatx;
+            return titleMatx || title.contains("兼容M-ATX") || title.contains("支持M-ATX");
         }
         if (targetItx) {
             return titleItx;
         }
-        return (compactTitle.contains("ATX") || title.contains("中塔") || title.contains("海景房") || title.contains("风道"))
+        return (compactTitle.contains("ATX")
+                || title.contains("中塔")
+                || title.contains("海景房")
+                || title.contains("风道")
+                || title.contains("台式机机箱")
+                || title.contains("电脑机箱")
+                || title.contains("主机箱"))
                 && !titleEatx
                 && !titleMatx
                 && !titleItx;

@@ -27,8 +27,9 @@
 					<text class="chat-empty-title">有什么装机问题</text>
 					<text class="chat-empty-desc">AI 也可能会犯错。请核查重要信息。</text>
 					<view class="prompt-grid">
-						<view v-for="item in promptChips" :key="item" class="prompt-card" @click="choosePrompt(item)">
-							<text class="prompt-text">{{ item }}</text>
+						<view v-for="item in promptChips" :key="item.label" :class="item.type == 'setup' ? 'prompt-card prompt-card-setup' : 'prompt-card'" @click="choosePrompt(item)">
+							<image v-if="item.type == 'setup'" class="prompt-icon-image" src="/static/icons/budget-need.svg" mode="aspectFit"></image>
+							<text class="prompt-text">{{ item.label }}</text>
 						</view>
 					</view>
 				</view>
@@ -47,10 +48,27 @@
 								</view>
 							</view>
 							<view class="chat-build-main">
-								<text class="chat-build-title">{{ message.buildConfigTitle }}</text>
+								<text class="chat-build-title">{{ getDisplayBuildTitle(message.buildConfigTitle) }}</text>
 								<text class="chat-build-desc">{{ message.buildConfigSerialNumber.length > 0 ? message.buildConfigSerialNumber + ' · 点击查看配置详情' : '点击查看配置详情' }}</text>
 							</view>
 							<text class="chat-build-arrow">›</text>
+						</view>
+						<view v-if="getChatNewsReferences(message).length > 0" class="chat-news-sources">
+							<text class="chat-news-source-label">参考热点新闻</text>
+							<view v-for="news in getChatNewsReferences(message)" :key="news.id" class="chat-news-card" @click="openNewsDetail(news.id)">
+								<image v-if="news.coverUrl.length > 0" class="chat-news-cover" :src="news.coverUrl" mode="aspectFill"></image>
+								<view v-else class="chat-news-cover chat-news-cover-empty">
+									<text class="chat-news-cover-text">HOT</text>
+								</view>
+								<view class="chat-news-main">
+									<view class="chat-news-tag-wrap">
+										<text class="chat-news-tag">{{ news.tag || '科技新闻' }}</text>
+									</view>
+									<text class="chat-news-title">{{ news.title }}</text>
+									<text class="chat-news-summary">{{ news.summary }}</text>
+								</view>
+								<text class="chat-news-arrow">›</text>
+							</view>
 						</view>
 					</view>
 					<view v-if="chatLoading" class="message-row">
@@ -68,6 +86,26 @@
 								<view class="thinking-dot thinking-dot-three"></view>
 							</view>
 						</view>
+					</view>
+				</view>
+
+				<view v-if="activeBuildTasks.length > 0" class="build-task-list">
+					<view v-for="task in activeBuildTasks" :key="task.id" class="build-task-card">
+						<view class="build-task-head">
+							<view class="build-task-icon">
+								<view class="build-task-icon-line"></view>
+								<view class="build-task-icon-dot"></view>
+							</view>
+							<view class="build-task-title-wrap">
+								<text class="build-task-title">{{ task.stageTitle }}</text>
+								<text class="build-task-desc">{{ task.stageDescription }}</text>
+							</view>
+							<text class="build-task-percent">{{ task.progress }}%</text>
+						</view>
+						<view class="build-task-track">
+							<view class="build-task-fill" :style="'width: ' + task.progress + '%'"></view>
+						</view>
+						<text class="build-task-foot">{{ getBuildTaskFoot(task) }}</text>
 					</view>
 				</view>
 			</scroll-view>
@@ -140,7 +178,7 @@
 						<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildPageDetail(item)">
 							<view class="build-card-head">
 								<view class="build-card-main">
-									<text class="build-title">{{ item.title }}</text>
+									<text class="build-title">{{ getDisplayBuildTitle(item.title) }}</text>
 									<text class="build-meta">{{ getBuildSourceLabel(item.source) }}{{ item.serialNumber.length > 0 ? ' · ' + item.serialNumber : '' }} · {{ formatHistoryTime(item.updatedAt) }}</text>
 								</view>
 								<view v-if="canEditBuildItem(item)" class="build-card-delete" @click.stop="deleteBuild(item.id)">
@@ -157,8 +195,7 @@
 									<text class="build-score-value">{{ item.performanceScore }} 分</text>
 								</view>
 							</view>
-							<text class="build-summary">{{ item.summary }}</text>
-							<view class="build-part-preview">
+								<view class="build-part-preview">
 								<view v-for="part in item.parts" :key="part.id" class="build-part-product">
 									<image v-if="part.productImage.length > 0" class="build-part-product-image" :src="part.productImage" mode="aspectFill"></image>
 									<view v-else class="build-part-product-image build-part-product-fallback">
@@ -223,7 +260,7 @@
 
 			<scroll-view v-else class="build-page-detail-scroll" scroll-y="true">
 				<view class="build-page-detail-card">
-					<text class="build-page-detail-title">{{ selectedBuildDetail.title }}</text>
+					<text class="build-page-detail-title">{{ getDisplayBuildTitle(selectedBuildDetail.title) }}</text>
 					<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-page-detail-serial">{{ selectedBuildDetail.serialNumber }}</text>
 					<view class="build-detail-metrics build-page-detail-metrics">
 						<view class="build-detail-metric">
@@ -235,8 +272,7 @@
 							<text class="build-live-value">{{ selectedBuildDetail.performanceScore }} 分</text>
 						</view>
 					</view>
-					<text class="build-page-detail-summary">{{ selectedBuildDetail.summary }}</text>
-					<text v-if="selectedBuildDetail.note.length > 0" class="build-page-detail-note">备注：{{ selectedBuildDetail.note }}</text>
+						<text v-if="selectedBuildDetail.note.length > 0" class="build-page-detail-note">备注：{{ selectedBuildDetail.note }}</text>
 				</view>
 				<view class="build-page-section">
 					<text class="build-page-section-title">所选配件</text>
@@ -338,7 +374,7 @@
 								</view>
 							</view>
 							<view class="chat-build-main">
-								<text class="chat-build-title">{{ post.buildConfig.title }}</text>
+									<text class="chat-build-title">{{ getDisplayBuildTitle(post.buildConfig.title) }}</text>
 								<text class="chat-build-desc">{{ getBuildCardDesc(post.buildConfig) }}</text>
 							</view>
 							<text class="chat-build-arrow">›</text>
@@ -600,13 +636,7 @@
 							<text class="history-item-time">{{ formatHistoryTime(item.updatedAt) }}</text>
 						</view>
 						<view :class="deleteActionConversationId == item.id ? 'history-delete-action history-delete-action-show' : 'history-delete-action'" @click.stop="openDeleteDialog(item.id, item.title)">
-							<view class="trash-handle"></view>
-							<view class="trash-lid"></view>
-							<view class="trash-can">
-								<view class="trash-line"></view>
-								<view class="trash-line"></view>
-								<view class="trash-line"></view>
-							</view>
+							<image class="history-delete-icon" src="/static/icons/trash-delete.svg" mode="aspectFit"></image>
 						</view>
 					</view>
 				</view>
@@ -622,6 +652,7 @@
 
 		<view v-if="deleteDialogVisible" class="delete-dialog-mask" @click="cancelDeleteDialog">
 			<view class="delete-dialog" @click.stop>
+				<image class="delete-dialog-icon" src="/static/icons/trash-delete.svg" mode="aspectFit"></image>
 				<text class="delete-dialog-title">删除这条对话？</text>
 				<text class="delete-dialog-desc">“{{ pendingDeleteTitle }}” 删除后无法恢复。</text>
 				<view class="delete-dialog-actions">
@@ -756,7 +787,7 @@
 		<view v-if="buildDetailVisible" class="build-form-mask build-detail-mask" @click="closeBuildDetail">
 			<view class="build-detail" @click.stop>
 				<view class="build-form-head">
-					<text class="build-form-title">{{ selectedBuildDetail.title }}</text>
+					<text class="build-form-title">{{ getDisplayBuildTitle(selectedBuildDetail.title) }}</text>
 					<view class="build-form-close" @click="closeBuildDetail">
 						<view class="close-line"></view>
 						<view class="close-line close-line-two"></view>
@@ -820,7 +851,7 @@
 				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true" :style="getBuildPickerScrollStyle(chatAttachBuildList.length)">
 					<view v-for="item in chatAttachBuildList" :key="item.id" class="part-option" @click="toggleBuildForChat(item)">
 						<view class="part-option-main">
-							<text class="part-option-title">{{ item.title }}</text>
+							<text class="part-option-title">{{ getDisplayBuildTitle(item.title) }}</text>
 							<text class="part-option-spec">{{ getBuildCardDesc(item) }}</text>
 						</view>
 						<view class="part-option-side">
@@ -833,6 +864,86 @@
 						<text class="part-empty-text">暂无可关联配置</text>
 					</view>
 				</scroll-view>
+			</view>
+		</view>
+
+		<view v-if="requirementDrawerVisible" class="build-form-mask requirement-drawer-mask" @click="closeRequirementDrawer">
+			<view class="requirement-drawer" @click.stop>
+				<view class="requirement-drawer-handle"></view>
+				<view class="build-form-head requirement-head">
+					<view>
+						<text class="build-form-title">快速设定需求</text>
+						<text class="requirement-subtitle">¥{{ requirementBudget }} · {{ getSelectedRequirementSceneLabel() }}</text>
+					</view>
+					<view class="build-form-close" @click="closeRequirementDrawer">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<scroll-view class="requirement-body" scroll-y="true">
+					<view class="requirement-section">
+						<view class="requirement-section-head">
+							<text class="requirement-section-title">预算</text>
+							<text class="requirement-section-value">¥{{ requirementBudget }}</text>
+						</view>
+						<view class="requirement-budget-control" @click.stop="handleRequirementBudgetClick" @touchstart.stop="handleRequirementBudgetTouch" @touchmove.stop.prevent="handleRequirementBudgetTouch">
+							<view class="requirement-budget-track">
+								<view class="requirement-budget-fill" :style="'width: ' + getRequirementBudgetPercent() + '%'"></view>
+								<view class="requirement-budget-thumb" :style="'left: ' + getRequirementBudgetPercent() + '%'">
+									<view class="requirement-budget-thumb-grip"></view>
+								</view>
+							</view>
+						</view>
+						<view class="requirement-range-row">
+							<text class="requirement-range-text">¥3000</text>
+							<text class="requirement-range-text">¥20000</text>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">使用场景</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementSceneOptions" :key="item.key" :class="requirementScene == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementScene = item.key">
+								<text :class="requirementScene == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">CPU 倾向</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementCpuOptions" :key="item.key" :class="requirementCpu == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementCpu = item.key">
+								<text :class="requirementCpu == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">显卡倾向</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementGpuOptions" :key="item.key" :class="requirementGpu == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementGpu = item.key">
+								<text :class="requirementGpu == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">机箱主色</text>
+						<view class="requirement-options requirement-options-two">
+							<view v-for="item in requirementColorOptions" :key="item.key" :class="requirementColor == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementColor = item.key">
+								<view :class="'requirement-swatch requirement-swatch-' + item.key"></view>
+								<text :class="requirementColor == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section requirement-section-last">
+						<text class="requirement-section-title">品牌倾向</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementBrandOptions" :key="item.key" :class="requirementBrand == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementBrand = item.key">
+								<text :class="requirementBrand == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+				</scroll-view>
+				<view class="requirement-submit" @click="submitRequirementPreset">
+					<text class="requirement-submit-text">发送给 AI</text>
+				</view>
 			</view>
 		</view>
 
@@ -878,7 +989,7 @@
 						</view>
 					</view>
 					<view class="chat-build-main">
-						<text class="chat-build-title">{{ postBuildTitle }}</text>
+						<text class="chat-build-title">{{ getDisplayBuildTitle(postBuildTitle) }}</text>
 						<text class="chat-build-desc">{{ postBuildSerialNumber.length > 0 ? postBuildSerialNumber + ' · 已关联配置' : '已关联配置，点击可查看详情' }}</text>
 					</view>
 					<view class="composer-attachment-close" @click.stop="clearPostBuild">
@@ -934,7 +1045,7 @@
 				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true" :style="getBuildPickerScrollStyle(postBuildList.length)">
 					<view v-for="item in postBuildList" :key="item.id" class="part-option" @click="toggleBuildForPost(item)">
 						<view class="part-option-main">
-							<text class="part-option-title">{{ item.title }}</text>
+							<text class="part-option-title">{{ getDisplayBuildTitle(item.title) }}</text>
 							<text class="part-option-spec">{{ getBuildCardDesc(item) }}</text>
 						</view>
 						<view class="part-option-side">
@@ -986,7 +1097,7 @@
 							</view>
 						</view>
 						<view class="chat-build-main">
-							<text class="chat-build-title">{{ selectedPost.buildConfig.title }}</text>
+							<text class="chat-build-title">{{ getDisplayBuildTitle(selectedPost.buildConfig.title) }}</text>
 							<text class="chat-build-desc">{{ getBuildCardDesc(selectedPost.buildConfig) }}</text>
 						</view>
 						<text class="chat-build-arrow">›</text>
@@ -1096,12 +1207,45 @@
 
 	declare const plus : any
 
+	type PromptChip = {
+		label : string
+		type : string
+	}
+
+	type RequirementOption = {
+		key : string
+		label : string
+	}
+
+	type ChatNewsReference = {
+		id : number
+		title : string
+		summary : string
+		tag : string
+		coverUrl : string
+	}
+
 	type ChatMessage = {
 		role : string
 		content : string
 		buildConfigId : number
 		buildConfigTitle : string
 		buildConfigSerialNumber : string
+		newsReferences ?: ChatNewsReference[]
+	}
+
+	type AiBuildTask = {
+		id : number
+		conversationId : number
+		status : string
+		progress : number
+		stageTitle : string
+		stageDescription : string
+		message : string
+		buildConfigId : number
+		buildConfigTitle : string
+		buildConfigSerialNumber : string
+		errorMessage : string
 	}
 
 	type ConversationSummary = {
@@ -1270,6 +1414,13 @@
 	const attachedBuildId = ref(0)
 	const attachedBuildTitle = ref('')
 	const attachedBuildSerialNumber = ref('')
+	const requirementDrawerVisible = ref(false)
+	const requirementBudget = ref(6000)
+	const requirementScene = ref('game')
+	const requirementColor = ref('white')
+	const requirementBrand = ref('any')
+	const requirementCpu = ref('any')
+	const requirementGpu = ref('any')
 	const selectedBuildDetail = ref({
 		id: 0,
 		serialNumber: '',
@@ -1288,6 +1439,7 @@
 	} as BuildConfigItem)
 	const pageMotionClass = ref('')
 	const chatMessages = ref([] as ChatMessage[])
+	const activeBuildTasks = ref([] as AiBuildTask[])
 	const conversationList = ref([] as ConversationSummary[])
 	const currentConversationId = ref(0)
 	const chatLoading = ref(false)
@@ -1362,11 +1514,44 @@
 	let postMentionSearchTimer : number = 0
 
 	const promptChips = [
-		'预算 6000 元，主玩 2K 游戏',
-		'白色小机箱，安静一点',
-		'剪辑、建模和游戏都要兼顾',
-		'已有显卡，帮我补齐其他配件'
-	]
+		{ label: '按预算设定需求', type: 'setup' },
+		{ label: '白色小机箱，安静一点', type: 'text' },
+		{ label: '剪辑、建模和游戏都要兼顾', type: 'text' },
+		{ label: '已有显卡，帮我补齐其他配件', type: 'text' }
+	] as PromptChip[]
+
+	const requirementSceneOptions = [
+		{ key: 'game', label: '游戏' },
+		{ key: 'editing', label: '剪辑' },
+		{ key: 'office', label: '办公' },
+		{ key: 'ai', label: 'AI' },
+		{ key: 'other', label: '其他' }
+	] as RequirementOption[]
+
+	const requirementColorOptions = [
+		{ key: 'white', label: '白色' },
+		{ key: 'black', label: '黑色' }
+	] as RequirementOption[]
+
+	const requirementBrandOptions = [
+		{ key: 'any', label: '默认' },
+		{ key: 'asus', label: '华硕' },
+		{ key: 'msi', label: '微星' },
+		{ key: 'gigabyte', label: '技嘉' },
+		{ key: 'other', label: '其他' }
+	] as RequirementOption[]
+
+	const requirementCpuOptions = [
+		{ key: 'any', label: '不强制' },
+		{ key: 'amd', label: 'AMD' },
+		{ key: 'intel', label: 'Intel' }
+	] as RequirementOption[]
+
+	const requirementGpuOptions = [
+		{ key: 'any', label: '不强制' },
+		{ key: 'nvidia', label: 'N 卡' },
+		{ key: 'amd', label: 'A 卡' }
+	] as RequirementOption[]
 
 	const chatThinkingSteps = [
 		{ title: '识别需求', desc: '整理预算、用途和偏好' },
@@ -1389,6 +1574,7 @@
 	let historyRefreshTimer : number = 0
 	let backendReconnectTimer : number = 0
 	let chatThinkingTimer : number = 0
+	let buildTaskPollTimer : number = 0
 	let backendProbeRunning = false
 	let unreadNotificationReady = false
 	const backendReconnectPending = ref(false)
@@ -1398,6 +1584,7 @@
 	if (token.value.length > 0) {
 		loadUnreadNotificationCount()
 		loadConversations()
+		loadActiveBuildTasks(0)
 		startHistoryRefreshTimer()
 	}
 	onShow(() => {
@@ -1411,10 +1598,15 @@
 			}
 			loadUnreadNotificationCount()
 			loadConversations()
+			loadActiveBuildTasks(currentConversationId.value)
+			if (activeTab.value == 0 && currentConversationId.value > 0) {
+				reloadConversationMessages(currentConversationId.value)
+			}
 			startHistoryRefreshTimer()
 		} else {
 			unreadNotificationCount.value = 0
 			stopHistoryRefreshTimer()
+			stopBuildTaskPolling()
 		}
 		if (activeTab.value == 4) {
 			loadProfile()
@@ -1433,6 +1625,7 @@
 		stopHistoryRefreshTimer()
 		stopBackendReconnectTimer()
 		stopChatThinkingTimer()
+		stopBuildTaskPolling()
 	})
 
 	function createEmptyBuildConfig() : BuildConfigItem {
@@ -1836,8 +2029,102 @@
 		deleteDialogVisible.value = false
 	}
 
-	function choosePrompt(text : string) {
-		draft.value = text
+	function choosePrompt(item : PromptChip) {
+		if (item.type == 'setup') {
+			openRequirementDrawer()
+			return
+		}
+		draft.value = item.label
+	}
+
+	function openRequirementDrawer() {
+		requirementDrawerVisible.value = true
+	}
+
+	function closeRequirementDrawer() {
+		requirementDrawerVisible.value = false
+	}
+
+	function handleRequirementBudgetClick(event : any) {
+		updateRequirementBudgetByEvent(event)
+	}
+
+	function handleRequirementBudgetTouch(event : any) {
+		updateRequirementBudgetByEvent(event)
+	}
+
+	function updateRequirementBudgetByEvent(event : any) {
+		const clientX = getPointerClientX(event)
+		if (clientX <= 0) {
+			return
+		}
+		uni.createSelectorQuery()
+			.select('.requirement-budget-track')
+			.boundingClientRect((rect : any) => {
+				if (rect == null || rect.width <= 0) {
+					return
+				}
+				const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+				const rawBudget = 3000 + ratio * 17000
+				requirementBudget.value = snapRequirementBudget(rawBudget)
+			})
+			.exec()
+	}
+
+	function getPointerClientX(event : any) : number {
+		if (event != null && event.touches != null && event.touches.length > 0) {
+			return Number(event.touches[0].clientX)
+		}
+		if (event != null && event.changedTouches != null && event.changedTouches.length > 0) {
+			return Number(event.changedTouches[0].clientX)
+		}
+		if (event != null && event.detail != null && event.detail.x != null) {
+			return Number(event.detail.x)
+		}
+		if (event != null && event.clientX != null) {
+			return Number(event.clientX)
+		}
+		return 0
+	}
+
+	function snapRequirementBudget(value : number) : number {
+		if (Number.isNaN(value)) {
+			return requirementBudget.value
+		}
+		const stepped = Math.round((value - 3000) / 500) * 500 + 3000
+		return Math.max(3000, Math.min(20000, stepped))
+	}
+
+	function getRequirementBudgetPercent() : number {
+		return Math.round(((requirementBudget.value - 3000) / 17000) * 1000) / 10
+	}
+
+	function getSelectedRequirementSceneLabel() : string {
+		return getRequirementOptionLabel(requirementSceneOptions, requirementScene.value)
+	}
+
+	function getRequirementOptionLabel(options : RequirementOption[], key : string) : string {
+		for (let i = 0; i < options.length; i++) {
+			if (options[i].key == key) {
+				return options[i].label
+			}
+		}
+		return ''
+	}
+
+	function submitRequirementPreset() {
+		const scene = getRequirementOptionLabel(requirementSceneOptions, requirementScene.value)
+		const color = getRequirementOptionLabel(requirementColorOptions, requirementColor.value)
+		const brand = getRequirementOptionLabel(requirementBrandOptions, requirementBrand.value)
+		const cpuPreference = getRequirementOptionLabel(requirementCpuOptions, requirementCpu.value)
+		const gpuPreference = getRequirementOptionLabel(requirementGpuOptions, requirementGpu.value)
+		const sceneText = scene == 'AI' ? 'AI 本地推理和生产力' : (scene == '其他' ? '综合用途' : scene)
+		const brandText = requirementBrand.value == 'any' || requirementBrand.value == 'other' ? '品牌不强制，优先性价比和稳定性' : '更倾向 ' + brand + ' 生态'
+		const cpuText = requirementCpu.value == 'any' ? 'CPU 平台不强制' : 'CPU 更倾向 ' + cpuPreference
+		const gpuText = requirementGpu.value == 'any' ? '显卡平台不强制' : '显卡更倾向 ' + gpuPreference
+		draft.value = '预算 ' + requirementBudget.value + ' 元，主要用于' + sceneText + '，希望机箱主色是' + color + '，' + brandText + '，' + cpuText + '，' + gpuText + '。请帮我生成一套兼顾兼容性、散热、电源余量和后续升级空间的配置单。'
+		closeRequirementDrawer()
+		submitMessage()
 	}
 
 	function submitMessage() {
@@ -1892,15 +2179,22 @@
 				if (body != null && body.code == 0 && body.data != null) {
 					const data = body.data as any
 					currentConversationId.value = data.conversationId as number
+					const buildTask = normalizeBuildTask(data.buildTask)
+					if (buildTask.id > 0) {
+						upsertBuildTask(buildTask)
+						startBuildTaskPolling()
+						loadConversations()
+						return
+					}
 					let generatedBuildId = 0
 					let generatedBuildTitle = ''
 					let generatedBuildSerialNumber = ''
 					if (data.generatedBuildConfigId != null) {
 						generatedBuildId = data.generatedBuildConfigId as number
 					}
-					if (data.generatedBuildConfigTitle != null) {
-						generatedBuildTitle = data.generatedBuildConfigTitle as string
-					}
+						if (data.generatedBuildConfigTitle != null) {
+							generatedBuildTitle = getDisplayBuildTitle(data.generatedBuildConfigTitle as string)
+						}
 					if (data.generatedBuildConfigSerialNumber != null) {
 						generatedBuildSerialNumber = data.generatedBuildConfigSerialNumber as string
 					} else if (data.generatedBuildConfig != null && data.generatedBuildConfig.serialNumber != null) {
@@ -1911,7 +2205,8 @@
 						content: normalizeAiReply(data.content),
 						buildConfigId: generatedBuildId,
 						buildConfigTitle: generatedBuildTitle,
-						buildConfigSerialNumber: generatedBuildSerialNumber
+						buildConfigSerialNumber: generatedBuildSerialNumber,
+						newsReferences: normalizeChatNewsReferences(data.newsReferences)
 					})
 					if (generatedBuildId > 0) {
 						loadBuildConfigs()
@@ -2045,7 +2340,7 @@
 
 	function attachBuildToChat(item : BuildConfigItem) {
 		attachedBuildId.value = item.id
-		attachedBuildTitle.value = item.title
+		attachedBuildTitle.value = getDisplayBuildTitle(item.title)
 		attachedBuildSerialNumber.value = item.serialNumber
 		chatBuildPickerVisible.value = false
 		uni.showToast({
@@ -2785,7 +3080,7 @@
 
 	function attachBuildToPost(item : BuildConfigItem) {
 		postBuildId.value = item.id
-		postBuildTitle.value = item.title
+		postBuildTitle.value = getDisplayBuildTitle(item.title)
 		postBuildSerialNumber.value = item.serialNumber
 		postBuildPickerVisible.value = false
 	}
@@ -3718,12 +4013,12 @@
 		for (let i = 0; i < selectedHardwareParts.value.length; i++) {
 			const part = selectedHardwareParts.value[i]
 			snapshots.push({
-				hardwarePartId: part.id,
-				title: getPartDisplayTitle(part),
-				price: part.productPrice > 0 ? part.productPrice : part.price,
-				image: part.productImage,
-				link: part.productLink,
-				skuId: part.skuId,
+					hardwarePartId: part.id,
+					title: getPartDisplayTitle(part),
+					price: part.productPrice > 0 ? part.productPrice : 0,
+					image: part.productImage,
+					link: part.productLink,
+					skuId: part.skuId,
 				matchedModel: part.matchedModel.length > 0 ? part.matchedModel : part.model
 			})
 		}
@@ -3877,13 +4172,13 @@
 		const model = item == null || item.model == null ? '' : item.model as string
 		const matchedModel = item == null || item.matchedModel == null || item.matchedModel.length == 0 ? model : item.matchedModel as string
 		return {
-			id: Number(item == null || item.id == null ? 0 : item.id),
-			type: item == null || item.type == null ? '' : item.type as string,
-			brand: '',
-			model: model,
-			price: Number(item == null || item.price == null ? 0 : item.price),
-			productTitle: item == null || item.productTitle == null ? '' : item.productTitle as string,
-			productPrice: Number(item == null || item.productPrice == null ? 0 : item.productPrice),
+				id: Number(item == null || item.id == null ? 0 : item.id),
+				type: item == null || item.type == null ? '' : item.type as string,
+				brand: '',
+				model: model,
+				price: 0,
+				productTitle: item == null || item.productTitle == null ? '' : item.productTitle as string,
+				productPrice: Number(item == null || item.productPrice == null ? 0 : item.productPrice),
 			productImage: item == null || item.productImage == null ? '' : item.productImage as string,
 			productLink: item == null || item.productLink == null ? '' : item.productLink as string,
 			skuId: item == null || item.skuId == null ? '' : item.skuId as string,
@@ -3907,7 +4202,7 @@
 		return {
 			id: Number(item == null || item.id == null ? 0 : item.id),
 			serialNumber: item == null || item.serialNumber == null ? '' : item.serialNumber as string,
-			title: item == null || item.title == null ? '' : item.title as string,
+				title: getDisplayBuildTitle(item == null || item.title == null ? '' : item.title as string),
 			note: item == null || item.note == null ? '' : item.note as string,
 			totalPrice: Number(item == null || item.totalPrice == null ? 0 : item.totalPrice),
 			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore),
@@ -4234,16 +4529,26 @@
 		return type == 'CPU' || type == 'GPU' || type == 'MEMORY' || type == 'STORAGE'
 	}
 
-	function getPartDisplayPrice(part : HardwarePartItem) : number {
-		if (part.productPrice != null && part.productPrice > 0) {
-			return part.productPrice
+		function getPartDisplayPrice(part : HardwarePartItem) : number {
+			if (part.productPrice != null && part.productPrice > 0) {
+				return part.productPrice
+			}
+			return 0
 		}
-		return part.price
-	}
 
 	function getPartPriceLabel(part : HardwarePartItem) : string {
 		const price = getPartDisplayPrice(part)
 		return price > 0 ? '¥' + price : '暂无价格'
+	}
+
+	function getDisplayBuildTitle(title : string) : string {
+		const cleanTitle = stripBuildTitlePrice(title)
+		return cleanTitle.length > 0 ? cleanTitle : '未命名配置'
+	}
+
+	function stripBuildTitlePrice(title : string) : string {
+		const value = title == null ? '' : String(title)
+		return value.replace(/\s*[¥￥]\s*[\d,]+(?:\.\d+)?\s*$/g, '').trim()
 	}
 
 	function getBuildCardDesc(build : BuildConfigItem) : string {
@@ -4451,7 +4756,7 @@
 			return
 		}
 		uni.setStorageSync('share_build_id', item.id)
-		uni.setStorageSync('share_build_title', item.title)
+		uni.setStorageSync('share_build_title', getDisplayBuildTitle(item.title))
 		uni.setStorageSync('share_build_serial_number', item.serialNumber)
 		publishPost()
 	}
@@ -4485,7 +4790,7 @@
 
 	function formatShareBuildText(item : BuildConfigItem) : string {
 		const lines = [] as string[]
-		lines.push(item.title + (item.serialNumber.length > 0 ? ' ' + item.serialNumber : ''))
+		lines.push(getDisplayBuildTitle(item.title) + (item.serialNumber.length > 0 ? ' ' + item.serialNumber : ''))
 		lines.push('总价：¥' + item.totalPrice + ' · 综合性能：' + item.performanceScore + ' 分')
 		for (let i = 0; i < item.parts.length; i++) {
 			const part = item.parts[i]
@@ -4577,6 +4882,7 @@
 				if (body != null && body.code == 0 && body.data != null) {
 					currentConversationId.value = conversationId
 					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
+					loadActiveBuildTasks(conversationId)
 					historyOpen.value = false
 					return
 				}
@@ -4600,13 +4906,215 @@
 			const item = messages[i]
 			result.push({
 				role: item.role,
-					content: item.content,
-					buildConfigId: item.buildConfigId == null ? 0 : item.buildConfigId,
-					buildConfigTitle: item.buildConfigTitle == null ? '' : item.buildConfigTitle,
-					buildConfigSerialNumber: item.buildConfigSerialNumber == null ? '' : item.buildConfigSerialNumber
-				})
+				content: item.content,
+				buildConfigId: item.buildConfigId == null ? 0 : item.buildConfigId,
+				buildConfigTitle: getDisplayBuildTitle(item.buildConfigTitle == null ? '' : item.buildConfigTitle),
+				buildConfigSerialNumber: item.buildConfigSerialNumber == null ? '' : item.buildConfigSerialNumber,
+				newsReferences: normalizeChatNewsReferences(item.newsReferences)
+			})
 		}
 		return result
+	}
+
+	function normalizeBuildTask(item : any) : AiBuildTask {
+		if (item == null) {
+			return {
+				id: 0,
+				conversationId: 0,
+				status: '',
+				progress: 0,
+				stageTitle: '',
+				stageDescription: '',
+				message: '',
+				buildConfigId: 0,
+				buildConfigTitle: '',
+				buildConfigSerialNumber: '',
+				errorMessage: ''
+			} as AiBuildTask
+		}
+		return {
+			id: item.id == null ? 0 : Number(item.id),
+			conversationId: item.conversationId == null ? 0 : Number(item.conversationId),
+			status: item.status == null ? '' : String(item.status),
+			progress: item.progress == null ? 0 : Math.max(0, Math.min(100, Number(item.progress))),
+			stageTitle: item.stageTitle == null ? '' : String(item.stageTitle),
+			stageDescription: item.stageDescription == null ? '' : String(item.stageDescription),
+			message: item.message == null ? '' : String(item.message),
+			buildConfigId: item.buildConfigId == null ? 0 : Number(item.buildConfigId),
+				buildConfigTitle: getDisplayBuildTitle(item.buildConfigTitle == null ? '' : String(item.buildConfigTitle)),
+			buildConfigSerialNumber: item.buildConfigSerialNumber == null ? '' : String(item.buildConfigSerialNumber),
+			errorMessage: item.errorMessage == null ? '' : String(item.errorMessage)
+		} as AiBuildTask
+	}
+
+	function getBuildTaskFoot(task : AiBuildTask) : string {
+		if (task.status == 'SUCCEEDED') {
+			return task.buildConfigSerialNumber.length > 0 ? task.buildConfigSerialNumber + ' · 已保存到配置页' : '已保存到配置页'
+		}
+		if (task.status == 'FAILED') {
+			return task.errorMessage.length > 0 ? task.errorMessage : '生成失败，请稍后重试'
+		}
+		return '正在逐步匹配京东可购买商品，离开页面后会继续生成'
+	}
+
+	function isBuildTaskFinished(task : AiBuildTask) : boolean {
+		return task.status == 'SUCCEEDED' || task.status == 'FAILED'
+	}
+
+	function upsertBuildTask(task : AiBuildTask) {
+		if (task.id <= 0) {
+			return
+		}
+		const next = activeBuildTasks.value.filter(item => item.id != task.id)
+		if (!isBuildTaskFinished(task)) {
+			next.push(task)
+		}
+		activeBuildTasks.value = next.sort((left, right) => right.id - left.id)
+	}
+
+	function removeBuildTask(taskId : number) {
+		activeBuildTasks.value = activeBuildTasks.value.filter(item => item.id != taskId)
+		if (activeBuildTasks.value.length == 0) {
+			stopBuildTaskPolling()
+		}
+	}
+
+	function loadActiveBuildTasks(conversationId : number) {
+		if (token.value.length == 0) {
+			activeBuildTasks.value = []
+			stopBuildTaskPolling()
+			return
+		}
+		let url = apiBaseUrl + '/api/ai/build-tasks/active'
+		if (conversationId > 0) {
+			url += '?conversationId=' + conversationId
+		}
+		uni.request({
+			url,
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && Array.isArray(body.data)) {
+					const tasks = (body.data as any[]).map(item => normalizeBuildTask(item)).filter(item => item.id > 0 && !isBuildTaskFinished(item))
+					activeBuildTasks.value = tasks
+					if (currentConversationId.value == 0 && tasks.length > 0) {
+						currentConversationId.value = tasks[0].conversationId
+						reloadConversationMessages(tasks[0].conversationId)
+					}
+					if (tasks.length > 0) {
+						startBuildTaskPolling()
+					} else {
+						stopBuildTaskPolling()
+					}
+				}
+			}
+		})
+	}
+
+	function startBuildTaskPolling() {
+		if (buildTaskPollTimer != 0 || activeBuildTasks.value.length == 0) {
+			return
+		}
+		buildTaskPollTimer = setInterval(() => {
+			pollBuildTasks()
+		}, 2500) as unknown as number
+	}
+
+	function stopBuildTaskPolling() {
+		if (buildTaskPollTimer == 0) {
+			return
+		}
+		clearInterval(buildTaskPollTimer)
+		buildTaskPollTimer = 0
+	}
+
+	function pollBuildTasks() {
+		if (token.value.length == 0 || activeBuildTasks.value.length == 0) {
+			stopBuildTaskPolling()
+			return
+		}
+		const tasks = [...activeBuildTasks.value]
+		for (let i = 0; i < tasks.length; i++) {
+			uni.request({
+				url: apiBaseUrl + '/api/ai/build-tasks/' + tasks[i].id,
+				method: 'GET',
+				header: {
+					'Authorization': 'Bearer ' + token.value
+				},
+				success: (res) => {
+					const body = res.data as any
+					if (body != null && body.code == 0 && body.data != null) {
+						handleBuildTaskUpdate(normalizeBuildTask(body.data))
+					}
+				}
+			})
+		}
+	}
+
+	function handleBuildTaskUpdate(task : AiBuildTask) {
+		if (task.id <= 0) {
+			return
+		}
+		if (!isBuildTaskFinished(task)) {
+			upsertBuildTask(task)
+			return
+		}
+		removeBuildTask(task.id)
+		if (task.conversationId > 0 && task.conversationId == currentConversationId.value) {
+			reloadConversationMessages(task.conversationId)
+		}
+		if (task.status == 'SUCCEEDED') {
+			loadBuildConfigs()
+		}
+		loadConversations()
+	}
+
+	function reloadConversationMessages(conversationId : number) {
+		if (conversationId <= 0 || token.value.length == 0) {
+			return
+		}
+		uni.request({
+			url: apiBaseUrl + '/api/ai/conversations/' + conversationId + '/messages',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
+				}
+			}
+		})
+	}
+
+	function normalizeChatNewsReferences(items : any) : ChatNewsReference[] {
+		if (items == null || !Array.isArray(items)) {
+			return [] as ChatNewsReference[]
+		}
+		const result = [] as ChatNewsReference[]
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i]
+			const id = Number(item.id == null ? 0 : item.id)
+			if (id <= 0) {
+				continue
+			}
+			result.push({
+				id: id,
+				title: item.title == null ? '' : item.title as string,
+				summary: item.summary == null ? '' : item.summary as string,
+				tag: item.tag == null ? '科技新闻' : item.tag as string,
+				coverUrl: normalizeMediaUrl(item.coverUrl == null ? '' : item.coverUrl as string)
+			})
+		}
+		return result
+	}
+
+	function getChatNewsReferences(message : ChatMessage) : ChatNewsReference[] {
+		return message.newsReferences == null ? [] as ChatNewsReference[] : message.newsReferences
 	}
 
 	function getHistoryItemClass(conversationId : number) : string {
@@ -5290,6 +5798,7 @@
 	}
 
 	.prompt-card {
+		width: 100%;
 		min-height: 48px;
 		border-radius: 18px;
 		background-color: #ffffff;
@@ -5299,6 +5808,21 @@
 		margin-bottom: 10px;
 		border-width: 1px;
 		border-color: #edf0f5;
+		box-sizing: border-box;
+	}
+
+	.prompt-card-setup {
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		border-color: #edf0f5;
+		background-color: #ffffff;
+	}
+
+	.prompt-icon-image {
+		width: 32px;
+		height: 32px;
+		margin-right: 12px;
 	}
 
 	.prompt-text {
@@ -5475,6 +5999,104 @@
 		color: #111827;
 	}
 
+	.build-task-list {
+		padding: 0 0 12px;
+		align-items: flex-start;
+	}
+
+	.build-task-card {
+		width: 82%;
+		max-width: 82%;
+		border-radius: 21px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #eef2f7;
+		padding: 14px;
+		margin-top: 0;
+		box-shadow: none;
+	}
+
+	.build-task-head {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-task-icon {
+		width: 36px;
+		height: 36px;
+		border-radius: 18px;
+		background-color: #f2f4f7;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+	}
+
+	.build-task-icon-line {
+		width: 16px;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #111827;
+	}
+
+	.build-task-icon-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 3px;
+		background-color: #111827;
+		margin-top: 4px;
+	}
+
+	.build-task-title-wrap {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.build-task-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-task-desc {
+		margin-top: 2px;
+		font-size: 11px;
+		line-height: 16px;
+		color: #667085;
+	}
+
+	.build-task-percent {
+		min-width: 42px;
+		text-align: right;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-task-track {
+		height: 10px;
+		border-radius: 5px;
+		background-color: #eef0f4;
+		margin-top: 12px;
+		overflow: hidden;
+	}
+
+	.build-task-fill {
+		height: 10px;
+		border-radius: 5px;
+		background-color: #1f1f21;
+		transition-property: width;
+		transition-duration: 220ms;
+	}
+
+	.build-task-foot {
+		margin-top: 9px;
+		font-size: 11px;
+		line-height: 16px;
+		color: #98a2b3;
+	}
+
 	.chat-build-card {
 		width: 260px;
 		min-height: 72px;
@@ -5549,6 +6171,93 @@
 		line-height: 28px;
 		color: #98a2b3;
 		margin-left: 8px;
+	}
+
+	.chat-news-sources {
+		width: 286px;
+		margin-top: 8px;
+	}
+
+	.chat-news-source-label {
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+		margin-left: 6px;
+		margin-bottom: 6px;
+	}
+
+	.chat-news-card {
+		width: 286px;
+		min-height: 82px;
+		border-radius: 18px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #dbeafe;
+		margin-bottom: 8px;
+		padding: 10px;
+		flex-direction: row;
+		align-items: center;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+	}
+
+	.chat-news-cover {
+		width: 58px;
+		height: 58px;
+		border-radius: 14px;
+		background-color: #eef4ff;
+		margin-right: 10px;
+	}
+
+	.chat-news-cover-empty {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.chat-news-cover-text {
+		font-size: 11px;
+		line-height: 14px;
+		font-weight: 900;
+		color: #007aff;
+	}
+
+	.chat-news-main {
+		flex: 1;
+	}
+
+	.chat-news-tag-wrap {
+		align-self: flex-start;
+		border-radius: 9px;
+		background-color: #eef6ff;
+		padding: 2px 7px;
+		margin-bottom: 4px;
+	}
+
+	.chat-news-tag {
+		font-size: 10px;
+		line-height: 14px;
+		font-weight: 800;
+		color: #007aff;
+	}
+
+	.chat-news-title {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.chat-news-summary {
+		margin-top: 2px;
+		font-size: 11px;
+		line-height: 16px;
+		color: #667085;
+	}
+
+	.chat-news-arrow {
+		font-size: 22px;
+		line-height: 28px;
+		color: #98a2b3;
+		margin-left: 6px;
 	}
 
 	.composer {
@@ -5793,90 +6502,38 @@
 
 	.history-item-delete-open {
 		transform: translateX(-3px);
-		background-color: #f6f7fb;
-		border-color: #ffccd0;
+		background-color: #fff7f7;
+		border-color: #ffd6da;
 	}
 
 	.history-delete-action {
 		width: 0;
-		height: 34px;
-		border-radius: 17px;
-		background-color: #ff3b30;
+		height: 42px;
+		border-radius: 21px;
+		background-color: #ffffff;
 		align-items: center;
 		justify-content: center;
 		opacity: 0;
 		overflow: hidden;
 		margin-left: 0;
 		transform: scale(0.88);
+		border-width: 1px;
+		border-color: #fee4e2;
+		box-shadow: 0 8px 18px rgba(180, 35, 24, 0.1);
 		transition-property: width, opacity, margin-left, transform;
 		transition-duration: 180ms;
 	}
 
 	.history-delete-action-show {
-		width: 34px;
+		width: 42px;
 		opacity: 1;
-		margin-left: 6px;
+		margin-left: 8px;
 		transform: scale(1);
-		animation-name: trashShake;
-		animation-duration: 520ms;
-		animation-timing-function: ease-in-out;
-		animation-iteration-count: infinite;
 	}
 
-	.trash-handle {
-		width: 6px;
-		height: 2px;
-		border-radius: 3px;
-		background-color: #ffffff;
-		margin-bottom: 1px;
-	}
-
-	.trash-lid {
-		width: 15px;
-		height: 3px;
-		border-radius: 4px;
-		background-color: #ffffff;
-		margin-bottom: 1px;
-	}
-
-	.trash-can {
-		width: 14px;
-		height: 13px;
-		border-radius: 4px;
-		background-color: #ffffff;
-		flex-direction: row;
-		align-items: center;
-		justify-content: center;
-		padding-left: 2px;
-		padding-right: 2px;
-		box-sizing: border-box;
-	}
-
-	.trash-line {
-		width: 1px;
-		height: 8px;
-		border-radius: 2px;
-		background-color: #ff3b30;
-		margin-left: 1px;
-		margin-right: 1px;
-	}
-
-	@keyframes trashShake {
-		0% {
-			transform: rotate(0deg) scale(1);
-		}
-		25% {
-			transform: rotate(-3deg) scale(1.01);
-		}
-		50% {
-			transform: rotate(3deg) scale(1);
-		}
-		75% {
-			transform: rotate(-2deg) scale(1.01);
-		}
-		100% {
-			transform: rotate(0deg) scale(1);
-		}
+	.history-delete-icon {
+		width: 32px;
+		height: 32px;
 	}
 
 	.history-item-title {
@@ -5971,26 +6628,32 @@
 		right: 0;
 		top: 0;
 		bottom: 0;
-		background-color: rgba(15, 23, 42, 0.28);
+		background-color: rgba(15, 23, 42, 0.34);
 		z-index: 80;
 		align-items: center;
 		justify-content: center;
-		padding-left: 28px;
-		padding-right: 28px;
+		padding-left: 24px;
+		padding-right: 24px;
 	}
 
 	.delete-dialog {
 		width: 100%;
-		border-radius: 28px;
+		border-radius: 26px;
 		background-color: #ffffff;
-		padding: 26px 20px 18px;
+		padding: 22px 18px 16px;
 		align-items: center;
 		border-width: 1px;
-		border-color: rgba(255, 255, 255, 0.9);
-		box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+		border-color: #f2f4f7;
+		box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
 		animation-name: dialogPop;
 		animation-duration: 180ms;
 		animation-timing-function: ease-out;
+	}
+
+	.delete-dialog-icon {
+		width: 58px;
+		height: 58px;
+		margin-bottom: 10px;
 	}
 
 	@keyframes dialogPop {
@@ -6005,16 +6668,16 @@
 	}
 
 	.delete-dialog-title {
-		font-size: 20px;
-		line-height: 28px;
+		font-size: 19px;
+		line-height: 27px;
 		font-weight: 900;
 		color: #111827;
 		text-align: center;
 	}
 
 	.delete-dialog-desc {
-		width: 88%;
-		margin-top: 8px;
+		width: 92%;
+		margin-top: 7px;
 		font-size: 14px;
 		line-height: 21px;
 		color: #667085;
@@ -6024,14 +6687,14 @@
 	.delete-dialog-actions {
 		width: 100%;
 		flex-direction: row;
-		margin-top: 22px;
+		margin-top: 20px;
 	}
 
 	.delete-dialog-cancel,
 	.delete-dialog-confirm {
 		flex: 1;
-		height: 48px;
-		border-radius: 20px;
+		height: 46px;
+		border-radius: 18px;
 		align-items: center;
 		justify-content: center;
 	}
@@ -6042,7 +6705,7 @@
 	}
 
 	.delete-dialog-confirm {
-		background-color: #ff3b30;
+		background-color: #111827;
 	}
 
 	.delete-dialog-cancel-text,
@@ -6098,6 +6761,217 @@
 			opacity: 1;
 			transform: translateY(0);
 		}
+	}
+
+	.requirement-drawer-mask {
+		z-index: 88;
+		background-color: rgba(15, 23, 42, 0.26);
+	}
+
+	.requirement-drawer {
+		border-radius: 28px 28px 0 0;
+		background-color: #f7f7f9;
+		padding: 14px 18px 18px;
+		padding-bottom: calc(18px + constant(safe-area-inset-bottom));
+		padding-bottom: calc(18px + env(safe-area-inset-bottom));
+		border-width: 1px;
+		border-color: rgba(255, 255, 255, 0.86);
+		animation-name: buildFormIn;
+		animation-duration: 240ms;
+		animation-timing-function: ease-out;
+	}
+
+	.requirement-drawer-handle {
+		width: 38px;
+		height: 5px;
+		border-radius: 999px;
+		background-color: #d1d1d6;
+		align-self: center;
+		margin-bottom: 12px;
+	}
+
+	.requirement-head {
+		margin-bottom: 8px;
+	}
+
+	.requirement-subtitle {
+		margin-top: 4px;
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+	}
+
+	.requirement-body {
+		max-height: 460px;
+	}
+
+	.requirement-section {
+		border-radius: 22px;
+		background-color: #ffffff;
+		padding: 16px;
+		margin-bottom: 10px;
+		border-width: 1px;
+		border-color: rgba(0, 0, 0, 0.03);
+	}
+
+	.requirement-section-last {
+		margin-bottom: 0;
+	}
+
+	.requirement-section-head {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.requirement-section-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 800;
+		color: #1d1d1f;
+	}
+
+	.requirement-section-value {
+		font-size: 15px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #1d1d1f;
+	}
+
+	.requirement-budget-control {
+		padding-left: 24px;
+		padding-right: 24px;
+		padding-top: 22px;
+		padding-bottom: 13px;
+	}
+
+	.requirement-budget-track {
+		position: relative;
+		height: 14px;
+		border-radius: 7px;
+		background-color: #e9e9ee;
+		border-width: 0;
+		overflow: visible;
+	}
+
+	.requirement-budget-fill {
+		position: absolute;
+		left: 0;
+		top: 0;
+		height: 14px;
+		border-radius: 7px;
+		background-color: #1d1d1f;
+	}
+
+	.requirement-budget-thumb {
+		position: absolute;
+		top: -7px;
+		width: 48px;
+		height: 28px;
+		border-radius: 14px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		transform: translateX(-24px);
+		box-shadow: 0 7px 16px rgba(15, 23, 42, 0.14);
+		border-width: 1px;
+		border-color: rgba(0, 0, 0, 0.06);
+	}
+
+	.requirement-budget-thumb-grip {
+		width: 16px;
+		height: 4px;
+		border-radius: 4px;
+		background-color: #c7c7cc;
+	}
+
+	.requirement-range-row {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-left: 24px;
+		margin-right: 24px;
+		margin-top: 0;
+	}
+
+	.requirement-range-text {
+		font-size: 11px;
+		line-height: 16px;
+		color: #98a2b3;
+	}
+
+	.requirement-options {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 12px;
+	}
+
+	.requirement-options-two .requirement-option {
+		min-width: 118px;
+	}
+
+	.requirement-option {
+		min-height: 36px;
+		border-radius: 18px;
+		border-width: 0;
+		background-color: #f2f2f7;
+		padding-left: 14px;
+		padding-right: 14px;
+		margin-right: 8px;
+		margin-bottom: 8px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.requirement-option-active {
+		background-color: #1d1d1f;
+	}
+
+	.requirement-option-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #3a3a3c;
+	}
+
+	.requirement-option-text-active {
+		color: #ffffff;
+	}
+
+	.requirement-swatch {
+		width: 16px;
+		height: 16px;
+		border-radius: 8px;
+		margin-right: 7px;
+		border-width: 1px;
+		border-color: #d0d5dd;
+	}
+
+	.requirement-swatch-white {
+		background-color: #ffffff;
+	}
+
+	.requirement-swatch-black {
+		background-color: #111827;
+		border-color: #ffffff;
+	}
+
+	.requirement-submit {
+		height: 50px;
+		border-radius: 25px;
+		background-color: #1d1d1f;
+		align-items: center;
+		justify-content: center;
+		margin-top: 6px;
+		box-shadow: 0 10px 22px rgba(29, 29, 31, 0.16);
+	}
+
+	.requirement-submit-text {
+		font-size: 15px;
+		line-height: 22px;
+		font-weight: 900;
+		color: #ffffff;
 	}
 
 	.build-form-head {
@@ -6920,13 +7794,6 @@
 		color: #007aff;
 	}
 
-	.build-page-detail-summary {
-		font-size: 15px;
-		line-height: 22px;
-		font-weight: 900;
-		color: #111827;
-	}
-
 	.build-page-detail-note {
 		margin-top: 8px;
 		font-size: 13px;
@@ -7258,15 +8125,6 @@
 		font-size: 12px;
 		font-weight: 800;
 		color: #007aff;
-	}
-
-	.build-summary {
-		width: 100%;
-		margin-top: 13px;
-		font-size: 14px;
-		line-height: 21px;
-		font-weight: 900;
-		color: #111827;
 	}
 
 	.build-content {

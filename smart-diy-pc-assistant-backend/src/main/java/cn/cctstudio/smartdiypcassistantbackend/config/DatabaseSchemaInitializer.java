@@ -45,6 +45,7 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
                 """);
         executeIgnoring("ALTER TABLE ai_chat_message MODIFY content LONGTEXT NOT NULL");
+        ensureAiBuildTaskSchema();
         executeIgnoring("""
                 ALTER TABLE user_notification MODIFY type ENUM(
                     'SYSTEM',
@@ -60,6 +61,33 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
         ensureUserMemorySchema();
         ensureBuildConfigSchema();
         cleanLegacyUserData();
+    }
+
+    private void ensureAiBuildTaskSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS ai_build_task (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    user_id bigint NOT NULL,
+                    conversation_id bigint NOT NULL,
+                    attached_build_id bigint NULL,
+                    request_message LONGTEXT NOT NULL,
+                    status enum('QUEUED','RUNNING','SUCCEEDED','FAILED') NOT NULL,
+                    progress int NOT NULL,
+                    stage_title varchar(40) NOT NULL,
+                    stage_description varchar(160) NOT NULL,
+                    user_facing_message varchar(240) NOT NULL,
+                    build_config_id bigint NULL,
+                    build_config_title varchar(80) NULL,
+                    build_config_serial_number varchar(20) NULL,
+                    error_message text NULL,
+                    created_at datetime(6) NOT NULL,
+                    updated_at datetime(6) NOT NULL,
+                    finished_at datetime(6) NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_ai_build_task_user_conversation (user_id, conversation_id, status, updated_at),
+                    KEY idx_ai_build_task_user_status (user_id, status, updated_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
     }
 
     private void ensureUserMemorySchema() {

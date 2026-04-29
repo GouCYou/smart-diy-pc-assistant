@@ -355,7 +355,7 @@ public class BuildConfigService {
         int total = 0;
         for (HardwarePart part : parts) {
             int productPrice = priceMap.getOrDefault(part.getId(), 0);
-            total += productPrice > 0 ? productPrice : part.getPrice();
+            total += Math.max(0, productPrice);
         }
         return total;
     }
@@ -457,7 +457,7 @@ public class BuildConfigService {
         StringBuilder builder = new StringBuilder();
         for (HardwarePart part : parts) {
             BuildPartSelection selection = selectionMap.get(part.getId());
-            int price = selection != null && selection.price() != null && selection.price() > 0 ? selection.price() : part.getPrice();
+            int price = selection != null && selection.price() != null && selection.price() > 0 ? selection.price() : 0;
             String productTitle = selection != null && StringUtils.hasText(selection.title()) ? selection.title() : part.getModel();
             builder.append(typeLabel(part.getType()))
                     .append("：")
@@ -465,9 +465,11 @@ public class BuildConfigService {
             if (!productTitle.equals(part.getModel())) {
                 builder.append("（标准型号：").append(part.getModel()).append("）");
             }
-            builder
-                    .append("，¥")
-                    .append(price);
+            if (price > 0) {
+                builder.append("，¥").append(price);
+            } else {
+                builder.append("，暂无京东价格");
+            }
             if (!hasPerformanceScore(part.getType())) {
                 builder.append("，不参与性能评分");
             } else {

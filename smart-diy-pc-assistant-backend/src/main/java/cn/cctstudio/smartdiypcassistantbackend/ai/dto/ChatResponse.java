@@ -2,6 +2,8 @@ package cn.cctstudio.smartdiypcassistantbackend.ai.dto;
 
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigResponse;
 
+import java.util.List;
+
 public record ChatResponse(
         Long conversationId,
         String content,
@@ -14,6 +16,8 @@ public record ChatResponse(
         Long generatedBuildConfigId,
         String generatedBuildConfigTitle,
         String generatedBuildConfigSerialNumber,
-        BuildConfigResponse generatedBuildConfig
+        BuildConfigResponse generatedBuildConfig,
+        List<ChatNewsReferenceResponse> newsReferences,
+        AiBuildTaskResponse buildTask
 ) {
 }

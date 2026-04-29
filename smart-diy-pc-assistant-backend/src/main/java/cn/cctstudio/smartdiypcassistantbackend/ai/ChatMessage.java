@@ -33,6 +33,10 @@ public class ChatMessage {
     @Column(length = 80)
     private String buildConfigTitle;
 
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String newsReferencesJson;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -44,11 +48,16 @@ public class ChatMessage {
     }
 
     public ChatMessage(Long conversationId, String role, String content, Long buildConfigId, String buildConfigTitle) {
+        this(conversationId, role, content, buildConfigId, buildConfigTitle, "");
+    }
+
+    public ChatMessage(Long conversationId, String role, String content, Long buildConfigId, String buildConfigTitle, String newsReferencesJson) {
         this.conversationId = conversationId;
         this.role = role;
         this.content = content;
         this.buildConfigId = buildConfigId;
         this.buildConfigTitle = buildConfigTitle;
+        this.newsReferencesJson = newsReferencesJson;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -66,6 +75,10 @@ public class ChatMessage {
 
     public String getBuildConfigTitle() {
         return buildConfigTitle == null ? "" : buildConfigTitle;
+    }
+
+    public String getNewsReferencesJson() {
+        return newsReferencesJson == null ? "" : newsReferencesJson;
     }
 
     public LocalDateTime getCreatedAt() {

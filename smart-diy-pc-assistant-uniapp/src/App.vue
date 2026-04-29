@@ -35,6 +35,23 @@ export default {
 		box-sizing: border-box;
 	}
 
+	body,
+	uni-page-body,
+	scroll-view,
+	uni-scroll-view,
+	.uni-scroll-view,
+	.uni-scroll-view-content {
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+
+	::-webkit-scrollbar {
+		width: 0;
+		height: 0;
+		display: none;
+		background: transparent;
+	}
+
 	.uni-row {
 		flex-direction: row;
 	}

@@ -1,5 +1,6 @@
 package cn.cctstudio.smartdiypcassistantbackend.ai;
 
+import cn.cctstudio.smartdiypcassistantbackend.ai.dto.AiBuildTaskResponse;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatRequest;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatResponse;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatMessageResponse;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,6 +49,22 @@ public class AiController {
             @PathVariable Long conversationId
     ) {
         return ApiResponse.ok(aiService.listMessages(principal.userId(), conversationId));
+    }
+
+    @GetMapping("/build-tasks/active")
+    public ApiResponse<List<AiBuildTaskResponse>> activeBuildTasks(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(required = false) Long conversationId
+    ) {
+        return ApiResponse.ok(aiService.listActiveBuildTasks(principal.userId(), conversationId));
+    }
+
+    @GetMapping("/build-tasks/{taskId}")
+    public ApiResponse<AiBuildTaskResponse> buildTask(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long taskId
+    ) {
+        return ApiResponse.ok(aiService.getBuildTask(principal.userId(), taskId));
     }
 
     @DeleteMapping("/conversations/{conversationId}")

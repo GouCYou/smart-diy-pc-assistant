@@ -1,6 +1,8 @@
 package cn.cctstudio.smartdiypcassistantbackend.ai;
 
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatMessageResponse;
+import cn.cctstudio.smartdiypcassistantbackend.ai.dto.AiBuildTaskResponse;
+import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatNewsReferenceResponse;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatRequest;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ChatResponse;
 import cn.cctstudio.smartdiypcassistantbackend.ai.dto.ConversationResponse;
@@ -17,11 +19,24 @@ import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartRepository;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartType;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.dto.HardwarePartResponse;
+import cn.cctstudio.smartdiypcassistantbackend.file.MediaUrlService;
+import cn.cctstudio.smartdiypcassistantbackend.news.News;
+import cn.cctstudio.smartdiypcassistantbackend.news.NewsRepository;
+import cn.cctstudio.smartdiypcassistantbackend.news.NewsStatus;
 import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -34,6 +49,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -51,6 +68,7 @@ public class AiService {
     private final SafetyRuleService safetyRuleService;
     private final ChatConversationRepository conversationRepository;
     private final ChatMessageRepository messageRepository;
+    private final AiBuildTaskRepository buildTaskRepository;
     private final MemoryService memoryService;
     private final MemoryExtractor memoryExtractor;
     private final HardwarePartRepository hardwarePartRepository;
@@ -58,6 +76,11 @@ public class AiService {
     private final UserAccessService userAccessService;
     private final JdProductSearchService jdProductSearchService;
     private final AiSettingsService aiSettingsService;
+    private final NewsRepository newsRepository;
+    private final MediaUrlService mediaUrlService;
+    private final Executor aiBuildTaskExecutor;
+    private final TransactionTemplate transactionTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiService(
             AiProperties properties,
@@ -67,13 +90,18 @@ public class AiService {
             SafetyRuleService safetyRuleService,
             ChatConversationRepository conversationRepository,
             ChatMessageRepository messageRepository,
+            AiBuildTaskRepository buildTaskRepository,
             MemoryService memoryService,
             MemoryExtractor memoryExtractor,
             HardwarePartRepository hardwarePartRepository,
             BuildConfigService buildConfigService,
             UserAccessService userAccessService,
             JdProductSearchService jdProductSearchService,
-            AiSettingsService aiSettingsService
+            AiSettingsService aiSettingsService,
+            NewsRepository newsRepository,
+            MediaUrlService mediaUrlService,
+            @Qualifier("aiBuildTaskExecutor") Executor aiBuildTaskExecutor,
+            PlatformTransactionManager transactionManager
     ) {
         this.properties = properties;
         this.redisTemplate = redisTemplate;
@@ -82,6 +110,7 @@ public class AiService {
         this.safetyRuleService = safetyRuleService;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
+        this.buildTaskRepository = buildTaskRepository;
         this.memoryService = memoryService;
         this.memoryExtractor = memoryExtractor;
         this.hardwarePartRepository = hardwarePartRepository;
@@ -89,6 +118,33 @@ public class AiService {
         this.userAccessService = userAccessService;
         this.jdProductSearchService = jdProductSearchService;
         this.aiSettingsService = aiSettingsService;
+        this.newsRepository = newsRepository;
+        this.mediaUrlService = mediaUrlService;
+        this.aiBuildTaskExecutor = aiBuildTaskExecutor;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void resumeInterruptedBuildTasks() {
+        List<Long> taskIds = transactionTemplate.execute(status -> {
+            List<AiBuildTask> tasks = buildTaskRepository.findByStatusInOrderByUpdatedAtAsc(
+                    List.of(AiBuildTaskStatus.QUEUED, AiBuildTaskStatus.RUNNING)
+            );
+            for (AiBuildTask task : tasks) {
+                task.markRunning(
+                        Math.max(8, Math.min(task.getProgress(), 88)),
+                        "恢复生成",
+                        "服务已启动，继续京东商品检索"
+                );
+            }
+            return tasks.stream().map(AiBuildTask::getId).toList();
+        });
+        if (taskIds == null || taskIds.isEmpty()) {
+            return;
+        }
+        for (Long taskId : taskIds) {
+            scheduleBuildTaskAfterCommit(taskId);
+        }
     }
 
     @Transactional
@@ -125,40 +181,21 @@ public class AiService {
             );
         }
 
-        IntentAnalysis intent = intentAnalysisService.analyze(request.message());
         UserMemory userMemory = mergeUserMemory(userId, request.message());
-        String memoryContext = memoryService.formatPromptContext(userMemory);
         BuildConfigResponse attachedBuild = request.buildConfigId() == null ? null : buildConfigService.get(userId, request.buildConfigId());
-        BuildGenerationResult buildGeneration = maybeGenerateBuildConfig(userId, request.message(), attachedBuild, settings, userMemory);
-        BuildConfigResponse generatedBuild = buildGeneration.build();
+        if (settings.autoBuildEnabled() && shouldGenerateBuild(request.message(), attachedBuild != null, settings)) {
+            IntentAnalysis buildIntent = IntentAnalysis.fallback("build_request", "命中装机配置生成请求，转入后台京东检索任务");
+            return startAsyncBuildTask(userId, conversation, request, attachedBuild, buildIntent, safety);
+        }
+
+        IntentAnalysis intent = intentAnalysisService.analyze(request.message());
+        String memoryContext = memoryService.formatPromptContext(userMemory);
+        BuildConfigResponse generatedBuild = null;
         String conversationContext = buildConversationContext(conversation.getId(), settings.contextMessageLimit());
         String buildContext = buildAiConfigContext(attachedBuild, generatedBuild);
-        if (buildGeneration.failed()) {
-            return saveAssistantAndReturn(
-                    conversation,
-                    createBuildGenerationFailureReply(buildGeneration.failureMessage()),
-                    false,
-                    false,
-                    intent.intent(),
-                    intent.subIntent(),
-                    safety,
-                    null
-            );
-        }
-        if (generatedBuild != null) {
-            return saveAssistantAndReturn(
-                    conversation,
-                    createGeneratedBuildReply(attachedBuild != null, generatedBuild),
-                    false,
-                    false,
-                    intent.intent(),
-                    intent.subIntent(),
-                    safety,
-                    generatedBuild
-            );
-        }
+        NewsContext newsContext = buildNewsContext(request.message());
         var direct = intentRuleService.match(request.message());
-        if (direct.isPresent()) {
+        if (direct.isPresent() && newsContext.references().isEmpty()) {
             String reply = direct.get().reply();
             return saveAssistantAndReturn(
                     conversation,
@@ -180,6 +217,8 @@ public class AiService {
                 + ":"
                 + Integer.toHexString(buildContext.hashCode())
                 + ":"
+                + Integer.toHexString(newsContext.promptContext().hashCode())
+                + ":"
                 + Integer.toHexString(request.message().hashCode())
                 + ":" + intent.subIntent()
                 + ":" + safety.level().name()
@@ -194,11 +233,12 @@ public class AiService {
                     intent.intent(),
                     intent.subIntent(),
                     safety,
-                    null
+                    null,
+                    newsContext.references()
             );
         }
 
-        String content = callModel(request.message(), memoryContext, conversationContext, buildContext, intent, safety, settings);
+        String content = callModel(request.message(), memoryContext, conversationContext, buildContext, newsContext.promptContext(), intent, safety, settings);
         if (generatedBuild == null) {
             redisTemplate.opsForValue().set(cacheKey, content, CACHE_TTL);
         }
@@ -210,8 +250,165 @@ public class AiService {
                 intent.intent(),
                 intent.subIntent(),
                 safety,
-                generatedBuild
+                generatedBuild,
+                newsContext.references()
         );
+    }
+
+    private ChatResponse startAsyncBuildTask(
+            Long userId,
+            ChatConversation conversation,
+            ChatRequest request,
+            BuildConfigResponse attachedBuild,
+            IntentAnalysis intent,
+            SafetyResult safety
+    ) {
+        AiBuildTask task = buildTaskRepository.save(new AiBuildTask(
+                userId,
+                conversation.getId(),
+                attachedBuild == null ? null : attachedBuild.id(),
+                request.message()
+        ));
+        conversation.touch();
+        scheduleBuildTaskAfterCommit(task.getId());
+        return new ChatResponse(
+                conversation.getId(),
+                "已开始生成京东可购买配置单，我会逐步检索京东商品并保存结果。",
+                false,
+                false,
+                intent.intent(),
+                intent.subIntent(),
+                safety.level().name(),
+                safety.message(),
+                null,
+                "",
+                "",
+                null,
+                List.of(),
+                AiBuildTaskResponse.from(task)
+        );
+    }
+
+    private void scheduleBuildTaskAfterCommit(Long taskId) {
+        Runnable runner = () -> aiBuildTaskExecutor.execute(() -> processBuildTask(taskId));
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    runner.run();
+                }
+            });
+            return;
+        }
+        runner.run();
+    }
+
+    private void processBuildTask(Long taskId) {
+        BuildTaskSnapshot snapshot = loadBuildTaskSnapshot(taskId);
+        if (snapshot == null) {
+            return;
+        }
+        try {
+            updateBuildTaskProgress(taskId, 12, "识别需求", "整理预算、用途和偏好");
+            AiSettingsService.EffectiveAiSettings settings = aiSettingsService.effective();
+            UserMemory userMemory = memoryService.findByUserId(snapshot.userId()).orElse(null);
+            BuildConfigResponse attachedBuild = snapshot.attachedBuildId() == null
+                    ? null
+                    : buildConfigService.get(snapshot.userId(), snapshot.attachedBuildId());
+            updateBuildTaskProgress(taskId, 24, "筛选硬件", "生成少量可行候选方案");
+            BuildGenerationResult generation = maybeGenerateBuildConfig(
+                    snapshot.userId(),
+                    snapshot.message(),
+                    attachedBuild,
+                    settings,
+                    userMemory,
+                    (progress, title, description) -> updateBuildTaskProgress(taskId, progress, title, description)
+            );
+            if (generation.failed()) {
+                throw new BusinessException(generation.failureMessage());
+            }
+            BuildConfigResponse build = generation.build();
+            if (build == null) {
+                throw new BusinessException("没有生成可保存的京东配置单");
+            }
+            updateBuildTaskProgress(taskId, 96, "整理回复", "保存配置单和对话结果");
+            String reply = createGeneratedBuildReply(attachedBuild != null, build);
+            transactionTemplate.executeWithoutResult(status -> {
+                ChatConversation conversation = conversationRepository.findById(snapshot.conversationId()).orElse(null);
+                if (conversation != null) {
+                    messageRepository.save(new ChatMessage(
+                            snapshot.conversationId(),
+                            "assistant",
+                            reply,
+                            build.id(),
+                            build.title(),
+                            ""
+                    ));
+                    conversation.touch();
+                }
+                buildTaskRepository.findById(taskId).ifPresent(task -> task.markSucceeded(
+                        build.id(),
+                        build.title(),
+                        build.serialNumber()
+                ));
+            });
+        } catch (Exception exception) {
+            String message = exception instanceof BusinessException businessException
+                    ? businessException.getMessage()
+                    : "京东商品检索或配置保存失败，请稍后重试。";
+            transactionTemplate.executeWithoutResult(status -> {
+                ChatConversation conversation = conversationRepository.findById(snapshot.conversationId()).orElse(null);
+                if (conversation != null) {
+                    messageRepository.save(new ChatMessage(
+                            snapshot.conversationId(),
+                            "assistant",
+                            createBuildGenerationFailureReply(message)
+                    ));
+                    conversation.touch();
+                }
+                buildTaskRepository.findById(taskId).ifPresent(task -> task.markFailed(message));
+            });
+        }
+    }
+
+    private BuildTaskSnapshot loadBuildTaskSnapshot(Long taskId) {
+        return transactionTemplate.execute(status -> buildTaskRepository.findById(taskId)
+                .map(task -> new BuildTaskSnapshot(
+                        task.getId(),
+                        task.getUserId(),
+                        task.getConversationId(),
+                        task.getAttachedBuildId(),
+                        task.getRequestMessage()
+                ))
+                .orElse(null));
+    }
+
+    private void updateBuildTaskProgress(Long taskId, int progress, String title, String description) {
+        transactionTemplate.executeWithoutResult(status -> buildTaskRepository.findById(taskId)
+                .ifPresent(task -> task.markRunning(progress, title, description)));
+    }
+
+    @Transactional(readOnly = true)
+    public AiBuildTaskResponse getBuildTask(Long userId, Long taskId) {
+        return buildTaskRepository.findByIdAndUserId(taskId, userId)
+                .map(AiBuildTaskResponse::from)
+                .orElseThrow(() -> new BusinessException("生成任务不存在"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<AiBuildTaskResponse> listActiveBuildTasks(Long userId, Long conversationId) {
+        List<AiBuildTaskStatus> activeStatuses = List.of(AiBuildTaskStatus.QUEUED, AiBuildTaskStatus.RUNNING);
+        List<AiBuildTask> tasks;
+        if (conversationId != null && conversationId > 0) {
+            tasks = buildTaskRepository.findByUserIdAndConversationIdAndStatusInOrderByUpdatedAtDesc(
+                    userId,
+                    conversationId,
+                    activeStatuses
+            );
+        } else {
+            tasks = buildTaskRepository.findTop5ByUserIdAndStatusInOrderByUpdatedAtDesc(userId, activeStatuses);
+        }
+        return tasks.stream().map(AiBuildTaskResponse::from).toList();
     }
 
     private String chatDuplicateKey(Long userId, ChatRequest request) {
@@ -257,7 +454,8 @@ public class AiService {
                         item.getBuildConfigId(),
                         item.getBuildConfigTitle(),
                         resolveBuildSerialNumber(item.getBuildConfigId()),
-                        item.getCreatedAt()
+                        item.getCreatedAt(),
+                        parseNewsReferences(item.getNewsReferencesJson())
                 ))
                 .toList();
     }
@@ -301,6 +499,128 @@ public class AiService {
         return builder.toString().trim();
     }
 
+    private NewsContext buildNewsContext(String message) {
+        if (!shouldUseNewsContext(message)) {
+            return NewsContext.empty();
+        }
+        List<News> publishedNews = newsRepository.findByStatusOrderByCreatedAtDesc(NewsStatus.PUBLISHED);
+        if (publishedNews.isEmpty()) {
+            return NewsContext.empty();
+        }
+        List<NewsMatch> matches = publishedNews.stream()
+                .map(news -> new NewsMatch(news, scoreNews(news, message)))
+                .toList();
+        boolean hasRelevantMatch = matches.stream().anyMatch(match -> match.score() > 0);
+        List<NewsMatch> selected = matches.stream()
+                .filter(match -> !hasRelevantMatch || match.score() > 0)
+                .sorted((left, right) -> {
+                    int byScore = Integer.compare(right.score(), left.score());
+                    if (byScore != 0) {
+                        return byScore;
+                    }
+                    return right.news().getCreatedAt().compareTo(left.news().getCreatedAt());
+                })
+                .limit(3)
+                .toList();
+        if (selected.isEmpty()) {
+            return NewsContext.empty();
+        }
+        StringBuilder builder = new StringBuilder("可引用的热点新闻：\n");
+        List<ChatNewsReferenceResponse> references = new ArrayList<>();
+        for (NewsMatch match : selected) {
+            News news = match.news();
+            String summary = clampNewsText(firstText(news.getSummary(), news.getContent(), news.getTitle()), 180);
+            references.add(new ChatNewsReferenceResponse(
+                    news.getId(),
+                    news.getTitle(),
+                    summary,
+                    news.getTag(),
+                    mediaUrlService.toPublicUrl(news.getCoverKey())
+            ));
+            builder.append("新闻 ID ").append(news.getId())
+                    .append("：").append(news.getTitle())
+                    .append("；标签：").append(news.getTag())
+                    .append("；摘要：").append(summary)
+                    .append("；正文摘录：").append(clampNewsText(news.getContent(), 520))
+                    .append("\n");
+        }
+        return new NewsContext(builder.toString().trim(), references);
+    }
+
+    private boolean shouldUseNewsContext(String message) {
+        String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        if (containsAny(text, "新闻", "热点", "资讯", "报道", "爆料", "发布会", "原文")) {
+            return true;
+        }
+        return containsAny(text, "最近", "最新", "今天", "这几天", "近期")
+                && containsAny(text, "显卡", "cpu", "处理器", "硬件", "电脑", "装机", "英伟达", "nvidia", "amd", "intel", "英特尔", "锐龙", "酷睿", "主板", "内存", "固态");
+    }
+
+    private int scoreNews(News news, String message) {
+        String query = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        String title = news.getTitle() == null ? "" : news.getTitle().toLowerCase(Locale.ROOT);
+        String tag = news.getTag() == null ? "" : news.getTag().toLowerCase(Locale.ROOT);
+        String content = news.getContent() == null ? "" : news.getContent().toLowerCase(Locale.ROOT);
+        String haystack = title + "\n" + tag + "\n" + content;
+        int score = 0;
+        for (String keyword : newsKeywords(query)) {
+            if (title.contains(keyword)) {
+                score += 4;
+            } else if (tag.contains(keyword)) {
+                score += 3;
+            } else if (haystack.contains(keyword)) {
+                score += 2;
+            }
+        }
+        return score;
+    }
+
+    private List<String> newsKeywords(String query) {
+        List<String> keywords = new ArrayList<>();
+        String[] known = {
+                "nvidia", "英伟达", "rtx", "geforce", "amd", "radeon", "rx", "intel", "英特尔",
+                "cpu", "gpu", "显卡", "处理器", "主板", "内存", "固态", "硬盘", "电源", "机箱",
+                "锐龙", "酷睿", "x3d", "ai", "cuda", "游戏", "剪辑", "生产力", "装机"
+        };
+        for (String keyword : known) {
+            if (query.contains(keyword)) {
+                keywords.add(keyword);
+            }
+        }
+        for (String token : query.split("[\\s,，。！？!?.、:：;；]+")) {
+            if (token.length() >= 2 && token.length() <= 24) {
+                keywords.add(token);
+            }
+        }
+        return keywords.stream().distinct().toList();
+    }
+
+    private String firstText(String primary, String secondary, String fallback) {
+        if (StringUtils.hasText(primary)) {
+            return primary;
+        }
+        if (StringUtils.hasText(secondary)) {
+            return secondary;
+        }
+        return fallback == null ? "" : fallback;
+    }
+
+    private String clampNewsText(String value, int maxLength) {
+        String text = value == null ? "" : value
+                .replaceAll("!\\[[^]]*]\\([^)]+\\)", " ")
+                .replaceAll("```[\\s\\S]*?```", " ")
+                .replaceAll("[#>*_`~-]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...";
+    }
+
     private BuildGenerationResult maybeGenerateBuildConfig(
             Long userId,
             String message,
@@ -308,18 +628,29 @@ public class AiService {
             AiSettingsService.EffectiveAiSettings settings,
             UserMemory userMemory
     ) {
+        return maybeGenerateBuildConfig(userId, message, attachedBuild, settings, userMemory, null);
+    }
+
+    private BuildGenerationResult maybeGenerateBuildConfig(
+            Long userId,
+            String message,
+            BuildConfigResponse attachedBuild,
+            AiSettingsService.EffectiveAiSettings settings,
+            UserMemory userMemory,
+            BuildProgressReporter progressReporter
+    ) {
         if (!settings.autoBuildEnabled() || !shouldGenerateBuild(message, attachedBuild != null, settings)) {
             return BuildGenerationResult.none();
         }
         BuildPlan plan;
         try {
-            plan = selectBuildPlan(preferredBudget(message, userMemory), message, settings, userMemory);
+            plan = selectBuildPlan(preferredBudget(message, userMemory), message, settings, userMemory, progressReporter);
         } catch (BusinessException exception) {
             return BuildGenerationResult.failed(exception.getMessage());
         }
         BuildPreferences preferences = buildPreferences(message, userMemory);
         String colorNote = createColorBuildNote(plan.selections(), preferences, settings);
-        String title = createBuildTitle(message, attachedBuild != null, plan.totalPrice());
+        String title = createBuildTitle(message, attachedBuild != null);
         String note = attachedBuild == null
                 ? createBuildNote(message)
                 : "基于《" + attachedBuild.title() + "》按你的新要求自动调整。需求：" + trim(message, 120);
@@ -507,7 +838,7 @@ public class AiService {
         };
     }
 
-    private String createBuildTitle(String message, boolean adjusted, int totalPrice) {
+    private String createBuildTitle(String message, boolean adjusted) {
         String scene = "装机配置";
         String text = message == null ? "" : message.toLowerCase();
         if (text.contains("2k")) {
@@ -525,7 +856,7 @@ public class AiService {
         } else if (text.contains("游戏") || text.contains("主玩")) {
             scene = "游戏配置";
         }
-        return (adjusted ? "AI 调整 " : "AI 生成 ") + scene + " ¥" + totalPrice;
+        return (adjusted ? "AI 调整 " : "AI 生成 ") + scene;
     }
 
     private String createBuildNote(String message) {
@@ -662,6 +993,10 @@ public class AiService {
     }
 
     private BuildPlan selectBuildPlan(int budget, String message, AiSettingsService.EffectiveAiSettings settings, UserMemory userMemory) {
+        return selectBuildPlan(budget, message, settings, userMemory, null);
+    }
+
+    private BuildPlan selectBuildPlan(int budget, String message, AiSettingsService.EffectiveAiSettings settings, UserMemory userMemory, BuildProgressReporter progressReporter) {
         BuildPreferences preferences = buildPreferences(message, userMemory);
         Map<HardwarePartType, List<HardwarePart>> parts = new EnumMap<>(HardwarePartType.class);
         for (HardwarePart part : hardwarePartRepository.findByEnabledTrue()) {
@@ -675,81 +1010,59 @@ public class AiService {
         List<HardwarePart> psus = prioritizeCandidates(required(parts, HardwarePartType.PSU), 7);
         List<HardwarePart> cases = prioritizeCandidates(required(parts, HardwarePartType.CASE), 7);
         List<HardwarePart> coolers = prioritizeCandidates(required(parts, HardwarePartType.COOLER), 7);
-        Map<HardwarePartType, List<HardwarePart>> candidateParts = new EnumMap<>(HardwarePartType.class);
-        candidateParts.put(HardwarePartType.CPU, cpus);
-        candidateParts.put(HardwarePartType.MOTHERBOARD, motherboards);
-        candidateParts.put(HardwarePartType.GPU, gpus);
-        candidateParts.put(HardwarePartType.MEMORY, memories);
-        candidateParts.put(HardwarePartType.STORAGE, storages);
-        candidateParts.put(HardwarePartType.PSU, psus);
-        candidateParts.put(HardwarePartType.CASE, cases);
-        candidateParts.put(HardwarePartType.COOLER, coolers);
-        Map<Long, BuildPartSelectionRequest> productSelections = createProductSelectionMap(candidateParts, preferences);
-        if (settings.requirePurchasableProducts()) {
-            cpus = purchasableCandidates(cpus, productSelections, HardwarePartType.CPU);
-            motherboards = purchasableCandidates(motherboards, productSelections, HardwarePartType.MOTHERBOARD);
-            gpus = purchasableCandidates(gpus, productSelections, HardwarePartType.GPU);
-            memories = purchasableCandidates(memories, productSelections, HardwarePartType.MEMORY);
-            storages = purchasableCandidates(storages, productSelections, HardwarePartType.STORAGE);
-            psus = purchasableCandidates(psus, productSelections, HardwarePartType.PSU);
-            cases = purchasableCandidates(cases, productSelections, HardwarePartType.CASE);
-            coolers = purchasableCandidates(coolers, productSelections, HardwarePartType.COOLER);
-        }
-        if (preferences.preferNvidiaGpu()) {
-            List<HardwarePart> nvidiaGpus = gpus.stream()
-                    .filter(part -> part.getModel().toUpperCase(Locale.ROOT).startsWith("RTX"))
-                    .toList();
-            if (!nvidiaGpus.isEmpty()) {
-                gpus = nvidiaGpus;
-            }
-        } else if (preferences.preferAmdGpu()) {
-            List<HardwarePart> amdGpus = gpus.stream()
-                    .filter(part -> part.getModel().toUpperCase(Locale.ROOT).startsWith("RX"))
-                    .toList();
-            if (!amdGpus.isEmpty()) {
-                gpus = amdGpus;
-            }
-        }
-
         BuildPlan best = null;
         BuildPlan fallback = null;
-        for (HardwarePart cpu : cpus) {
-            for (HardwarePart motherboard : motherboards) {
-                if (!same(cpu.getSocketType(), motherboard.getSocketType())) {
+        List<BuildPlan> localCandidates = new ArrayList<>();
+        Map<Long, BuildPartSelectionRequest> localSelections = Map.of();
+        int maxLocalBudget = budget + Math.max(900, Math.round(budget * 0.18f));
+        for (int cpuIndex = 0; cpuIndex < cpus.size(); cpuIndex++) {
+            HardwarePart cpu = cpus.get(cpuIndex);
+            if (progressReporter != null && (cpuIndex == 0 || cpuIndex % 2 == 0)) {
+                int progress = 24 + Math.min(9, Math.round((cpuIndex + 1) * 9f / Math.max(1, cpus.size())));
+                progressReporter.update(progress, "筛选硬件", "正在缩小 CPU/主板/GPU 候选 " + (cpuIndex + 1) + "/" + cpus.size());
+            }
+            List<HardwarePart> compatibleMotherboards = compatibleMotherboardCandidates(cpu, motherboards, budget, preferences);
+            for (HardwarePart motherboard : compatibleMotherboards) {
+                List<HardwarePart> compatibleMemories = compatibleMemoryCandidates(motherboard, memories, budget, preferences);
+                if (compatibleMemories.isEmpty()) {
                     continue;
                 }
-                if (!isMotherboardBalancedForCpu(cpu, motherboard)) {
+                List<HardwarePart> compatibleCases = topSupportingCandidates(cases.stream()
+                        .filter(pcCase -> isCaseCompatible(motherboard, pcCase))
+                        .toList(), 2, Math.max(260, Math.round(budget * 0.08f)), preferences);
+                if (compatibleCases.isEmpty()) {
                     continue;
                 }
-                for (HardwarePart memory : memories) {
-                    if (!same(memory.getMemoryType(), motherboard.getMemoryType())) {
+                for (HardwarePart gpu : gpus) {
+                    int requiredWattage = cpu.getWattage() + gpu.getWattage() + 120;
+                    List<HardwarePart> compatiblePsus = topSupportingCandidates(psus.stream()
+                            .filter(psu -> psu.getWattage() >= requiredWattage)
+                            .toList(), 2, Math.max(320, Math.round(budget * 0.08f)), preferences);
+                    if (compatiblePsus.isEmpty()) {
                         continue;
                     }
-                    for (HardwarePart gpu : gpus) {
-                        for (HardwarePart storage : storages) {
-                            for (HardwarePart psu : psus) {
-                                int requiredWattage = cpu.getWattage() + gpu.getWattage() + 120;
-                                if (psu.getWattage() < requiredWattage) {
-                                    continue;
-                                }
-                                for (HardwarePart pcCase : cases) {
-                                    if (StringUtils.hasText(motherboard.getFormFactor())
-                                            && StringUtils.hasText(pcCase.getSupportedFormFactors())
-                                            && !pcCase.getSupportedFormFactors().toUpperCase().contains(motherboard.getFormFactor().toUpperCase())) {
-                                        continue;
-                                    }
-                                    for (HardwarePart cooler : coolers) {
-                                        if (!isCoolerAdequateForCpu(cpu, cooler)) {
-                                            continue;
-                                        }
+                    List<HardwarePart> compatibleCoolers = topSupportingCandidates(coolers.stream()
+                            .filter(cooler -> isCoolerAdequateForCpu(cpu, cooler))
+                            .toList(), 2, Math.max(160, Math.round(budget * 0.05f)), preferences);
+                    if (compatibleCoolers.isEmpty()) {
+                        continue;
+                    }
+                    List<HardwarePart> selectedStorages = topSupportingCandidates(storages, 2, Math.max(280, Math.round(budget * 0.08f)), preferences);
+                    for (HardwarePart memory : compatibleMemories) {
+                        int corePrice = referencePrice(cpu) + referencePrice(motherboard) + referencePrice(gpu) + referencePrice(memory);
+                        if (corePrice > maxLocalBudget) {
+                            continue;
+                        }
+                        for (HardwarePart storage : selectedStorages) {
+                            for (HardwarePart psu : compatiblePsus) {
+                                for (HardwarePart pcCase : compatibleCases) {
+                                    for (HardwarePart cooler : compatibleCoolers) {
                                         List<HardwarePart> selected = List.of(cpu, motherboard, gpu, memory, storage, psu, pcCase, cooler);
                                         List<BuildPartSelectionRequest> selections = selected.stream()
-                                                .map(part -> selectionForPart(part, productSelections))
+                                                .map(part -> selectionForPart(part, localSelections))
                                                 .toList();
-                                        if (hasStrictColorConflict(selections, preferences, settings)) {
-                                            continue;
-                                        }
                                         BuildPlan plan = new BuildPlan(selected, selections, totalPrice(selected, selections), performanceScore(selected));
+                                        rememberLocalCandidate(localCandidates, plan, budget, preferences, settings);
                                         if (isBetterFallbackPlan(plan, fallback, budget, preferences, settings)) {
                                             fallback = plan;
                                         }
@@ -764,6 +1077,48 @@ public class AiService {
                 }
             }
         }
+        if (settings.requirePurchasableProducts()) {
+            if (localCandidates.isEmpty()) {
+                throw new BusinessException("硬件库数据不足，暂时无法自动生成配置单");
+            }
+            BuildPlan purchasableBest = null;
+            BuildPlan purchasableFallback = null;
+            int index = 0;
+            for (BuildPlan candidate : localCandidates) {
+                index++;
+                Optional<BuildPlan> purchasablePlan = attachPurchasableProducts(
+                        candidate,
+                        preferences,
+                        settings,
+                        progressReporter,
+                        index,
+                        localCandidates.size()
+                );
+                if (purchasablePlan.isEmpty()) {
+                    continue;
+                }
+                BuildPlan plan = purchasablePlan.get();
+                if (isBetterFallbackPlan(plan, purchasableFallback, budget, preferences, settings)) {
+                    purchasableFallback = plan;
+                }
+                if (plan.totalPrice() <= budget && isBetterPlan(plan, purchasableBest, budget, preferences, settings)) {
+                    purchasableBest = plan;
+                }
+            }
+            if (purchasableBest != null) {
+                return purchasableBest;
+            }
+            if (purchasableFallback != null) {
+                int maxAcceptableOverBudget = budget + Math.max(3000, Math.round(budget * 0.50f));
+                if (purchasableFallback.totalPrice() <= maxAcceptableOverBudget) {
+                    return purchasableFallback;
+                }
+                throw new BusinessException("按当前京东可购买商品，完整主机最低可行方案约 ¥" + purchasableFallback.totalPrice()
+                        + "，已经明显超过你的预算 ¥" + budget
+                        + "。要达到这个用途需要加预算或降低帧率、画质、分辨率目标；我不会强行保存一套超预算太多的配置。");
+            }
+            throw new BusinessException("京东暂时没有找到完整可购买的配置单商品，请稍后重试或换个预算范围。");
+        }
         if (best != null) {
             return best;
         }
@@ -777,6 +1132,280 @@ public class AiService {
                     + "。要达到这个用途需要加预算或降低帧率、画质、分辨率目标；我不会强行保存一套超预算太多的配置。");
         }
         throw new BusinessException("硬件库数据不足，暂时无法自动生成配置单");
+    }
+
+    private List<HardwarePart> compatibleMotherboardCandidates(
+            HardwarePart cpu,
+            List<HardwarePart> motherboards,
+            int budget,
+            BuildPreferences preferences
+    ) {
+        return topSupportingCandidates(motherboards.stream()
+                .filter(motherboard -> same(cpu.getSocketType(), motherboard.getSocketType()))
+                .filter(motherboard -> isMotherboardBalancedForCpu(cpu, motherboard))
+                .toList(), 5, Math.max(480, Math.round(budget * 0.14f)), preferences);
+    }
+
+    private List<HardwarePart> compatibleMemoryCandidates(
+            HardwarePart motherboard,
+            List<HardwarePart> memories,
+            int budget,
+            BuildPreferences preferences
+    ) {
+        return topSupportingCandidates(memories.stream()
+                .filter(memory -> same(memory.getMemoryType(), motherboard.getMemoryType()))
+                .toList(), 3, Math.max(260, Math.round(budget * 0.08f)), preferences);
+    }
+
+    private List<HardwarePart> topSupportingCandidates(
+            List<HardwarePart> parts,
+            int limit,
+            int targetPrice,
+            BuildPreferences preferences
+    ) {
+        if (parts.isEmpty()) {
+            return List.of();
+        }
+        return parts.stream()
+                .sorted(Comparator.comparingInt((HardwarePart part) -> supportingPartRank(part, targetPrice, preferences)).reversed()
+                        .thenComparing(HardwarePart::getModel))
+                .limit(limit)
+                .toList();
+    }
+
+    private int supportingPartRank(HardwarePart part, int targetPrice, BuildPreferences preferences) {
+        int price = referencePrice(part);
+        int score = hardwareGenerationRank(part) * 2
+                + part.getPerformanceScore() * 3
+                - Math.abs(price - targetPrice) / 4
+                - price / 28;
+        if (StringUtils.hasText(preferences.preferredColor()) && isVisualPartTitle(part.getModel())) {
+            String color = productColor(part.getModel());
+            if (preferences.preferredColor().equals(color)) {
+                score += 90;
+            } else if (StringUtils.hasText(color)) {
+                score -= 70;
+            }
+        }
+        return score;
+    }
+
+    private boolean isCaseCompatible(HardwarePart motherboard, HardwarePart pcCase) {
+        return !StringUtils.hasText(motherboard.getFormFactor())
+                || !StringUtils.hasText(pcCase.getSupportedFormFactors())
+                || pcCase.getSupportedFormFactors().toUpperCase(Locale.ROOT).contains(motherboard.getFormFactor().toUpperCase(Locale.ROOT));
+    }
+
+    private void rememberLocalCandidate(
+            List<BuildPlan> candidates,
+            BuildPlan plan,
+            int budget,
+            BuildPreferences preferences,
+            AiSettingsService.EffectiveAiSettings settings
+    ) {
+        int maxLocalBudget = budget + Math.max(900, Math.round(budget * 0.18f));
+        if (plan.totalPrice() > maxLocalBudget) {
+            return;
+        }
+        candidates.add(plan);
+        candidates.sort((left, right) -> Integer.compare(
+                buildPlanRank(right, budget, preferences, settings),
+                buildPlanRank(left, budget, preferences, settings)
+        ));
+        keepDiverseLocalCandidates(candidates);
+    }
+
+    private int buildPlanRank(
+            BuildPlan plan,
+            int budget,
+            BuildPreferences preferences,
+            AiSettingsService.EffectiveAiSettings settings
+    ) {
+        int overBudget = Math.max(0, plan.totalPrice() - budget);
+        int distance = Math.abs(budget - plan.totalPrice());
+        return plan.performanceScore() * 10
+                + explicitPreferenceScore(plan.parts(), preferences) * 12
+                + memoryCapacityScore(plan.parts(), preferences)
+                + colorHarmonyScore(plan.selections(), preferences, settings)
+                - distance / 70
+                - overBudget / 12;
+    }
+
+    private void keepDiverseLocalCandidates(List<BuildPlan> candidates) {
+        if (candidates.size() <= 10) {
+            return;
+        }
+        List<BuildPlan> ranked = new ArrayList<>(candidates);
+        List<BuildPlan> diverse = new ArrayList<>();
+        Map<String, Integer> cpuCounts = new LinkedHashMap<>();
+        Map<String, Integer> gpuCounts = new LinkedHashMap<>();
+        for (BuildPlan plan : ranked) {
+            String cpuKey = partModelKey(plan, HardwarePartType.CPU);
+            String gpuKey = partModelKey(plan, HardwarePartType.GPU);
+            if (cpuCounts.getOrDefault(cpuKey, 0) >= 2 || gpuCounts.getOrDefault(gpuKey, 0) >= 3) {
+                continue;
+            }
+            diverse.add(plan);
+            cpuCounts.merge(cpuKey, 1, Integer::sum);
+            gpuCounts.merge(gpuKey, 1, Integer::sum);
+            if (diverse.size() >= 10) {
+                break;
+            }
+        }
+        for (BuildPlan plan : ranked) {
+            if (diverse.size() >= 10) {
+                break;
+            }
+            if (!diverse.contains(plan)) {
+                diverse.add(plan);
+            }
+        }
+        candidates.clear();
+        candidates.addAll(diverse);
+    }
+
+    private String partModelKey(BuildPlan plan, HardwarePartType type) {
+        return plan.parts().stream()
+                .filter(part -> part.getType() == type)
+                .map(HardwarePart::getModel)
+                .findFirst()
+                .orElse("");
+    }
+
+    private int memoryCapacityScore(List<HardwarePart> parts, BuildPreferences preferences) {
+        if (preferences.preferredMemoryCapacityGb() <= 0) {
+            return 0;
+        }
+        for (HardwarePart part : parts) {
+            if (part.getType() != HardwarePartType.MEMORY) {
+                continue;
+            }
+            String model = part.getModel().toUpperCase(Locale.ROOT);
+            if (model.contains(preferences.preferredMemoryCapacityGb() + "GB")
+                    || model.contains(preferences.preferredMemoryCapacityGb() + "G")) {
+                return 18;
+            }
+        }
+        return 0;
+    }
+
+    private Optional<BuildPlan> attachPurchasableProducts(
+            BuildPlan candidate,
+            BuildPreferences preferences,
+            AiSettingsService.EffectiveAiSettings settings,
+            BuildProgressReporter progressReporter,
+            int candidateIndex,
+            int candidateCount
+    ) {
+        Map<Long, BuildPartSelectionRequest> productSelections = new LinkedHashMap<>();
+        List<HardwarePart> parts = candidate.parts();
+        for (int index = 0; index < parts.size(); index++) {
+            HardwarePart part = parts.get(index);
+            if (productSelections.containsKey(part.getId())) {
+                continue;
+            }
+            if (progressReporter != null) {
+                int progress = 34 + Math.min(52, Math.round(((candidateIndex - 1) * parts.size() + index + 1) * 52f / Math.max(1, candidateCount * parts.size())));
+                progressReporter.update(
+                        progress,
+                        "检索京东商品",
+                        "候选 " + candidateIndex + "/" + candidateCount + " · " + hardwareTypeLabel(part.getType()) + " " + part.getModel()
+                );
+            }
+            Optional<JdProduct> product = jdProductSearchService.bestAvailableForPart(
+                    part,
+                    preferences.preferredColor(),
+                    part.getType() == HardwarePartType.CPU
+            );
+            if (product.isEmpty()) {
+                return Optional.empty();
+            }
+            JdProduct item = product.get();
+            if (part.getType() == HardwarePartType.CPU && isCpuMotherboardBundle(item.title())) {
+                Optional<HardwarePart> motherboard = selectedPart(parts, HardwarePartType.MOTHERBOARD);
+                if (motherboard.isPresent() && bundleMentionsMotherboard(item.title(), motherboard.get())) {
+                    putCpuMotherboardBundleSelections(productSelections, part, motherboard.get(), item);
+                    continue;
+                }
+                return Optional.empty();
+            }
+            productSelections.put(part.getId(), new BuildPartSelectionRequest(
+                    part.getId(),
+                    item.title(),
+                    item.price(),
+                    item.image(),
+                    item.link(),
+                    item.skuId(),
+                    StringUtils.hasText(item.matchedModel()) ? item.matchedModel() : part.getModel()
+            ));
+        }
+        List<BuildPartSelectionRequest> selections = parts.stream()
+                .map(part -> selectionForPart(part, productSelections))
+                .toList();
+        if (hasStrictColorConflict(selections, preferences, settings)) {
+            return Optional.empty();
+        }
+        return Optional.of(new BuildPlan(
+                parts,
+                selections,
+                totalPrice(parts, selections),
+                performanceScore(parts)
+        ));
+    }
+
+    private Optional<HardwarePart> selectedPart(List<HardwarePart> parts, HardwarePartType type) {
+        return parts.stream().filter(part -> part.getType() == type).findFirst();
+    }
+
+    private boolean isCpuMotherboardBundle(String title) {
+        String text = title == null ? "" : title;
+        return text.contains("板U")
+                || text.contains("主板套装")
+                || (text.contains("搭") && text.contains("主板"));
+    }
+
+    private boolean bundleMentionsMotherboard(String title, HardwarePart motherboard) {
+        String compactTitle = compactText(title);
+        String model = compactText(motherboard.getModel());
+        return StringUtils.hasText(model) && compactTitle.contains(model);
+    }
+
+    private void putCpuMotherboardBundleSelections(
+            Map<Long, BuildPartSelectionRequest> productSelections,
+            HardwarePart cpu,
+            HardwarePart motherboard,
+            JdProduct item
+    ) {
+        int bundlePrice = item.price() == null ? 0 : item.price();
+        int cpuEstimate = Math.max(1, referencePrice(cpu));
+        int motherboardEstimate = Math.max(1, referencePrice(motherboard));
+        int cpuPrice = Math.max(1, Math.round(bundlePrice * (cpuEstimate / (float) (cpuEstimate + motherboardEstimate))));
+        if (cpuPrice >= bundlePrice) {
+            cpuPrice = Math.max(1, bundlePrice - 1);
+        }
+        int motherboardPrice = Math.max(1, bundlePrice - cpuPrice);
+        productSelections.put(cpu.getId(), new BuildPartSelectionRequest(
+                cpu.getId(),
+                item.title() + "（板U套装 CPU 部分）",
+                cpuPrice,
+                item.image(),
+                item.link(),
+                item.skuId(),
+                StringUtils.hasText(item.matchedModel()) ? item.matchedModel() : cpu.getModel()
+        ));
+        productSelections.put(motherboard.getId(), new BuildPartSelectionRequest(
+                motherboard.getId(),
+                item.title() + "（板U套装 主板部分）",
+                motherboardPrice,
+                item.image(),
+                item.link(),
+                item.skuId(),
+                motherboard.getModel()
+        ));
+    }
+
+    private String compactText(String value) {
+        return value == null ? "" : value.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "");
     }
 
     private List<HardwarePart> purchasableCandidates(List<HardwarePart> parts, Map<Long, BuildPartSelectionRequest> selections, HardwarePartType type) {
@@ -794,6 +1423,10 @@ public class AiService {
         boolean productivity = containsAny(text, "生产力", "剪辑", "渲染", "建模", "设计", "cuda", "ai", "深度学习", "视频");
         boolean explicitAmdGpu = containsAny(text, "amd显卡", "a卡", "radeon", "rx ");
         boolean explicitNvidiaGpu = containsAny(text, "nvidia", "英伟达", "n卡", "rtx", "cuda", "nvenc");
+        boolean explicitAmdCpu = containsAny(text, "amd cpu", "amd处理器", "amd平台", "锐龙", "ryzen")
+                || (containsAny(text, "cpu", "处理器") && containsAny(text, "更倾向 amd", "倾向 amd", "偏向 amd", "选 amd"));
+        boolean explicitIntelCpu = containsAny(text, "intel cpu", "intel处理器", "intel平台", "英特尔", "酷睿", "core ultra", "core i")
+                || (containsAny(text, "cpu", "处理器") && containsAny(text, "更倾向 intel", "倾向 intel", "偏向 intel", "选 intel"));
         String color = "";
         if (containsAny(text, "白色", "纯白", "海景房", "white")) {
             color = "WHITE";
@@ -803,7 +1436,16 @@ public class AiService {
         String gpuModel = extractPreferredGpuModel(text);
         int memoryCapacity = extractPreferredMemoryCapacity(text);
         boolean preferX3d = text.contains("x3d");
-        return new BuildPreferences((productivity || explicitNvidiaGpu) && !explicitAmdGpu, explicitAmdGpu, color, gpuModel, memoryCapacity, preferX3d);
+        return new BuildPreferences(
+                (productivity || explicitNvidiaGpu) && !explicitAmdGpu,
+                explicitAmdGpu,
+                explicitAmdCpu && !explicitIntelCpu,
+                explicitIntelCpu && !explicitAmdCpu,
+                color,
+                gpuModel,
+                memoryCapacity,
+                preferX3d
+        );
     }
 
     private BuildPreferences buildPreferences(String message, UserMemory userMemory) {
@@ -813,14 +1455,26 @@ public class AiService {
         }
         String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
         boolean explicitGpuPlatform = containsAny(text, "amd显卡", "a卡", "radeon", "rx ", "nvidia", "英伟达", "n卡", "rtx", "cuda", "nvenc");
+        boolean explicitCpuPlatform = containsAny(text, "amd cpu", "amd处理器", "amd平台", "锐龙", "ryzen", "intel cpu", "intel处理器", "intel平台", "英特尔", "酷睿", "core ultra", "core i")
+                || (containsAny(text, "cpu", "处理器") && containsAny(text, "amd", "intel"));
         boolean preferNvidiaGpu = current.preferNvidiaGpu();
         boolean preferAmdGpu = current.preferAmdGpu();
+        boolean preferAmdCpu = current.preferAmdCpu();
+        boolean preferIntelCpu = current.preferIntelCpu();
         if (!explicitGpuPlatform && !preferNvidiaGpu && !preferAmdGpu) {
             String gpuMemory = userMemory.getGpuPlatformPreference().toLowerCase(Locale.ROOT);
             if (containsAny(gpuMemory, "nvidia", "cuda", "英伟达")) {
                 preferNvidiaGpu = true;
             } else if (containsAny(gpuMemory, "amd", "radeon")) {
                 preferAmdGpu = true;
+            }
+        }
+        if (!explicitCpuPlatform && !preferAmdCpu && !preferIntelCpu) {
+            String cpuMemory = userMemory.getCpuPlatformPreference().toLowerCase(Locale.ROOT);
+            if (containsAny(cpuMemory, "amd", "ryzen", "锐龙")) {
+                preferAmdCpu = true;
+            } else if (containsAny(cpuMemory, "intel", "英特尔", "酷睿")) {
+                preferIntelCpu = true;
             }
         }
         String preferredColor = current.preferredColor();
@@ -831,6 +1485,8 @@ public class AiService {
         return new BuildPreferences(
                 preferNvidiaGpu,
                 preferAmdGpu,
+                preferAmdCpu,
+                preferIntelCpu,
                 preferredColor,
                 current.preferredGpuModel(),
                 current.preferredMemoryCapacityGb(),
@@ -1080,11 +1736,23 @@ public class AiService {
 
     private boolean preferredPartMatch(HardwarePart part, BuildPreferences preferences, HardwarePartType type) {
         String model = part.getModel().toUpperCase(Locale.ROOT);
+        if (type == HardwarePartType.CPU && preferences.preferAmdCpu()) {
+            return model.contains("RYZEN");
+        }
+        if (type == HardwarePartType.CPU && preferences.preferIntelCpu()) {
+            return model.contains("CORE");
+        }
         if (type == HardwarePartType.CPU && preferences.preferX3dCpu()) {
             return model.contains("X3D");
         }
         if (type == HardwarePartType.GPU && StringUtils.hasText(preferences.preferredGpuModel())) {
             return model.contains(preferences.preferredGpuModel().toUpperCase(Locale.ROOT).replaceAll("\\s+", " "));
+        }
+        if (type == HardwarePartType.GPU && preferences.preferNvidiaGpu()) {
+            return model.startsWith("RTX") || model.startsWith("GTX");
+        }
+        if (type == HardwarePartType.GPU && preferences.preferAmdGpu()) {
+            return model.startsWith("RX");
         }
         if (type == HardwarePartType.MEMORY && preferences.preferredMemoryCapacityGb() > 0) {
             return model.contains(preferences.preferredMemoryCapacityGb() + "GB")
@@ -1254,8 +1922,20 @@ public class AiService {
         int score = 0;
         for (HardwarePart part : parts) {
             String model = part.getModel().toUpperCase(Locale.ROOT);
+            if (part.getType() == HardwarePartType.CPU && preferences.preferAmdCpu() && model.contains("RYZEN")) {
+                score += 5;
+            }
+            if (part.getType() == HardwarePartType.CPU && preferences.preferIntelCpu() && model.contains("CORE")) {
+                score += 5;
+            }
             if (part.getType() == HardwarePartType.CPU && preferences.preferX3dCpu() && model.contains("X3D")) {
                 score += 6;
+            }
+            if (part.getType() == HardwarePartType.GPU && preferences.preferNvidiaGpu() && (model.startsWith("RTX") || model.startsWith("GTX"))) {
+                score += 5;
+            }
+            if (part.getType() == HardwarePartType.GPU && preferences.preferAmdGpu() && model.startsWith("RX")) {
+                score += 5;
             }
             if (part.getType() == HardwarePartType.GPU
                     && StringUtils.hasText(preferences.preferredGpuModel())
@@ -1273,9 +1953,20 @@ public class AiService {
     }
 
     private Map<Long, BuildPartSelectionRequest> createProductSelectionMap(Map<HardwarePartType, List<HardwarePart>> typedParts, BuildPreferences preferences) {
+        return createProductSelectionMap(typedParts, preferences, null);
+    }
+
+    private Map<Long, BuildPartSelectionRequest> createProductSelectionMap(Map<HardwarePartType, List<HardwarePart>> typedParts, BuildPreferences preferences, BuildProgressReporter progressReporter) {
         Map<Long, BuildPartSelectionRequest> result = new LinkedHashMap<>();
+        int total = typedParts.values().stream().mapToInt(List::size).sum();
+        int current = 0;
         for (List<HardwarePart> list : typedParts.values()) {
             for (HardwarePart part : list) {
+                current++;
+                if (progressReporter != null) {
+                    int progress = 28 + Math.min(54, Math.round(current * 54f / Math.max(1, total)));
+                    progressReporter.update(progress, "检索京东商品", hardwareTypeLabel(part.getType()) + " " + part.getModel());
+                }
                 jdProductSearchService.bestAvailableForPart(part, preferences.preferredColor()).ifPresent(product -> result.put(part.getId(), new BuildPartSelectionRequest(
                             part.getId(),
                             product.title(),
@@ -1309,9 +2000,140 @@ public class AiService {
         int total = 0;
         for (HardwarePart part : parts) {
             int productPrice = productPrices.getOrDefault(part.getId(), 0);
-            total += productPrice > 0 ? productPrice : part.getPrice();
+            total += productPrice > 0 ? productPrice : referencePrice(part);
         }
         return total;
+    }
+
+    private int referencePrice(HardwarePart part) {
+        return estimatedPartPrice(part);
+    }
+
+    private int estimatedPartPrice(HardwarePart part) {
+        String model = part.getModel().toUpperCase(Locale.ROOT);
+        return switch (part.getType()) {
+            case CPU -> estimatedCpuPrice(model);
+            case GPU -> estimatedGpuPrice(model);
+            case MOTHERBOARD -> estimatedMotherboardPrice(model);
+            case MEMORY -> estimatedMemoryPrice(model);
+            case STORAGE -> estimatedStoragePrice(model);
+            case PSU -> estimatedPsuPrice(model);
+            case CASE -> estimatedCasePrice(model);
+            case COOLER -> estimatedCoolerPrice(model);
+        };
+    }
+
+    private int estimatedCpuPrice(String model) {
+        if (model.contains("9950X3D2")) return 6500;
+        if (model.contains("9950X3D")) return 5200;
+        if (model.contains("9950X")) return 4300;
+        if (model.contains("9900X3D")) return 3800;
+        if (model.contains("9900X")) return 3200;
+        if (model.contains("9850X3D")) return 3600;
+        if (model.contains("9800X3D")) return 3400;
+        if (model.contains("9700X")) return 1900;
+        if (model.contains("9600X")) return 1400;
+        if (model.contains("7800X3D")) return 2500;
+        if (model.contains("7500F")) return 900;
+        if (model.contains("5700X3D")) return 1000;
+        if (model.contains("5600")) return 600;
+        if (model.contains("CORE ULTRA 9")) return 4200;
+        if (model.contains("CORE ULTRA 7")) return 2800;
+        if (model.contains("CORE ULTRA 5")) return 1800;
+        if (model.contains("14700")) return 2400;
+        if (model.contains("14600")) return 1500;
+        if (model.contains("13490")) return 1100;
+        if (model.contains("12400")) return 750;
+        return 1500;
+    }
+
+    private int estimatedGpuPrice(String model) {
+        if (model.contains("RTX 5090")) return 18000;
+        if (model.contains("RTX 5080")) return 8000;
+        if (model.contains("RTX 5070 TI")) return 5600;
+        if (model.contains("RTX 5070")) return 4200;
+        if (model.contains("RTX 5060 TI")) return 3000;
+        if (model.contains("RTX 5060")) return 2300;
+        if (model.contains("RTX 5050")) return 1600;
+        if (model.contains("RTX 4070 SUPER")) return 4300;
+        if (model.contains("RTX 4070")) return 3400;
+        if (model.contains("RTX 4060 TI")) return 2600;
+        if (model.contains("RTX 4060")) return 2100;
+        if (model.contains("RX 9070 XT")) return 4500;
+        if (model.contains("RX 9070")) return 3800;
+        if (model.contains("RX 9060 XT")) return 2600;
+        if (model.contains("RX 7800 XT")) return 3500;
+        if (model.contains("RX 7700 XT")) return 2900;
+        if (model.contains("ARC B580")) return 1600;
+        if (model.contains("ARC B570")) return 1300;
+        return 2500;
+    }
+
+    private int estimatedMotherboardPrice(String model) {
+        if (model.contains("X870E")) return 2500;
+        if (model.contains("X870")) return 1800;
+        if (model.contains("B850M")) return 900;
+        if (model.contains("B850")) return 1100;
+        if (model.contains("B650E")) return 1200;
+        if (model.contains("B650M")) return 700;
+        if (model.contains("B650")) return 900;
+        if (model.contains("Z890")) return 2000;
+        if (model.contains("B860M")) return 800;
+        if (model.contains("B860")) return 950;
+        if (model.contains("H810")) return 550;
+        if (model.contains("Z790")) return 1600;
+        if (model.contains("B760M")) return 700;
+        if (model.contains("B760")) return 850;
+        if (model.contains("B660M")) return 550;
+        if (model.contains("B550M")) return 550;
+        return 800;
+    }
+
+    private int estimatedMemoryPrice(String model) {
+        if (model.contains("64GB")) return 1100;
+        if (model.contains("32GB") && model.contains("DDR5") && (model.contains("7200") || model.contains("6400"))) return 750;
+        if (model.contains("32GB") && model.contains("DDR5")) return 600;
+        if (model.contains("16GB") && model.contains("DDR5")) return 320;
+        if (model.contains("32GB") && model.contains("DDR4")) return 420;
+        if (model.contains("16GB") && model.contains("DDR4")) return 240;
+        return 500;
+    }
+
+    private int estimatedStoragePrice(String model) {
+        if (model.contains("PCIe 5.0".toUpperCase(Locale.ROOT)) && model.contains("2TB")) return 1400;
+        if (model.contains("PCIe 5.0".toUpperCase(Locale.ROOT)) && model.contains("1TB")) return 800;
+        if (model.contains("4TB")) return 1700;
+        if (model.contains("2TB")) return 850;
+        if (model.contains("1TB")) return 450;
+        return 600;
+    }
+
+    private int estimatedPsuPrice(String model) {
+        if (model.contains("1000W")) return 900;
+        if (model.contains("850W") && model.contains("ATX 3.1")) return 650;
+        if (model.contains("750W") && model.contains("ATX 3.1")) return 520;
+        if (model.contains("650W") && model.contains("ATX 3.1")) return 420;
+        if (model.contains("850W")) return 580;
+        if (model.contains("750W")) return 450;
+        if (model.contains("650W") && model.contains("BRONZE")) return 280;
+        if (model.contains("650W")) return 360;
+        return 400;
+    }
+
+    private int estimatedCasePrice(String model) {
+        if (model.contains("E-ATX")) return 700;
+        if (model.contains("ITX")) return 450;
+        if (model.contains("M-ATX")) return 300;
+        return 350;
+    }
+
+    private int estimatedCoolerPrice(String model) {
+        if (model.contains("360")) return 520;
+        if (model.contains("280")) return 430;
+        if (model.contains("240")) return 300;
+        if (model.contains("DUAL TOWER")) return 190;
+        if (model.contains("LOW PROFILE")) return 160;
+        return 100;
     }
 
     private int performanceScore(List<HardwarePart> parts) {
@@ -1358,8 +2180,11 @@ public class AiService {
             if (!title.equals(part.model())) {
                 builder.append("（标准型号：").append(part.model()).append("）");
             }
-            builder.append("，¥")
-                    .append(part.productPrice() != null && part.productPrice() > 0 ? part.productPrice() : part.price());
+            if (part.productPrice() != null && part.productPrice() > 0) {
+                builder.append("，¥").append(part.productPrice());
+            } else {
+                builder.append("，暂无京东价格");
+            }
             if (!hasPerformanceScore(part.type())) {
                 builder.append("，不参与性能评分");
             } else {
@@ -1406,12 +2231,38 @@ public class AiService {
             SafetyResult safety,
             BuildConfigResponse generatedBuild
     ) {
+        return saveAssistantAndReturn(
+                conversation,
+                content,
+                fromCache,
+                directReply,
+                intent,
+                subIntent,
+                safety,
+                generatedBuild,
+                List.of()
+        );
+    }
+
+    private ChatResponse saveAssistantAndReturn(
+            ChatConversation conversation,
+            String content,
+            boolean fromCache,
+            boolean directReply,
+            String intent,
+            String subIntent,
+            SafetyResult safety,
+            BuildConfigResponse generatedBuild,
+            List<ChatNewsReferenceResponse> newsReferences
+    ) {
+        List<ChatNewsReferenceResponse> references = newsReferences == null ? List.of() : newsReferences;
         messageRepository.save(new ChatMessage(
                 conversation.getId(),
                 "assistant",
                 content,
                 generatedBuild == null ? null : generatedBuild.id(),
-                generatedBuild == null ? "" : generatedBuild.title()
+                generatedBuild == null ? "" : generatedBuild.title(),
+                serializeNewsReferences(references)
         ));
         conversation.touch();
         return new ChatResponse(
@@ -1426,8 +2277,33 @@ public class AiService {
                 generatedBuild == null ? null : generatedBuild.id(),
                 generatedBuild == null ? "" : generatedBuild.title(),
                 generatedBuild == null ? "" : generatedBuild.serialNumber(),
-                generatedBuild
+                generatedBuild,
+                references,
+                null
         );
+    }
+
+    private String serializeNewsReferences(List<ChatNewsReferenceResponse> newsReferences) {
+        if (newsReferences == null || newsReferences.isEmpty()) {
+            return "";
+        }
+        try {
+            return objectMapper.writeValueAsString(newsReferences);
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private List<ChatNewsReferenceResponse> parseNewsReferences(String value) {
+        if (!StringUtils.hasText(value)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(value, new TypeReference<List<ChatNewsReferenceResponse>>() {
+            });
+        } catch (Exception exception) {
+            return List.of();
+        }
     }
 
     private String callModel(
@@ -1435,6 +2311,7 @@ public class AiService {
             String memoryContext,
             String conversationContext,
             String buildContext,
+            String newsContext,
             IntentAnalysis intent,
             SafetyResult safety,
             AiSettingsService.EffectiveAiSettings settings
@@ -1469,6 +2346,7 @@ public class AiService {
                 13. 用户询问游戏帧率时，需要基于配置单 CPU/GPU 定位给出保守帧率区间；如果预算达不到目标帧率，直接说明需要加预算或降低画质、分辨率、帧率目标。
                 14. 长期用户画像记忆只代表用户过去反复或明确表达过的默认偏好，当前用户需求优先级更高；如果当前输入与长期记忆冲突，必须以当前输入为准。
                 15. 不要把长期记忆扩写成用户没有明确提出的硬件参数、实时价格、商品链接或 SKU。
+                16. 如果系统提供了热点新闻上下文，必须只基于这些新闻总结事实和影响，并在回答中说明下方附有热点来源；不要编造未提供的新闻或链接。
                 %s
 
                 意图识别：
@@ -1492,6 +2370,9 @@ public class AiService {
                 配置单上下文：
                 %s
 
+                热点新闻上下文：
+                %s
+
                 用户需求：
                 %s
                 """.formatted(
@@ -1509,6 +2390,7 @@ public class AiService {
                 StringUtils.hasText(memoryContext) ? memoryContext : "无",
                 conversationContext,
                 buildContext,
+                StringUtils.hasText(newsContext) ? newsContext : "无",
                 message
         );
         try {
@@ -1541,12 +2423,32 @@ public class AiService {
         }
     }
 
+    private record NewsContext(String promptContext, List<ChatNewsReferenceResponse> references) {
+
+        private static NewsContext empty() {
+            return new NewsContext("无", List.of());
+        }
+    }
+
+    private record NewsMatch(News news, int score) {
+    }
+
     private record BuildPlan(List<HardwarePart> parts, List<BuildPartSelectionRequest> selections, int totalPrice, int performanceScore) {
+    }
+
+    private record BuildTaskSnapshot(Long id, Long userId, Long conversationId, Long attachedBuildId, String message) {
+    }
+
+    @FunctionalInterface
+    private interface BuildProgressReporter {
+        void update(int progress, String title, String description);
     }
 
     private record BuildPreferences(
             boolean preferNvidiaGpu,
             boolean preferAmdGpu,
+            boolean preferAmdCpu,
+            boolean preferIntelCpu,
             String preferredColor,
             String preferredGpuModel,
             int preferredMemoryCapacityGb,
