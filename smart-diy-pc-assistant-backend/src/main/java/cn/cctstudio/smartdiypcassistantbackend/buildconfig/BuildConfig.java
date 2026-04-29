@@ -23,6 +23,9 @@ public class BuildConfig {
     @Column(nullable = false)
     private Long userId;
 
+    @Column(length = 9, unique = true)
+    private String serialNumber;
+
     @Column(nullable = false, length = 80)
     private String title;
 
@@ -116,6 +119,10 @@ public class BuildConfig {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void assignSerialNumber(String serialNumber) {
+        this.serialNumber = serialNumber;
+    }
+
     public void updateConfig(
             String title,
             String note,
@@ -149,6 +156,10 @@ public class BuildConfig {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public String getSerialNumber() {
+        return serialNumber == null ? "" : serialNumber;
     }
 
     public String getTitle() {

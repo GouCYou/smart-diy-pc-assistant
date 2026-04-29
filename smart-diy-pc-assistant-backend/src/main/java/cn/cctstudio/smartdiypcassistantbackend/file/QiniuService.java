@@ -14,8 +14,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.util.Iterator;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -43,12 +53,19 @@ public class QiniuService {
     }
 
     public FileUploadResponse upload(MultipartFile file) {
+        return upload(file, "");
+    }
+
+    public FileUploadResponse upload(MultipartFile file, String usage) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("请选择要上传的文件");
         }
         String contentType = file.getContentType() == null ? "" : file.getContentType();
         if (!contentType.startsWith("image/")) {
             throw new BusinessException("只能上传图片文件");
+        }
+        if (isAvatarUsage(usage) && isGif(file, contentType)) {
+            throw new BusinessException("头像不支持上传动图，请选择 JPG、PNG 或 WebP 等静态图片");
         }
         if (!hasQiniuConfig()) {
             throw new BusinessException("对象存储尚未配置完整，不能上传图片");
@@ -63,7 +80,8 @@ public class QiniuService {
                 .uploadToken(properties.bucket(), key, 3600, null);
         UploadManager uploadManager = new UploadManager(new Configuration(Region.autoRegion()));
         try {
-            Response response = uploadManager.put(file.getBytes(), key, token);
+            byte[] uploadBytes = optimizeImageBytes(file.getBytes(), contentType);
+            Response response = uploadManager.put(uploadBytes, key, token);
             if (!response.isOK()) {
                 throw new BusinessException("七牛云上传失败：" + response.statusCode + " " + response.error);
             }
@@ -82,6 +100,52 @@ public class QiniuService {
                 && StringUtils.hasText(properties.secretKey())
                 && StringUtils.hasText(properties.bucket())
                 && StringUtils.hasText(properties.domain());
+    }
+
+    private boolean isAvatarUsage(String usage) {
+        return StringUtils.hasText(usage) && "avatar".equalsIgnoreCase(usage.trim());
+    }
+
+    private boolean isGif(MultipartFile file, String contentType) {
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        return "image/gif".equalsIgnoreCase(contentType) || filename.endsWith(".gif");
+    }
+
+    private byte[] optimizeImageBytes(byte[] original, String contentType) {
+        if (!isJpeg(contentType)) {
+            return original;
+        }
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(original));
+            if (image == null) {
+                return original;
+            }
+            Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+            if (!writers.hasNext()) {
+                return original;
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageWriter writer = writers.next();
+            try (ImageOutputStream imageOutput = ImageIO.createImageOutputStream(output)) {
+                writer.setOutput(imageOutput);
+                ImageWriteParam param = writer.getDefaultWriteParam();
+                if (param.canWriteCompressed()) {
+                    param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                    param.setCompressionQuality(0.88f);
+                }
+                writer.write(null, new IIOImage(image, null, null), param);
+            } finally {
+                writer.dispose();
+            }
+            byte[] compressed = output.toByteArray();
+            return compressed.length > 0 && compressed.length < original.length ? compressed : original;
+        } catch (IOException ignored) {
+            return original;
+        }
+    }
+
+    private boolean isJpeg(String contentType) {
+        return "image/jpeg".equalsIgnoreCase(contentType) || "image/jpg".equalsIgnoreCase(contentType);
     }
 
     private String uploadUrl() {

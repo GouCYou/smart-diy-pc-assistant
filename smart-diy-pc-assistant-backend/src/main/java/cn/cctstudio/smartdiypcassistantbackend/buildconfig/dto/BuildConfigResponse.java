@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 public record BuildConfigResponse(
         Long id,
+        String serialNumber,
         String title,
         String note,
         Integer totalPrice,
@@ -28,12 +29,13 @@ public record BuildConfigResponse(
         LocalDateTime updatedAt
 ) {
 
-    public static BuildConfigResponse from(BuildConfig config, List<HardwarePart> parts, List<BuildPartSelection> selections) {
+    public static BuildConfigResponse from(BuildConfig config, List<HardwarePart> parts, List<BuildPartSelection> selections, boolean favorite) {
         Map<Long, BuildPartSelection> selectionMap = selections.stream()
                 .filter(item -> item.hardwarePartId() != null)
                 .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (left, right) -> left));
         return new BuildConfigResponse(
                 config.getId(),
+                config.getSerialNumber(),
                 config.getTitle(),
                 config.getNote(),
                 config.getTotalPrice(),
@@ -44,7 +46,7 @@ public record BuildConfigResponse(
                 config.getSummary(),
                 config.getContent(),
                 config.getSource(),
-                config.isFavorite(),
+                favorite,
                 config.getUpdatedAt()
         );
     }

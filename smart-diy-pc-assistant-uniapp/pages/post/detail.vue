@@ -49,7 +49,7 @@
 					</view>
 					<view class="build-main">
 						<text class="build-title">{{ post.buildConfig.title }}</text>
-						<text class="build-desc">¥{{ post.buildConfig.totalPrice }} · 性能 {{ post.buildConfig.performanceScore }} 分</text>
+						<text class="build-desc">{{ getBuildCardDesc(post.buildConfig) }}</text>
 					</view>
 					<text class="build-arrow">›</text>
 				</view>
@@ -128,7 +128,7 @@
 						</view>
 						<view class="comment-build-main">
 							<text class="comment-build-title">{{ comment.buildConfig.title }}</text>
-							<text class="comment-build-desc">¥{{ comment.buildConfig.totalPrice }} · 性能 {{ comment.buildConfig.performanceScore }} 分</text>
+							<text class="comment-build-desc">{{ getBuildCardDesc(comment.buildConfig) }}</text>
 						</view>
 						<text class="comment-build-arrow">›</text>
 					</view>
@@ -176,7 +176,7 @@
 			</view>
 			<view class="comment-build-main">
 				<text class="comment-build-title">{{ commentBuildTitle }}</text>
-				<text class="comment-build-desc">已关联配置，点击查看详情</text>
+				<text class="comment-build-desc">{{ commentBuildSerialNumber.length > 0 ? commentBuildSerialNumber + ' · 已关联配置' : '已关联配置，点击查看详情' }}</text>
 			</view>
 			<view class="comment-build-remove" @click.stop="clearCommentBuild">
 				<view class="close-line"></view>
@@ -243,11 +243,11 @@
 						<view class="close-line close-line-two build-close-line"></view>
 					</view>
 				</view>
-				<scroll-view class="build-picker-scroll" scroll-y="true">
+				<scroll-view class="build-picker-scroll" scroll-y="true" :style="getBuildPickerScrollStyle(commentBuildList.length)">
 					<view v-for="item in commentBuildList" :key="item.id" class="build-picker-item" @click="toggleBuildForComment(item)">
 						<view class="build-picker-main">
 							<text class="build-picker-title">{{ item.title }}</text>
-							<text class="build-picker-desc">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+							<text class="build-picker-desc">{{ getBuildCardDesc(item) }}</text>
 						</view>
 						<view :class="commentBuildId == item.id ? 'build-picker-plus build-picker-plus-selected' : 'build-picker-plus'">
 							<text :class="commentBuildId == item.id ? 'build-picker-plus-text build-picker-plus-text-selected' : 'build-picker-plus-text'">{{ commentBuildId == item.id ? '-' : '+' }}</text>
@@ -269,6 +269,7 @@
 						<view class="close-line close-line-two build-close-line"></view>
 					</view>
 				</view>
+				<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-modal-serial">{{ selectedBuildDetail.serialNumber }}</text>
 				<view class="build-modal-stats">
 					<view class="build-modal-stat">
 						<text class="build-modal-stat-label">总价</text>
@@ -280,9 +281,16 @@
 					</view>
 				</view>
 				<scroll-view class="build-modal-parts" scroll-y="true">
-					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="build-part">
-						<text class="build-part-title">{{ getHardwareTypeLabel(part.type) }} · {{ part.brand }} {{ part.model }}</text>
-						<text class="build-part-desc">¥{{ part.price }} · 性能 {{ part.performanceScore }} · {{ getPartSpecText(part) }}</text>
+					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="build-part build-part-product">
+						<image v-if="part.productImage.length > 0" class="build-part-product-image" :src="part.productImage" mode="aspectFill"></image>
+						<view v-else class="build-part-product-image build-part-product-fallback">
+							<text class="build-part-product-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
+						</view>
+						<view class="build-part-product-main">
+							<text class="build-part-title">{{ getCompactPartTitle(part, 30) }}</text>
+							<text class="build-part-desc">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<text class="build-part-desc">{{ getPartSpecText(part) }}</text>
+						</view>
 					</view>
 					<text v-if="selectedBuildDetail.note.length > 0" class="build-note">备注：{{ selectedBuildDetail.note }}</text>
 				</scroll-view>
@@ -344,6 +352,12 @@
 		brand : string
 		model : string
 		price : number
+		productTitle : string
+		productPrice : number
+		productImage : string
+		productLink : string
+		skuId : string
+		matchedModel : string
 		performanceScore : number
 		socketType : string
 		memoryType : string
@@ -358,6 +372,7 @@
 
 	type BuildConfigItem = {
 		id : number
+		serialNumber : string
 		title : string
 		note : string
 		totalPrice : number
@@ -428,6 +443,7 @@
 	const commentImageLongPressTimer = ref(0)
 	const commentBuildId = ref(0)
 	const commentBuildTitle = ref('')
+	const commentBuildSerialNumber = ref('')
 	const commentBuildDetail = ref(createEmptyBuildConfig())
 	const commentBuildList = ref([] as BuildConfigItem[])
 	const commentBuildPickerVisible = ref(false)
@@ -486,6 +502,7 @@
 	function createEmptyBuildConfig() : BuildConfigItem {
 		return {
 			id: 0,
+			serialNumber: '',
 			title: '',
 			note: '',
 			totalPrice: 0,
@@ -594,6 +611,7 @@
 		}
 		value.imageUrls = value.imageUrls == null ? [] as string[] : value.imageUrls
 		value.mentions = normalizeMentions((value as any).mentions)
+		value.buildConfig = normalizeBuildConfig(value.buildConfig)
 		value.comments = value.comments == null ? [] as CommunityCommentItem[] : value.comments
 		for (let i = 0; i < value.imageUrls.length; i++) {
 			value.imageUrls[i] = normalizeMediaUrl(value.imageUrls[i])
@@ -614,6 +632,8 @@
 			}
 			if (value.comments[i].buildConfig == null) {
 				value.comments[i].buildConfig = createEmptyBuildConfig()
+			} else {
+				value.comments[i].buildConfig = normalizeBuildConfig(value.comments[i].buildConfig)
 			}
 			value.comments[i].imageUrls = value.comments[i].imageUrls == null ? [] as string[] : value.comments[i].imageUrls
 			for (let j = 0; j < value.comments[i].imageUrls.length; j++) {
@@ -621,6 +641,57 @@
 			}
 		}
 		return value
+	}
+
+	function normalizeBuildConfig(value : any) : BuildConfigItem {
+		if (value == null) {
+			return createEmptyBuildConfig()
+		}
+		const messages = Array.isArray(value.compatibilityMessages) ? value.compatibilityMessages as string[] : [] as string[]
+		const parts = Array.isArray(value.parts) ? value.parts as any[] : [] as any[]
+		return {
+			id: Number(value.id == null ? 0 : value.id),
+			serialNumber: value.serialNumber == null ? '' : value.serialNumber as string,
+			title: value.title == null ? '' : value.title as string,
+			note: value.note == null ? '' : value.note as string,
+			totalPrice: Number(value.totalPrice == null ? 0 : value.totalPrice),
+			performanceScore: Number(value.performanceScore == null ? 0 : value.performanceScore),
+			compatibilityStatus: value.compatibilityStatus == null ? '' : value.compatibilityStatus as string,
+			compatibilityMessages: messages,
+			parts: parts.map((part : any) : HardwarePartItem => normalizeHardwarePart(part)),
+			summary: value.summary == null ? '' : value.summary as string,
+			content: value.content == null ? '' : value.content as string,
+			source: value.source == null ? '' : value.source as string,
+			favorite: value.favorite == null ? false : Boolean(value.favorite),
+			updatedAt: value.updatedAt == null ? '' : value.updatedAt as string
+		} as BuildConfigItem
+	}
+
+	function normalizeHardwarePart(value : any) : HardwarePartItem {
+		const model = value == null || value.model == null ? '' : value.model as string
+		return {
+			id: Number(value == null || value.id == null ? 0 : value.id),
+			type: value == null || value.type == null ? '' : value.type as string,
+			brand: value == null || value.brand == null ? '' : value.brand as string,
+			model: model,
+			price: Number(value == null || value.price == null ? 0 : value.price),
+			productTitle: value == null || value.productTitle == null ? '' : value.productTitle as string,
+			productPrice: Number(value == null || value.productPrice == null ? 0 : value.productPrice),
+			productImage: value == null || value.productImage == null ? '' : value.productImage as string,
+			productLink: value == null || value.productLink == null ? '' : value.productLink as string,
+			skuId: value == null || value.skuId == null ? '' : value.skuId as string,
+			matchedModel: value == null || value.matchedModel == null || value.matchedModel.length == 0 ? model : value.matchedModel as string,
+			performanceScore: Number(value == null || value.performanceScore == null ? 0 : value.performanceScore),
+			socketType: value == null || value.socketType == null ? '' : value.socketType as string,
+			memoryType: value == null || value.memoryType == null ? '' : value.memoryType as string,
+			formFactor: value == null || value.formFactor == null ? '' : value.formFactor as string,
+			wattage: Number(value == null || value.wattage == null ? 0 : value.wattage),
+			gpuLengthMm: Number(value == null || value.gpuLengthMm == null ? 0 : value.gpuLengthMm),
+			coolerHeightMm: Number(value == null || value.coolerHeightMm == null ? 0 : value.coolerHeightMm),
+			supportedFormFactors: value == null || value.supportedFormFactors == null ? '' : value.supportedFormFactors as string,
+			specs: value == null || value.specs == null ? '' : value.specs as string,
+			enabled: value == null || value.enabled == null ? true : Boolean(value.enabled)
+		} as HardwarePartItem
 	}
 
 	function goBack() {
@@ -715,7 +786,7 @@
 	}
 
 	function openBuildDetail(buildConfig : BuildConfigItem) {
-		selectedBuildDetail.value = buildConfig
+		selectedBuildDetail.value = normalizeBuildConfig(buildConfig)
 		buildDetailVisible.value = true
 	}
 
@@ -1355,7 +1426,7 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
-					commentBuildList.value = body.data as BuildConfigItem[]
+					commentBuildList.value = (body.data as any[]).map((item : any) : BuildConfigItem => normalizeBuildConfig(item))
 				}
 			}
 		})
@@ -1368,6 +1439,7 @@
 	function attachBuildToComment(item : BuildConfigItem) {
 		commentBuildId.value = item.id
 		commentBuildTitle.value = item.title
+		commentBuildSerialNumber.value = item.serialNumber
 		commentBuildDetail.value = item
 		commentBuildPickerVisible.value = false
 	}
@@ -1384,6 +1456,7 @@
 	function clearCommentBuild() {
 		commentBuildId.value = 0
 		commentBuildTitle.value = ''
+		commentBuildSerialNumber.value = ''
 		commentBuildDetail.value = createEmptyBuildConfig()
 	}
 
@@ -1478,6 +1551,52 @@
 		if (type == 'CASE') return '机箱'
 		if (type == 'COOLER') return '散热'
 		return type
+	}
+
+	function getHardwareTypeShortLabel(type : string) : string {
+		if (type == 'MOTHERBOARD') return '板'
+		if (type == 'STORAGE') return '盘'
+		return getHardwareTypeLabel(type).substring(0, 1)
+	}
+
+	function getPartDisplayTitle(part : HardwarePartItem) : string {
+		if (part.productTitle.length > 0) {
+			return part.productTitle
+		}
+		return part.model
+	}
+
+	function getCompactPartTitle(part : HardwarePartItem, maxLength : number) : string {
+		const title = getPartDisplayTitle(part)
+		if (title.length <= maxLength) {
+			return title
+		}
+		return title.substring(0, maxLength) + '...'
+	}
+
+	function getPartDisplayPrice(part : HardwarePartItem) : number {
+		if (part.productPrice != null && part.productPrice > 0) {
+			return part.productPrice
+		}
+		return part.price
+	}
+
+	function getPartPriceLabel(part : HardwarePartItem) : string {
+		const price = getPartDisplayPrice(part)
+		return price > 0 ? '¥' + price : '暂无价格'
+	}
+
+	function getBuildCardDesc(build : BuildConfigItem) : string {
+		const serial = build.serialNumber.length > 0 ? build.serialNumber + ' · ' : ''
+		return serial + '¥' + build.totalPrice + ' · 性能 ' + build.performanceScore + ' 分'
+	}
+
+	function getBuildPickerScrollStyle(count : number) : string {
+		const rowHeight = 72
+		const emptyHeight = 112
+		const maxHeight = 320
+		const height = count <= 0 ? emptyHeight : Math.min(maxHeight, Math.max(rowHeight, count * rowHeight))
+		return 'height:' + height + 'px;max-height:' + maxHeight + 'px;'
 	}
 
 	function getPartSpecText(part : HardwarePartItem) : string {
@@ -2721,6 +2840,15 @@
 		color: #111827;
 	}
 
+	.build-modal-serial {
+		margin-top: -4px;
+		margin-bottom: 10px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #007aff;
+	}
+
 	.build-modal-close {
 		width: 34px;
 		height: 34px;
@@ -2838,7 +2966,7 @@
 
 	.build-picker-scroll {
 		height: 156px;
-		max-height: 156px;
+		max-height: 320px;
 	}
 
 	.build-picker-item {
@@ -2852,6 +2980,41 @@
 
 	.build-picker-desc {
 		margin-top: 2px;
+	}
+
+	.build-picker .build-picker-empty {
+		padding: 28px;
+	}
+
+	.build-part-product {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-part-product-image {
+		width: 46px;
+		height: 46px;
+		border-radius: 14px;
+		background-color: #eef2f8;
+		margin-right: 10px;
+		flex-shrink: 0;
+	}
+
+	.build-part-product-fallback {
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-part-product-fallback-text {
+		font-size: 12px;
+		line-height: 16px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.build-part-product-main {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.inline-image-preview {

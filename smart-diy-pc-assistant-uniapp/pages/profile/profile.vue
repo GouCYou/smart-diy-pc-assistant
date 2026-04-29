@@ -81,6 +81,7 @@
 		</view>
 		<view class="profile-bottom-space"></view>
 		</scroll-view>
+		<canvas canvas-id="avatarCropCanvas" id="avatarCropCanvas" class="avatar-crop-canvas"></canvas>
 	</view>
 </template>
 
@@ -246,14 +247,76 @@
 			success: (res) => {
 				if (res.tempFilePaths.length > 0) {
 					const localPath = res.tempFilePaths[0] as string
-					avatarPreviewUrl.value = localPath
-					uploadAvatar(localPath)
+					if (isGifPath(localPath)) {
+						uni.showToast({
+							title: '头像不支持动图',
+							icon: 'none'
+						})
+						return
+					}
+					cropAvatarAndUpload(localPath)
 				}
 			}
 		})
 	}
 
+	function isGifPath(path : string) : boolean {
+		const value = path == null ? '' : path.toLowerCase()
+		return value.endsWith('.gif') || value.indexOf('.gif?') >= 0 || value.indexOf('.gif#') >= 0
+	}
+
+	function cropAvatarAndUpload(localPath : string) {
+		uni.getImageInfo({
+			src: localPath,
+			success: (info) => {
+				const sourcePath = info.path == null || info.path.length == 0 ? localPath : info.path
+				const sourceWidth = Number(info.width == null ? 0 : info.width)
+				const sourceHeight = Number(info.height == null ? 0 : info.height)
+				const side = Math.min(sourceWidth, sourceHeight)
+				if (side <= 0) {
+					avatarPreviewUrl.value = localPath
+					uploadAvatar(localPath)
+					return
+				}
+				const sx = Math.floor((sourceWidth - side) / 2)
+				const sy = Math.floor((sourceHeight - side) / 2)
+				const canvasSize = 512
+				const ctx = uni.createCanvasContext('avatarCropCanvas')
+				ctx.clearRect(0, 0, canvasSize, canvasSize)
+				;(ctx as any).drawImage(sourcePath, sx, sy, side, side, 0, 0, canvasSize, canvasSize)
+				ctx.draw(false, () => {
+					uni.canvasToTempFilePath({
+						canvasId: 'avatarCropCanvas',
+						destWidth: canvasSize,
+						destHeight: canvasSize,
+						fileType: 'jpg',
+						quality: 0.92,
+						success: (cropRes) => {
+							avatarPreviewUrl.value = cropRes.tempFilePath
+							uploadAvatar(cropRes.tempFilePath)
+						},
+						fail: () => {
+							avatarPreviewUrl.value = localPath
+							uploadAvatar(localPath)
+						}
+					})
+				})
+			},
+			fail: () => {
+				avatarPreviewUrl.value = localPath
+				uploadAvatar(localPath)
+			}
+		})
+	}
+
 	function uploadAvatar(localPath : string) {
+		if (isGifPath(localPath)) {
+			uni.showToast({
+				title: '头像不支持动图',
+				icon: 'none'
+			})
+			return
+		}
 		uploadingAvatar.value = true
 		uni.uploadFile({
 			url: apiBaseUrl + '/api/files/upload',
@@ -261,6 +324,9 @@
 			name: 'file',
 			header: {
 				'Authorization': 'Bearer ' + token.value
+			},
+			formData: {
+				usage: 'avatar'
 			},
 			success: (res) => {
 				if (res.statusCode == 200) {
@@ -795,6 +861,14 @@
 		font-size: 13px;
 		font-weight: 800;
 		color: #007aff;
+	}
+
+	.avatar-crop-canvas {
+		position: fixed;
+		left: -9999px;
+		top: -9999px;
+		width: 512px;
+		height: 512px;
 	}
 
 	.account-main {

@@ -38,6 +38,15 @@ public class BuildConfigController {
         return ApiResponse.ok(buildConfigService.list(principal.userId(), segment));
     }
 
+    @GetMapping("/public/{id}")
+    public ApiResponse<BuildConfigResponse> publicDetail(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long id
+    ) {
+        Long viewerUserId = principal == null ? null : principal.userId();
+        return ApiResponse.ok(buildConfigService.getPublic(viewerUserId, id));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<BuildConfigResponse> detail(
             @AuthenticationPrincipal UserPrincipal principal,

@@ -35,6 +35,9 @@ public class UserProfileService {
         String avatarKey = request.avatarKey() == null
                 ? user.getAvatarKey()
                 : mediaUrlService.normalizeKey(request.avatarKey());
+        if (avatarKey != null && avatarKey.toLowerCase().contains(".gif")) {
+            throw new BusinessException("头像不支持动图，请重新上传静态图片");
+        }
         String backgroundKey = request.backgroundKey() == null
                 ? user.getBackgroundImageKey()
                 : mediaUrlService.normalizeKey(request.backgroundKey());

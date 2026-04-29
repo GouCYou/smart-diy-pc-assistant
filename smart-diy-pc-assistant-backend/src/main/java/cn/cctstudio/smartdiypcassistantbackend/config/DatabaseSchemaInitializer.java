@@ -2,11 +2,20 @@ package cn.cctstudio.smartdiypcassistantbackend.config;
 
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.security.SecureRandom;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
 @Component
 public class DatabaseSchemaInitializer implements ApplicationRunner {
+
+    private static final String SERIAL_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -35,8 +44,8 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     PRIMARY KEY (id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
                 """);
-        jdbcTemplate.execute("ALTER TABLE ai_chat_message MODIFY content LONGTEXT NOT NULL");
-        jdbcTemplate.execute("""
+        executeIgnoring("ALTER TABLE ai_chat_message MODIFY content LONGTEXT NOT NULL");
+        executeIgnoring("""
                 ALTER TABLE user_notification MODIFY type ENUM(
                     'SYSTEM',
                     'FOLLOW',
@@ -48,5 +57,143 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     'NEWS_COMMENT_REPLY'
                 ) NOT NULL
                 """);
+        ensureBuildConfigSchema();
+        cleanLegacyUserData();
+    }
+
+    private void ensureBuildConfigSchema() {
+        executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN serial_number varchar(9) DEFAULT NULL AFTER user_id");
+        executeIgnoring("ALTER TABLE pc_build_config ADD UNIQUE KEY uk_build_config_serial_number (serial_number)");
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS pc_build_config_favorite (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    user_id bigint NOT NULL,
+                    build_config_id bigint NOT NULL,
+                    created_at datetime(6) NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_build_config_favorite_user_build (user_id, build_config_id),
+                    KEY idx_build_config_favorite_user (user_id),
+                    KEY idx_build_config_favorite_build (build_config_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
+        executeIgnoring("""
+                INSERT IGNORE INTO pc_build_config_favorite (user_id, build_config_id, created_at)
+                SELECT user_id, id, COALESCE(updated_at, NOW(6))
+                FROM pc_build_config
+                WHERE favorite = b'1'
+                """);
+        backfillBuildConfigSerialNumbers();
+    }
+
+    private void backfillBuildConfigSerialNumbers() {
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM pc_build_config WHERE serial_number IS NULL OR serial_number = ''",
+                Long.class
+        );
+        for (Long id : ids) {
+            String serial = generateUniqueSerialNumber();
+            jdbcTemplate.update("UPDATE pc_build_config SET serial_number = ? WHERE id = ?", serial, id);
+        }
+    }
+
+    private String generateUniqueSerialNumber() {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            String serial = "#" + randomSerialBody();
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM pc_build_config WHERE serial_number = ?",
+                    Integer.class,
+                    serial
+            );
+            if (count == null || count == 0) {
+                return serial;
+            }
+        }
+        String fallback = Long.toString(Math.abs(RANDOM.nextLong()), 36).toUpperCase(Locale.ROOT);
+        return "#" + (fallback + "00000000").substring(0, 8);
+    }
+
+    private String randomSerialBody() {
+        StringBuilder builder = new StringBuilder(8);
+        for (int i = 0; i < 8; i++) {
+            builder.append(SERIAL_ALPHABET.charAt(RANDOM.nextInt(SERIAL_ALPHABET.length())));
+        }
+        return builder.toString();
+    }
+
+    private void cleanLegacyUserData() {
+        executeIgnoring("""
+                UPDATE sys_user
+                SET avatar_url = NULL
+                WHERE avatar_url IS NOT NULL
+                  AND (
+                      LOWER(avatar_url) LIKE '%.gif'
+                      OR LOWER(avatar_url) LIKE '%.gif?%'
+                      OR LOWER(avatar_url) LIKE '%.gif#%'
+                  )
+                """);
+        List<Map<String, Object>> users = jdbcTemplate.queryForList("SELECT id, username FROM sys_user");
+        for (Map<String, Object> row : users) {
+            Long id = ((Number) row.get("id")).longValue();
+            String username = row.get("username") == null ? "" : row.get("username").toString();
+            if (isAsciiUsername(username)) {
+                continue;
+            }
+            String base = toAsciiUsernameBase(username);
+            jdbcTemplate.update("UPDATE sys_user SET username = ? WHERE id = ?", uniqueUsername(base, id), id);
+        }
+    }
+
+    private boolean isAsciiUsername(String username) {
+        return username != null && username.matches("^[A-Za-z][A-Za-z0-9_]{2,63}$");
+    }
+
+    private String toAsciiUsernameBase(String username) {
+        String text = username == null ? "" : username.trim();
+        if (text.equals("鬼画符")) {
+            return "guihuafu";
+        }
+        if (text.equals("梁崇熙") || text.equals("两充系")) {
+            return "liangchongxi";
+        }
+        String cleaned = text.replaceAll("[^A-Za-z0-9_]", "");
+        if (cleaned.matches("^[A-Za-z][A-Za-z0-9_]{2,63}$")) {
+            return cleaned;
+        }
+        if (cleaned.matches("^[0-9_].*")) {
+            return "user" + cleaned;
+        }
+        return "user";
+    }
+
+    private String uniqueUsername(String base, Long userId) {
+        String cleanBase = base == null || base.isBlank() ? "user" : base.toLowerCase(Locale.ROOT);
+        cleanBase = cleanBase.replaceAll("[^a-z0-9_]", "");
+        if (!cleanBase.matches("^[a-z].*")) {
+            cleanBase = "user" + cleanBase;
+        }
+        if (cleanBase.length() > 50) {
+            cleanBase = cleanBase.substring(0, 50);
+        }
+        String suffix = String.valueOf(userId == null ? RANDOM.nextInt(90) + 10 : userId);
+        for (int attempt = 0; attempt < 50; attempt++) {
+            String candidate = cleanBase + suffix + (attempt == 0 ? "" : RANDOM.nextInt(90) + 10);
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys_user WHERE username = ? AND id <> ?",
+                    Integer.class,
+                    candidate,
+                    userId
+            );
+            if (count == null || count == 0) {
+                return candidate;
+            }
+        }
+        return "user" + Math.abs(RANDOM.nextInt(900000) + 100000);
+    }
+
+    private void executeIgnoring(String sql) {
+        try {
+            jdbcTemplate.execute(sql);
+        } catch (DataAccessException ignored) {
+        }
     }
 }

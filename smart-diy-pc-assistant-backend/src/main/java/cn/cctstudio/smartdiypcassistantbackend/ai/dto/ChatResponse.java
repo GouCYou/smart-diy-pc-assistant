@@ -13,6 +13,7 @@ public record ChatResponse(
         String safetyMessage,
         Long generatedBuildConfigId,
         String generatedBuildConfigTitle,
+        String generatedBuildConfigSerialNumber,
         BuildConfigResponse generatedBuildConfig
 ) {
 }

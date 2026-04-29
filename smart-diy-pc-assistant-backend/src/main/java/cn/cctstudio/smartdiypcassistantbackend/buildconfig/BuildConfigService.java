@@ -25,12 +25,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.security.SecureRandom;
 import java.util.stream.Collectors;
 
 @Service
 public class BuildConfigService {
 
+    private static final String SERIAL_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final SecureRandom SERIAL_RANDOM = new SecureRandom();
+
     private final BuildConfigRepository buildConfigRepository;
+    private final BuildConfigFavoriteRepository buildConfigFavoriteRepository;
     private final HardwarePartRepository hardwarePartRepository;
     private final UserAccessService userAccessService;
     private final JdProductSearchService jdProductSearchService;
@@ -38,12 +43,14 @@ public class BuildConfigService {
 
     public BuildConfigService(
             BuildConfigRepository buildConfigRepository,
+            BuildConfigFavoriteRepository buildConfigFavoriteRepository,
             HardwarePartRepository hardwarePartRepository,
             UserAccessService userAccessService,
             JdProductSearchService jdProductSearchService,
             ObjectMapper objectMapper
     ) {
         this.buildConfigRepository = buildConfigRepository;
+        this.buildConfigFavoriteRepository = buildConfigFavoriteRepository;
         this.hardwarePartRepository = hardwarePartRepository;
         this.userAccessService = userAccessService;
         this.jdProductSearchService = jdProductSearchService;
@@ -52,40 +59,70 @@ public class BuildConfigService {
 
     @Transactional(readOnly = true)
     public List<BuildConfigResponse> list(Long userId, String segment) {
+        if ("favorite".equals(segment)) {
+            return listFavoriteByUser(userId);
+        }
         List<BuildConfig> configs = switch (segment == null ? "mine" : segment) {
             case "all" -> buildConfigRepository.findByUserIdOrderByUpdatedAtDesc(userId);
             case "ai" -> buildConfigRepository.findByUserIdAndSourceOrderByUpdatedAtDesc(userId, BuildConfigSource.AI);
-            case "favorite" -> buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(userId);
             default -> buildConfigRepository.findByUserIdAndSourceOrderByUpdatedAtDesc(userId, BuildConfigSource.MANUAL);
         };
-        return configs.stream().map(this::toResponse).toList();
+        return configs.stream().map(config -> toResponse(config, userId)).toList();
     }
 
     @Transactional(readOnly = true)
     public List<BuildConfigResponse> listFavoriteByUser(Long userId) {
-        return buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(userId).stream()
-                .map(this::toResponse)
+        List<BuildConfigFavorite> favorites = buildConfigFavoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<Long> favoriteIds = favorites.stream()
+                .map(BuildConfigFavorite::getBuildConfigId)
+                .filter(Objects::nonNull)
+                .distinct()
                 .toList();
+        Map<Long, BuildConfig> configMap = favoriteIds.isEmpty()
+                ? Map.of()
+                : buildConfigRepository.findByIdIn(favoriteIds).stream()
+                .collect(Collectors.toMap(BuildConfig::getId, item -> item));
+        List<BuildConfigResponse> result = new ArrayList<>();
+        for (Long id : favoriteIds) {
+            BuildConfig config = configMap.get(id);
+            if (config != null) {
+                result.add(toResponse(config, userId));
+            }
+        }
+        for (BuildConfig config : buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(userId)) {
+            if (!favoriteIds.contains(config.getId())) {
+                result.add(toResponse(config, userId));
+            }
+        }
+        return result;
     }
 
     @Transactional(readOnly = true)
     public BuildConfigResponse get(Long userId, Long id) {
-        return toResponse(findOwned(id, userId));
+        return toResponse(findOwned(id, userId), userId);
     }
 
     @Transactional(readOnly = true)
     public BuildConfigResponse getPublic(Long id) {
         return buildConfigRepository.findById(id)
-                .map(this::toResponse)
+                .map(config -> toResponse(config, null))
                 .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public BuildConfigResponse getPublic(Long viewerUserId, Long id) {
+        return buildConfigRepository.findById(id)
+                .map(config -> toResponse(config, viewerUserId))
+                .orElseThrow(() -> new BusinessException("配置不存在"));
     }
 
     @Transactional
     public BuildConfigResponse create(Long userId, BuildConfigRequest request) {
         userAccessService.requireAvailable(userId);
         BuildConfig config = new BuildConfig(userId, "", "", "", "", 0, 0, "WARN", "", "", "", BuildConfigSource.MANUAL);
+        config.assignSerialNumber(generateUniqueSerialNumber());
         applyConfig(config, request);
-        return toResponse(buildConfigRepository.save(config));
+        return toResponse(buildConfigRepository.save(config), userId);
     }
 
     @Transactional
@@ -93,7 +130,7 @@ public class BuildConfigService {
         userAccessService.requireAvailable(userId);
         BuildConfig config = findOwned(id, userId);
         applyConfig(config, request);
-        return toResponse(config);
+        return toResponse(config, userId);
     }
 
     private void applyConfig(BuildConfig config, BuildConfigRequest request) {
@@ -128,24 +165,45 @@ public class BuildConfigService {
 
     @Transactional
     public BuildConfigResponse updateFavorite(Long userId, Long id, boolean favorite) {
-        BuildConfig config = findOwned(id, userId);
-        config.updateFavorite(favorite);
-        return toResponse(config);
+        BuildConfig config = buildConfigRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("配置不存在"));
+        Optional<BuildConfigFavorite> favoriteRecord = buildConfigFavoriteRepository.findByUserIdAndBuildConfigId(userId, id);
+        if (favorite && favoriteRecord.isEmpty()) {
+            buildConfigFavoriteRepository.save(new BuildConfigFavorite(userId, id));
+        }
+        if (!favorite) {
+            favoriteRecord.ifPresent(buildConfigFavoriteRepository::delete);
+        }
+        if (Objects.equals(config.getUserId(), userId)) {
+            config.updateFavorite(favorite);
+        }
+        return toResponse(config, userId);
     }
 
     @Transactional
     public void delete(Long userId, Long id) {
         BuildConfig config = findOwned(id, userId);
+        buildConfigFavoriteRepository.deleteByBuildConfigId(id);
         buildConfigRepository.delete(config);
     }
 
     private BuildConfigResponse toResponse(BuildConfig config) {
+        return toResponse(config, null);
+    }
+
+    private BuildConfigResponse toResponse(BuildConfig config, Long viewerUserId) {
         List<HardwarePart> parts = resolveParts(parsePartIds(config.getPartIds()), false);
         List<BuildPartSelection> selections = fillMissingProductSnapshots(parts, parseSelections(config.getPartSelections()));
+        boolean favorite = config.isFavorite();
+        if (viewerUserId != null) {
+            favorite = buildConfigFavoriteRepository.existsByUserIdAndBuildConfigId(viewerUserId, config.getId())
+                    || (Objects.equals(config.getUserId(), viewerUserId) && config.isFavorite());
+        }
         return BuildConfigResponse.from(
                 config,
                 parts,
-                selections
+                selections,
+                favorite
         );
     }
 
@@ -470,6 +528,25 @@ public class BuildConfigService {
     private String cleanSnapshotText(String value, int maxLength) {
         String text = value == null ? "" : value.trim();
         return text.length() > maxLength ? text.substring(0, maxLength) : text;
+    }
+
+    private String generateUniqueSerialNumber() {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            String serial = "#" + randomSerialBody();
+            if (!buildConfigRepository.existsBySerialNumber(serial)) {
+                return serial;
+            }
+        }
+        String fallback = Long.toString(Math.abs(SERIAL_RANDOM.nextLong()), 36).toUpperCase();
+        return "#" + (fallback + "00000000").substring(0, 8);
+    }
+
+    private String randomSerialBody() {
+        StringBuilder builder = new StringBuilder(8);
+        for (int i = 0; i < 8; i++) {
+            builder.append(SERIAL_ALPHABET.charAt(SERIAL_RANDOM.nextInt(SERIAL_ALPHABET.length())));
+        }
+        return builder.toString();
     }
 
     private record CompatibilityResult(String status, List<String> messages) {

@@ -247,6 +247,7 @@ CREATE TABLE `pc_build_config`  (
   `title` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `updated_at` datetime(6) NOT NULL,
   `user_id` bigint NOT NULL,
+  `serial_number` varchar(9) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
   `compatibility_messages` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   `compatibility_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
   `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
@@ -254,8 +255,24 @@ CREATE TABLE `pc_build_config`  (
   `performance_score` int NULL DEFAULT NULL,
   `total_price` int NULL DEFAULT NULL,
   `part_selections` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  PRIMARY KEY (`id`) USING BTREE
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_build_config_serial_number` (`serial_number`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for pc_build_config_favorite
+-- ----------------------------
+DROP TABLE IF EXISTS `pc_build_config_favorite`;
+CREATE TABLE `pc_build_config_favorite`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `build_config_id` bigint NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_build_config_favorite_user_build` (`user_id`, `build_config_id`) USING BTREE,
+  KEY `idx_build_config_favorite_user` (`user_id`) USING BTREE,
+  KEY `idx_build_config_favorite_build` (`build_config_id`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for sys_user

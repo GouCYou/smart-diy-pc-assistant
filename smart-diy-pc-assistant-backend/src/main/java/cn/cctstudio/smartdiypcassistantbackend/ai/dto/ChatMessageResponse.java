@@ -7,6 +7,7 @@ public record ChatMessageResponse(
         String content,
         Long buildConfigId,
         String buildConfigTitle,
+        String buildConfigSerialNumber,
         LocalDateTime createdAt
 ) {
 }

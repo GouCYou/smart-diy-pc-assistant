@@ -108,7 +108,7 @@
 						</view>
 						<view class="build-link-main">
 							<text class="build-link-title">{{ item.build.title }}</text>
-							<text class="build-link-desc">¥{{ item.build.totalPrice }} · 性能 {{ item.build.performanceScore }} 分</text>
+							<text class="build-link-desc">{{ getBuildCardDesc(item.build) }}</text>
 						</view>
 						<text class="build-link-arrow">›</text>
 					</view>
@@ -172,6 +172,7 @@
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
+				<text v-if="selectedBuild.serialNumber.length > 0" class="detail-serial">{{ selectedBuild.serialNumber }}</text>
 				<view class="detail-metrics">
 					<view class="detail-metric">
 						<text class="detail-label">总价</text>
@@ -211,7 +212,7 @@
 			</view>
 			<movable-area class="inline-preview-area" :scale-area="true" @click.stop @wheel.stop="handleImagePreviewWheel">
 				<movable-view class="inline-preview-view" direction="all" :scale="true" :scale-min="0.5" :scale-max="4" :scale-value="imagePreviewScale">
-					<image class="inline-preview-image" :src="imagePreviewCurrent" mode="aspectFit"></image>
+					<image :class="imagePreviewAvatarMode ? 'inline-preview-image inline-preview-avatar-image' : 'inline-preview-image'" :src="imagePreviewCurrent" :mode="imagePreviewAvatarMode ? 'aspectFill' : 'aspectFit'"></image>
 				</movable-view>
 			</movable-area>
 			<view v-if="imagePreviewUrls.length > 1" class="inline-preview-bottom">
@@ -265,6 +266,7 @@
 
 	type BuildConfigItem = {
 		id : number
+		serialNumber : string
 		title : string
 		note : string
 		totalPrice : number
@@ -350,6 +352,7 @@
 	const imagePreviewIndex = ref(0)
 	const imagePreviewCurrent = ref('')
 	const imagePreviewScale = ref(1)
+	const imagePreviewAvatarMode = ref(false)
 	const space = ref(createEmptySpace())
 
 	onLoad((query) => {
@@ -398,6 +401,7 @@
 	function createEmptyBuildConfig() : BuildConfigItem {
 		return {
 			id: 0,
+			serialNumber: '',
 			title: '',
 			note: '',
 			totalPrice: 0,
@@ -478,6 +482,7 @@
 
 	function normalizeBuild(build : BuildConfigItem) : BuildConfigItem {
 		build.parts = build.parts == null ? [] as HardwarePartItem[] : build.parts
+		build.serialNumber = (build as any).serialNumber == null ? '' : (build as any).serialNumber as string
 		build.note = build.note == null ? '' : build.note
 		build.updatedAt = build.updatedAt == null ? '' : build.updatedAt
 		for (let i = 0; i < build.parts.length; i++) {
@@ -570,10 +575,10 @@
 		if (space.value.avatarUrl.length == 0) {
 			return
 		}
-		openImagePreview([space.value.avatarUrl], space.value.avatarUrl)
+		openImagePreview([space.value.avatarUrl], space.value.avatarUrl, true)
 	}
 
-	function openImagePreview(images : string[], current : string) {
+	function openImagePreview(images : string[], current : string, avatarMode : boolean = false) {
 		const normalized = [] as string[]
 		for (let i = 0; i < images.length; i++) {
 			normalized.push(normalizeMediaUrl(images[i]))
@@ -588,12 +593,14 @@
 		}
 		imagePreviewCurrent.value = normalizeMediaUrl(current)
 		imagePreviewScale.value = 1
+		imagePreviewAvatarMode.value = avatarMode
 		imagePreviewVisible.value = true
 	}
 
 	function closeImagePreview() {
 		imagePreviewVisible.value = false
 		imagePreviewScale.value = 1
+		imagePreviewAvatarMode.value = false
 	}
 
 	function previousPreviewImage() {
@@ -952,6 +959,11 @@
 	function getPartPriceLabel(part : HardwarePartItem) : string {
 		const price = part.productPrice != null && part.productPrice > 0 ? part.productPrice : part.price
 		return price > 0 ? '¥' + price : '暂无价格'
+	}
+
+	function getBuildCardDesc(build : BuildConfigItem) : string {
+		const serial = build.serialNumber.length > 0 ? build.serialNumber + ' · ' : ''
+		return serial + '¥' + build.totalPrice + ' · 性能 ' + build.performanceScore + ' 分'
 	}
 
 	function getPartSpecText(part : HardwarePartItem) : string {
@@ -1782,6 +1794,16 @@
 		text-align: center;
 	}
 
+	.detail-serial {
+		margin-top: 2px;
+		margin-bottom: 10px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #007aff;
+		text-align: center;
+	}
+
 	.detail-close {
 		position: absolute;
 		right: 0;
@@ -1958,6 +1980,14 @@
 	.inline-preview-image {
 		width: 100%;
 		height: 100vh;
+	}
+
+	.inline-preview-avatar-image {
+		width: 72vw;
+		height: 72vw;
+		max-width: 360px;
+		max-height: 360px;
+		border-radius: 28px;
 	}
 
 	.inline-preview-bottom {

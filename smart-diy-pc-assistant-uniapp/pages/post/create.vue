@@ -61,7 +61,7 @@
 				</view>
 				<view class="selected-build-main">
 					<text class="selected-build-title">{{ selectedBuildTitle }}</text>
-					<text class="selected-build-desc">已关联配置，点击可预览</text>
+					<text class="selected-build-desc">{{ selectedBuildSerialNumber.length > 0 ? selectedBuildSerialNumber + ' · 已关联配置' : '已关联配置，点击可预览' }}</text>
 				</view>
 				<view class="build-clear" @click.stop="clearBuild">
 					<view class="close-line"></view>
@@ -99,7 +99,7 @@
 				<view v-for="item in buildList" :key="item.id" class="build-item" @click="toggleBuild(item)">
 					<view class="build-item-main">
 						<text class="build-item-title">{{ item.title }}</text>
-						<text class="build-item-desc">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+						<text class="build-item-desc">{{ getBuildCardDesc(item) }}</text>
 					</view>
 					<view :class="selectedBuildId == item.id ? 'build-check build-check-active' : 'build-check'">
 						<text :class="selectedBuildId == item.id ? 'build-check-text build-check-text-active' : 'build-check-text'">{{ selectedBuildId == item.id ? '✓' : '+' }}</text>
@@ -133,12 +133,13 @@
 
 <script setup lang="ts">
 	import { ref } from 'vue'
-	import { onShow } from '@dcloudio/uni-app'
+	import { onLoad, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL } from '../../common/api'
 	import { MentionSearchUser, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers } from '../../common/mention'
 
 	type BuildConfigItem = {
 		id : number
+		serialNumber : string
 		title : string
 		totalPrice : number
 		performanceScore : number
@@ -161,6 +162,7 @@
 	const buildList = ref([] as BuildConfigItem[])
 	const selectedBuildId = ref(0)
 	const selectedBuildTitle = ref('')
+	const selectedBuildSerialNumber = ref('')
 	const publishing = ref(false)
 	const progressVisible = ref(false)
 	const progressTitle = ref('正在发布')
@@ -171,12 +173,37 @@
 	const mentionUsers = ref([] as MentionSearchUser[])
 	let mentionSearchTimer : number = 0
 
+	onLoad((options : any) => {
+		applySharedBuild(options)
+	})
+
 	onShow(() => {
 		loadAuth()
+		applySharedBuild(null)
 		if (token.value.length == 0) {
 			openAuthPage()
 		}
 	})
+
+	function applySharedBuild(options : any) {
+		const routeBuildId = options != null && options.buildId != null ? Number(options.buildId) : 0
+		const routeBuildTitle = options != null && options.buildTitle != null ? decodeURIComponent(options.buildTitle as string) : ''
+		const storedBuildId = Number(uni.getStorageSync('share_build_id') || 0)
+		const storedBuildTitleValue = uni.getStorageSync('share_build_title')
+		const storedBuildSerialValue = uni.getStorageSync('share_build_serial_number')
+		const storedBuildTitle = storedBuildTitleValue == null ? '' : storedBuildTitleValue as string
+		const storedBuildSerialNumber = storedBuildSerialValue == null ? '' : storedBuildSerialValue as string
+		const nextId = routeBuildId > 0 ? routeBuildId : storedBuildId
+		if (nextId <= 0) {
+			return
+		}
+		selectedBuildId.value = nextId
+		selectedBuildTitle.value = routeBuildTitle.length > 0 ? routeBuildTitle : storedBuildTitle
+		selectedBuildSerialNumber.value = storedBuildSerialNumber
+		uni.removeStorageSync('share_build_id')
+		uni.removeStorageSync('share_build_title')
+		uni.removeStorageSync('share_build_serial_number')
+	}
 
 	function loadAuth() {
 		const savedToken = uni.getStorageSync('app_token')
@@ -440,6 +467,7 @@
 	function normalizeBuild(item : any) : BuildConfigItem {
 		return {
 			id: Number(item == null || item.id == null ? 0 : item.id),
+			serialNumber: item == null || item.serialNumber == null ? '' : item.serialNumber as string,
 			title: item == null || item.title == null ? '' : item.title as string,
 			totalPrice: Number(item == null || item.totalPrice == null ? 0 : item.totalPrice),
 			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore)
@@ -453,12 +481,19 @@
 		}
 		selectedBuildId.value = item.id
 		selectedBuildTitle.value = item.title
+		selectedBuildSerialNumber.value = item.serialNumber
 		buildPickerVisible.value = false
 	}
 
 	function clearBuild() {
 		selectedBuildId.value = 0
 		selectedBuildTitle.value = ''
+		selectedBuildSerialNumber.value = ''
+	}
+
+	function getBuildCardDesc(build : BuildConfigItem) : string {
+		const serial = build.serialNumber.length > 0 ? build.serialNumber + ' · ' : ''
+		return serial + '¥' + build.totalPrice + ' · 性能 ' + build.performanceScore + ' 分'
 	}
 
 	function openBuildPreview() {

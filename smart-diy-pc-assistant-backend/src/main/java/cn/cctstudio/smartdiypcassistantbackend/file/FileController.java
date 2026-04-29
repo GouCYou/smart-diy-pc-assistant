@@ -28,7 +28,10 @@ public class FileController {
     }
 
     @PostMapping("/upload")
-    public ApiResponse<FileUploadResponse> upload(@RequestParam("file") MultipartFile file) {
-        return ApiResponse.ok(qiniuService.upload(file));
+    public ApiResponse<FileUploadResponse> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "usage", required = false) String usage
+    ) {
+        return ApiResponse.ok(qiniuService.upload(file, usage));
     }
 }

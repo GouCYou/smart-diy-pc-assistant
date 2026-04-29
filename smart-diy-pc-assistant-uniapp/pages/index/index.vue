@@ -48,7 +48,7 @@
 							</view>
 							<view class="chat-build-main">
 								<text class="chat-build-title">{{ message.buildConfigTitle }}</text>
-								<text class="chat-build-desc">点击查看配置详情</text>
+								<text class="chat-build-desc">{{ message.buildConfigSerialNumber.length > 0 ? message.buildConfigSerialNumber + ' · 点击查看配置详情' : '点击查看配置详情' }}</text>
 							</view>
 							<text class="chat-build-arrow">›</text>
 						</view>
@@ -109,7 +109,7 @@
 				<view class="page-head-main">
 					<text :class="buildPageDetailVisible ? 'page-title build-detail-page-title' : 'page-title page-title-inset'">{{ buildPageDetailVisible ? '配置详情' : '配置' }}</text>
 				</view>
-				<view class="small-primary" @click="buildPageDetailVisible ? editBuild(selectedBuildDetail) : createBuild()">
+				<view v-if="!buildPageDetailVisible || selectedBuildCanEdit" class="small-primary" @click="buildPageDetailVisible ? editBuild(selectedBuildDetail) : createBuild()">
 					<text class="small-primary-text">{{ buildPageDetailVisible ? '编辑' : '新建' }}</text>
 				</view>
 			</view>
@@ -141,9 +141,9 @@
 							<view class="build-card-head">
 								<view class="build-card-main">
 									<text class="build-title">{{ item.title }}</text>
-									<text class="build-meta">{{ getBuildSourceLabel(item.source) }} · {{ formatHistoryTime(item.updatedAt) }}</text>
+									<text class="build-meta">{{ getBuildSourceLabel(item.source) }}{{ item.serialNumber.length > 0 ? ' · ' + item.serialNumber : '' }} · {{ formatHistoryTime(item.updatedAt) }}</text>
 								</view>
-								<view class="build-card-delete" @click.stop="deleteBuild(item.id)">
+								<view v-if="canEditBuildItem(item)" class="build-card-delete" @click.stop="deleteBuild(item.id)">
 									<text class="build-card-delete-text">删除</text>
 								</view>
 							</view>
@@ -171,13 +171,13 @@
 								</view>
 							</view>
 							<view class="build-actions">
-								<view class="build-action build-action-soft" @click.stop="editBuild(item)">
+								<view v-if="canEditBuildItem(item)" class="build-action build-action-soft" @click.stop="editBuild(item)">
 									<text class="build-action-icon">✎</text>
 									<text class="build-action-text">编辑</text>
 								</view>
-								<view class="build-action build-action-soft" @click.stop="copyBuild(item.content)">
-									<text class="build-action-icon">⧉</text>
-									<text class="build-action-text">复制</text>
+								<view class="build-action build-action-soft" @click.stop="shareBuild(item)">
+									<text class="build-action-icon">↗</text>
+									<text class="build-action-text">分享</text>
 								</view>
 								<view :class="item.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click.stop="toggleBuildFavorite(item)">
 									<text :class="item.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ item.favorite ? '★' : '☆' }}</text>
@@ -223,6 +223,8 @@
 
 			<scroll-view v-else class="build-page-detail-scroll" scroll-y="true">
 				<view class="build-page-detail-card">
+					<text class="build-page-detail-title">{{ selectedBuildDetail.title }}</text>
+					<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-page-detail-serial">{{ selectedBuildDetail.serialNumber }}</text>
 					<view class="build-detail-metrics build-page-detail-metrics">
 						<view class="build-detail-metric">
 							<text class="build-live-label">总价</text>
@@ -257,17 +259,21 @@
 						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
 					</view>
 				</view>
-				<view class="build-page-actions">
-					<view class="build-action build-action-soft" @click="copyBuild(selectedBuildDetail.content)">
-						<text class="build-action-icon">⧉</text>
-						<text class="build-action-text">复制</text>
-					</view>
-					<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
-						<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
-						<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
-					</view>
-				</view>
 			</scroll-view>
+			<view v-if="buildPageDetailVisible" class="build-page-actions build-page-detail-actions">
+				<view v-if="selectedBuildCanEdit" class="build-action build-action-soft" @click="editBuild(selectedBuildDetail)">
+					<text class="build-action-icon">✎</text>
+					<text class="build-action-text">编辑</text>
+				</view>
+				<view class="build-action build-action-soft" @click="shareBuild(selectedBuildDetail)">
+					<text class="build-action-icon">↗</text>
+					<text class="build-action-text">分享</text>
+				</view>
+				<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
+					<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
+					<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
+				</view>
+			</view>
 		</view>
 
 		<view v-if="activeTab == 2" :class="getPageClass('normal-page')">
@@ -318,7 +324,7 @@
 							</view>
 						</view>
 						<view class="post-content post-content-clamped mention-content">
-							<text v-for="(token, index) in buildMentionTokens(post.content, post.mentions)" :key="'post-mention-' + post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+							<text v-for="(token, index) in buildMentionTokens(post.content, post.mentions)" :key="'post-mention-' + post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="handlePostTextTokenTap(post.id, token)">{{ token.text }}</text>
 						</view>
 						<view v-if="post.imageUrls.length > 0" class="post-image-grid">
 							<image v-for="image in post.imageUrls" :key="image" class="post-image" :src="image" mode="aspectFill" @click.stop="previewPostImages(post.imageUrls, image)"></image>
@@ -333,7 +339,7 @@
 							</view>
 							<view class="chat-build-main">
 								<text class="chat-build-title">{{ post.buildConfig.title }}</text>
-								<text class="chat-build-desc">¥{{ post.buildConfig.totalPrice }} · 性能 {{ post.buildConfig.performanceScore }} 分</text>
+								<text class="chat-build-desc">{{ getBuildCardDesc(post.buildConfig) }}</text>
 							</view>
 							<text class="chat-build-arrow">›</text>
 						</view>
@@ -478,15 +484,15 @@
 			</view>
 
 			<view class="zero-stats">
-				<view class="zero-stat">
+				<view class="zero-stat" @click="openMyConfigs">
 					<text class="zero-number">{{ currentConfigCount }}</text>
 					<text class="zero-label">配置</text>
 				</view>
-				<view class="zero-stat">
+				<view class="zero-stat" @click="openMyFavorites">
 					<text class="zero-number">{{ currentFavoriteCount }}</text>
 					<text class="zero-label">收藏</text>
 				</view>
-				<view class="zero-stat zero-stat-last">
+				<view class="zero-stat zero-stat-last" @click="openMySpace">
 					<text class="zero-number">{{ currentPostCount }}</text>
 					<text class="zero-label">动态</text>
 				</view>
@@ -756,6 +762,7 @@
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
+				<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-form-serial">{{ selectedBuildDetail.serialNumber }}</text>
 				<view class="build-detail-metrics">
 					<view class="build-detail-metric">
 						<text class="build-live-label">总价</text>
@@ -785,9 +792,13 @@
 					<text v-if="selectedBuildDetail.note.length > 0" class="detail-note">备注：{{ selectedBuildDetail.note }}</text>
 				</scroll-view>
 				<view class="build-detail-actions">
-					<view class="build-action build-action-soft" @click="editBuild(selectedBuildDetail)">
+					<view v-if="selectedBuildCanEdit" class="build-action build-action-soft" @click="editBuild(selectedBuildDetail)">
 						<text class="build-action-icon">✎</text>
 						<text class="build-action-text">编辑</text>
+					</view>
+					<view class="build-action build-action-soft" @click="shareBuild(selectedBuildDetail)">
+						<text class="build-action-icon">↗</text>
+						<text class="build-action-text">分享</text>
 					</view>
 					<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
 						<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
@@ -806,11 +817,11 @@
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
-				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
+				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true" :style="getBuildPickerScrollStyle(chatAttachBuildList.length)">
 					<view v-for="item in chatAttachBuildList" :key="item.id" class="part-option" @click="toggleBuildForChat(item)">
 						<view class="part-option-main">
 							<text class="part-option-title">{{ item.title }}</text>
-							<text class="part-option-spec">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+							<text class="part-option-spec">{{ getBuildCardDesc(item) }}</text>
 						</view>
 						<view class="part-option-side">
 							<view :class="attachedBuildId == item.id ? 'plus-circle-button plus-circle-button-selected' : 'plus-circle-button'">
@@ -868,7 +879,7 @@
 					</view>
 					<view class="chat-build-main">
 						<text class="chat-build-title">{{ postBuildTitle }}</text>
-						<text class="chat-build-desc">已关联配置，点击可查看详情</text>
+						<text class="chat-build-desc">{{ postBuildSerialNumber.length > 0 ? postBuildSerialNumber + ' · 已关联配置' : '已关联配置，点击可查看详情' }}</text>
 					</view>
 					<view class="composer-attachment-close" @click.stop="clearPostBuild">
 						<view class="close-line close-line-small"></view>
@@ -920,11 +931,11 @@
 						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
-				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true">
+				<scroll-view class="part-option-scroll compact-picker-scroll" scroll-y="true" :style="getBuildPickerScrollStyle(postBuildList.length)">
 					<view v-for="item in postBuildList" :key="item.id" class="part-option" @click="toggleBuildForPost(item)">
 						<view class="part-option-main">
 							<text class="part-option-title">{{ item.title }}</text>
-							<text class="part-option-spec">¥{{ item.totalPrice }} · 性能 {{ item.performanceScore }} 分</text>
+							<text class="part-option-spec">{{ getBuildCardDesc(item) }}</text>
 						</view>
 						<view class="part-option-side">
 							<view :class="postBuildId == item.id ? 'plus-circle-button plus-circle-button-selected' : 'plus-circle-button'">
@@ -976,7 +987,7 @@
 						</view>
 						<view class="chat-build-main">
 							<text class="chat-build-title">{{ selectedPost.buildConfig.title }}</text>
-							<text class="chat-build-desc">¥{{ selectedPost.buildConfig.totalPrice }} · 性能 {{ selectedPost.buildConfig.performanceScore }} 分</text>
+							<text class="chat-build-desc">{{ getBuildCardDesc(selectedPost.buildConfig) }}</text>
 						</view>
 						<text class="chat-build-arrow">›</text>
 					</view>
@@ -1090,6 +1101,7 @@
 		content : string
 		buildConfigId : number
 		buildConfigTitle : string
+		buildConfigSerialNumber : string
 	}
 
 	type ConversationSummary = {
@@ -1140,6 +1152,7 @@
 
 	type BuildConfigItem = {
 		id : number
+		serialNumber : string
 		title : string
 		note : string
 		totalPrice : number
@@ -1251,12 +1264,15 @@
 	const activeStandardPart = ref(null as HardwarePartItem | null)
 	const buildDetailVisible = ref(false)
 	const buildPageDetailVisible = ref(false)
+	const selectedBuildCanEdit = ref(true)
 	const chatBuildPickerVisible = ref(false)
 	const chatAttachBuildList = ref([] as BuildConfigItem[])
 	const attachedBuildId = ref(0)
 	const attachedBuildTitle = ref('')
+	const attachedBuildSerialNumber = ref('')
 	const selectedBuildDetail = ref({
 		id: 0,
+		serialNumber: '',
 		title: '',
 		note: '',
 		totalPrice: 0,
@@ -1323,6 +1339,7 @@
 	const postImageLongPressTimer = ref(0)
 	const postBuildId = ref(0)
 	const postBuildTitle = ref('')
+	const postBuildSerialNumber = ref('')
 	const postBuildPickerVisible = ref(false)
 	const postBuildList = ref([] as BuildConfigItem[])
 	const postDetailVisible = ref(false)
@@ -1845,11 +1862,13 @@
 		chatRequestLocked = true
 		const sentBuildId = attachedBuildId.value
 		const sentBuildTitle = attachedBuildTitle.value
+		const sentBuildSerialNumber = attachedBuildSerialNumber.value
 		chatMessages.value.push({
 			role: 'user',
 			content: text,
 			buildConfigId: sentBuildId,
-			buildConfigTitle: sentBuildTitle
+			buildConfigTitle: sentBuildTitle,
+			buildConfigSerialNumber: sentBuildSerialNumber
 		})
 		draft.value = ''
 		clearAttachedBuild()
@@ -1875,17 +1894,24 @@
 					currentConversationId.value = data.conversationId as number
 					let generatedBuildId = 0
 					let generatedBuildTitle = ''
+					let generatedBuildSerialNumber = ''
 					if (data.generatedBuildConfigId != null) {
 						generatedBuildId = data.generatedBuildConfigId as number
 					}
 					if (data.generatedBuildConfigTitle != null) {
 						generatedBuildTitle = data.generatedBuildConfigTitle as string
 					}
+					if (data.generatedBuildConfigSerialNumber != null) {
+						generatedBuildSerialNumber = data.generatedBuildConfigSerialNumber as string
+					} else if (data.generatedBuildConfig != null && data.generatedBuildConfig.serialNumber != null) {
+						generatedBuildSerialNumber = data.generatedBuildConfig.serialNumber as string
+					}
 					chatMessages.value.push({
 						role: 'assistant',
 						content: normalizeAiReply(data.content),
 						buildConfigId: generatedBuildId,
-						buildConfigTitle: generatedBuildTitle
+						buildConfigTitle: generatedBuildTitle,
+						buildConfigSerialNumber: generatedBuildSerialNumber
 					})
 					if (generatedBuildId > 0) {
 						loadBuildConfigs()
@@ -1898,7 +1924,8 @@
 						role: 'assistant',
 						content: body != null && body.message != null ? body.message as string : '该账户已被封禁，暂时无法使用 AI 对话。',
 						buildConfigId: 0,
-						buildConfigTitle: ''
+						buildConfigTitle: '',
+						buildConfigSerialNumber: ''
 					})
 					return
 				}
@@ -1908,7 +1935,8 @@
 						role: 'assistant',
 						content: '登录状态已失效，请重新登录后继续对话。',
 						buildConfigId: 0,
-						buildConfigTitle: ''
+						buildConfigTitle: '',
+						buildConfigSerialNumber: ''
 					})
 					openAuthPage()
 					return
@@ -1919,7 +1947,8 @@
 						role: 'assistant',
 						content: responseMessage,
 						buildConfigId: 0,
-						buildConfigTitle: ''
+						buildConfigTitle: '',
+						buildConfigSerialNumber: ''
 					})
 					return
 				}
@@ -1927,7 +1956,8 @@
 					role: 'assistant',
 					content: '后端暂时没有返回有效内容，请稍后再试。',
 					buildConfigId: 0,
-					buildConfigTitle: ''
+					buildConfigTitle: '',
+					buildConfigSerialNumber: ''
 				})
 			},
 			fail: (error) => {
@@ -1938,7 +1968,8 @@
 					role: 'assistant',
 					content: isRequestTimeout(error) ? '这次生成耗时比较久，后端可能仍在处理。请稍后打开历史对话或刷新页面查看结果。' : '暂时连接不到后端服务，请确认后端已经启动。',
 					buildConfigId: 0,
-					buildConfigTitle: ''
+					buildConfigTitle: '',
+					buildConfigSerialNumber: ''
 				})
 			},
 			complete: () => {
@@ -2015,6 +2046,7 @@
 	function attachBuildToChat(item : BuildConfigItem) {
 		attachedBuildId.value = item.id
 		attachedBuildTitle.value = item.title
+		attachedBuildSerialNumber.value = item.serialNumber
 		chatBuildPickerVisible.value = false
 		uni.showToast({
 			title: '已关联配置',
@@ -2034,6 +2066,7 @@
 	function clearAttachedBuild() {
 		attachedBuildId.value = 0
 		attachedBuildTitle.value = ''
+		attachedBuildSerialNumber.value = ''
 	}
 
 	function createBuild() {
@@ -2371,6 +2404,7 @@
 					postImageUrls.value = []
 					postBuildId.value = 0
 					postBuildTitle.value = ''
+					postBuildSerialNumber.value = ''
 					postMentionDrawerVisible.value = false
 					loadCommunityPosts()
 					uni.showToast({
@@ -2752,6 +2786,7 @@
 	function attachBuildToPost(item : BuildConfigItem) {
 		postBuildId.value = item.id
 		postBuildTitle.value = item.title
+		postBuildSerialNumber.value = item.serialNumber
 		postBuildPickerVisible.value = false
 	}
 
@@ -2767,6 +2802,7 @@
 	function clearPostBuild() {
 		postBuildId.value = 0
 		postBuildTitle.value = ''
+		postBuildSerialNumber.value = ''
 	}
 
 	function openPostDetail(id : number) {
@@ -2795,6 +2831,14 @@
 		}
 	}
 
+	function handlePostTextTokenTap(postId : number, token : MentionToken) {
+		if (token.userId > 0) {
+			openUserSpace(token.userId)
+			return
+		}
+		openPostDetail(postId)
+	}
+
 	function closePostDetail() {
 		postDetailVisible.value = false
 		commentText.value = ''
@@ -2802,7 +2846,7 @@
 	}
 
 	function openPostBuildDetail(buildConfigId : number) {
-		openChatBuildDetail(buildConfigId)
+		openPublicBuildDetail(buildConfigId)
 	}
 
 	function togglePostLike(id : number) {
@@ -3147,6 +3191,13 @@
 			animationType: 'slide-in-right',
 			animationDuration: 260
 		})
+	}
+
+	function openMyConfigs() {
+		if (!requireLogin()) {
+			return
+		}
+		selectTab(1)
 	}
 
 	function createBuildFromProfile() {
@@ -3855,6 +3906,7 @@
 		const parts = item != null && Array.isArray(item.parts) ? item.parts as any[] : [] as any[]
 		return {
 			id: Number(item == null || item.id == null ? 0 : item.id),
+			serialNumber: item == null || item.serialNumber == null ? '' : item.serialNumber as string,
 			title: item == null || item.title == null ? '' : item.title as string,
 			note: item == null || item.note == null ? '' : item.note as string,
 			totalPrice: Number(item == null || item.totalPrice == null ? 0 : item.totalPrice),
@@ -4194,6 +4246,11 @@
 		return price > 0 ? '¥' + price : '暂无价格'
 	}
 
+	function getBuildCardDesc(build : BuildConfigItem) : string {
+		const serial = build.serialNumber.length > 0 ? build.serialNumber + ' · ' : ''
+		return serial + '¥' + build.totalPrice + ' · 性能 ' + build.performanceScore + ' 分'
+	}
+
 	function openPartProduct(part : HardwarePartItem) {
 		if (part.productLink == null || part.productLink.length == 0) {
 			return
@@ -4216,6 +4273,7 @@
 
 	function openBuildDetail(item : BuildConfigItem) {
 		selectedBuildDetail.value = normalizeBuildConfigItem(item)
+		selectedBuildCanEdit.value = item.id > 0 && item.source != 'PUBLIC'
 		buildDetailVisible.value = true
 	}
 
@@ -4225,8 +4283,13 @@
 
 	function openBuildPageDetail(item : BuildConfigItem) {
 		selectedBuildDetail.value = normalizeBuildConfigItem(item)
+		selectedBuildCanEdit.value = canEditBuildItem(item)
 		buildPageDetailVisible.value = true
 		buildDetailVisible.value = false
+	}
+
+	function canEditBuildItem(item : BuildConfigItem) : boolean {
+		return item != null && item.id > 0 && buildSegment.value != 2
 	}
 
 	function closeBuildPageDetail() {
@@ -4250,6 +4313,38 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					selectedBuildDetail.value = normalizeBuildConfigItem(body.data)
+					selectedBuildCanEdit.value = true
+					buildDetailVisible.value = true
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '配置单不存在',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时读取不到配置详情',
+					icon: 'none'
+				})
+			}
+		})
+	}
+
+	function openPublicBuildDetail(buildConfigId : number) {
+		if (buildConfigId <= 0) {
+			return
+		}
+		const header = token.value.length > 0 ? { 'Authorization': 'Bearer ' + token.value } : {}
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/public/' + buildConfigId,
+			method: 'GET',
+			header: header,
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					selectedBuildDetail.value = normalizeBuildConfigItem(body.data)
+					selectedBuildCanEdit.value = false
 					buildDetailVisible.value = true
 					return
 				}
@@ -4268,6 +4363,9 @@
 	}
 
 	function toggleBuildFavorite(item : BuildConfigItem) {
+		if (!requireLogin()) {
+			return
+		}
 		uni.request({
 			url: apiBaseUrl + '/api/build-configs/' + item.id + '/favorite',
 			method: 'PATCH',
@@ -4280,12 +4378,13 @@
 			},
 			success: (res) => {
 				const body = res.data as any
-				if (body != null && body.code == 0) {
-					if (buildDetailVisible.value) {
-						selectedBuildDetail.value.favorite = !selectedBuildDetail.value.favorite
+				if (body != null && body.code == 0 && body.data != null) {
+					const next = normalizeBuildConfigItem(body.data)
+					if (buildDetailVisible.value && selectedBuildDetail.value.id == item.id) {
+						selectedBuildDetail.value.favorite = next.favorite
 					}
 					if (buildPageDetailVisible.value && selectedBuildDetail.value.id == item.id) {
-						selectedBuildDetail.value.favorite = !selectedBuildDetail.value.favorite
+						selectedBuildDetail.value.favorite = next.favorite
 					}
 					loadBuildConfigs()
 					return
@@ -4327,16 +4426,83 @@
 		})
 	}
 
-	function copyBuild(content : string) {
+	function shareBuild(item : BuildConfigItem) {
+		if (item == null || item.id <= 0) {
+			return
+		}
+		uni.showActionSheet({
+			itemList: ['分享到动态', '微信', 'QQ', '复制文本'],
+			success: (res) => {
+				if (res.tapIndex == 0) {
+					shareBuildToPost(item)
+					return
+				}
+				if (res.tapIndex == 1 || res.tapIndex == 2) {
+					shareBuildToSystem(item)
+					return
+				}
+				copyShareBuildText(item)
+			}
+		})
+	}
+
+	function shareBuildToPost(item : BuildConfigItem) {
+		if (!requireLogin()) {
+			return
+		}
+		uni.setStorageSync('share_build_id', item.id)
+		uni.setStorageSync('share_build_title', item.title)
+		uni.setStorageSync('share_build_serial_number', item.serialNumber)
+		publishPost()
+	}
+
+	function shareBuildToSystem(item : BuildConfigItem) {
+		const text = formatShareBuildText(item)
+		// #ifdef APP-PLUS
+		plus.share.sendWithSystem({
+			type: 'text',
+			content: text
+		}, () => {}, () => {
+			copyShareBuildText(item)
+		})
+		// #endif
+		// #ifndef APP-PLUS
+		copyShareBuildText(item)
+		// #endif
+	}
+
+	function copyShareBuildText(item : BuildConfigItem) {
 		uni.setClipboardData({
-			data: content,
+			data: formatShareBuildText(item),
 			success: () => {
 				uni.showToast({
-					title: '已复制配置',
+					title: '已复制分享文本',
 					icon: 'none'
 				})
 			}
 		})
+	}
+
+	function formatShareBuildText(item : BuildConfigItem) : string {
+		const lines = [] as string[]
+		lines.push(item.title + (item.serialNumber.length > 0 ? ' ' + item.serialNumber : ''))
+		lines.push('总价：¥' + item.totalPrice + ' · 综合性能：' + item.performanceScore + ' 分')
+		for (let i = 0; i < item.parts.length; i++) {
+			const part = item.parts[i]
+			lines.push(getHardwareTypeLabel(part.type) + '：' + getPartDisplayTitle(part) + ' · ' + getPartPriceLabel(part))
+		}
+		if (item.note.length > 0) {
+			lines.push('备注：' + item.note)
+		}
+		return lines.join('\n')
+	}
+
+	function getBuildPickerScrollStyle(count : number) : string {
+		const rowHeight = 72
+		const emptyHeight = 112
+		const maxHeight = 320
+		const height = count <= 0 ? emptyHeight : Math.min(maxHeight, Math.max(rowHeight, count * rowHeight))
+		return 'height:' + height + 'px;max-height:' + maxHeight + 'px;'
 	}
 
 	function loadConversations() {
@@ -4434,10 +4600,11 @@
 			const item = messages[i]
 			result.push({
 				role: item.role,
-				content: item.content,
-				buildConfigId: item.buildConfigId == null ? 0 : item.buildConfigId,
-				buildConfigTitle: item.buildConfigTitle == null ? '' : item.buildConfigTitle
-			})
+					content: item.content,
+					buildConfigId: item.buildConfigId == null ? 0 : item.buildConfigId,
+					buildConfigTitle: item.buildConfigTitle == null ? '' : item.buildConfigTitle,
+					buildConfigSerialNumber: item.buildConfigSerialNumber == null ? '' : item.buildConfigSerialNumber
+				})
 		}
 		return result
 	}
@@ -5948,6 +6115,15 @@
 		color: #111827;
 	}
 
+	.build-form-serial {
+		margin-top: -8px;
+		margin-bottom: 12px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #007aff;
+	}
+
 	.build-form-body {
 		height: 430px;
 	}
@@ -6365,6 +6541,7 @@
 
 	.compact-picker-scroll {
 		height: 156px;
+		max-height: 320px;
 	}
 
 	.compact-build-picker .part-option {
@@ -6390,6 +6567,10 @@
 	.compact-build-picker .part-option-side {
 		align-items: center;
 		justify-content: center;
+	}
+
+	.compact-build-picker .part-empty {
+		height: 96px;
 	}
 
 	.build-detail-metrics {
@@ -6703,6 +6884,8 @@
 
 	.build-page-detail-scroll {
 		height: 610px;
+		padding-bottom: 110px;
+		box-sizing: border-box;
 		animation-name: pageInRight;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -6719,6 +6902,22 @@
 
 	.build-page-detail-metrics {
 		margin-bottom: 10px;
+	}
+
+	.build-page-detail-title {
+		margin-bottom: 6px;
+		font-size: 18px;
+		line-height: 25px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-page-detail-serial {
+		margin-bottom: 10px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #007aff;
 	}
 
 	.build-page-detail-summary {
@@ -6806,6 +7005,25 @@
 		width: 100%;
 		flex-direction: row;
 		margin-bottom: 28px;
+	}
+
+	.build-page-detail-actions {
+		position: fixed;
+		left: 34px;
+		right: 34px;
+		bottom: 100px;
+		bottom: calc(100px + constant(safe-area-inset-bottom));
+		bottom: calc(100px + env(safe-area-inset-bottom));
+		width: auto;
+		margin-bottom: 0;
+		padding: 8px;
+		border-radius: 24px;
+		background-color: rgba(255, 255, 255, 0.96);
+		border-width: 1px;
+		border-color: rgba(255, 255, 255, 0.9);
+		box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+		justify-content: center;
+		z-index: 19;
 	}
 
 	.build-list {
@@ -8663,7 +8881,7 @@
 		flex-direction: row;
 		flex-wrap: wrap;
 		justify-content: space-between;
-		margin-bottom: 14px;
+		margin-bottom: 4px;
 	}
 
 	.profile-tool {

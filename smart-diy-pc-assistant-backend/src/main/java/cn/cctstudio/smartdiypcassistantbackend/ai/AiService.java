@@ -246,9 +246,18 @@ public class AiService {
                         item.getContent(),
                         item.getBuildConfigId(),
                         item.getBuildConfigTitle(),
+                        resolveBuildSerialNumber(item.getBuildConfigId()),
                         item.getCreatedAt()
                 ))
                 .toList();
+    }
+
+    private String resolveBuildSerialNumber(Long buildConfigId) {
+        if (buildConfigId == null || buildConfigId <= 0) {
+            return "";
+        }
+        BuildConfigResponse build = buildConfigService.getPublic(buildConfigId);
+        return build == null ? "" : build.serialNumber();
     }
 
     @Transactional
@@ -327,11 +336,15 @@ public class AiService {
                 .append(" 分。\n\n");
         builder.append(createBuildReason(build))
                 .append("\n\n");
+        String fpsAdvice = createFpsAdvice(build);
+        if (StringUtils.hasText(fpsAdvice)) {
+            builder.append(fpsAdvice).append("\n\n");
+        }
         String colorNote = extractColorNote(build.note());
         if (StringUtils.hasText(colorNote)) {
             builder.append(colorNote).append("\n\n");
         }
-        builder.append("你可以点开下面的配置卡查看详情，也可以继续告诉我想降低预算、提高显卡性能、换白色外观或增强静音。");
+        builder.append("你可以点开下面的配置卡查看详情，也可以继续告诉我想降低预算、提高显卡性能或增强静音。");
         return builder.toString();
     }
 
@@ -379,9 +392,77 @@ public class AiService {
 
     private String partDisplayName(HardwarePartResponse part) {
         if (StringUtils.hasText(part.productTitle())) {
-            return part.model();
+            return trim(part.productTitle(), 30) + "（" + part.model() + "）";
         }
         return part.model();
+    }
+
+    private String createFpsAdvice(BuildConfigResponse build) {
+        String note = build.note() == null ? "" : build.note().toLowerCase(Locale.ROOT);
+        String game = detectGameName(note);
+        if (!StringUtils.hasText(game)) {
+            return "";
+        }
+        HardwarePartResponse cpu = findBuildPart(build, HardwarePartType.CPU);
+        HardwarePartResponse gpu = findBuildPart(build, HardwarePartType.GPU);
+        if (cpu == null || gpu == null) {
+            return "";
+        }
+        int estimate = estimateGameFps(game, cpu.performanceScore(), gpu.performanceScore());
+        int low = Math.max(30, Math.round(estimate * 0.82f / 10f) * 10);
+        int high = Math.max(low + 10, Math.round(estimate * 1.08f / 10f) * 10);
+        Integer target = extractRequestedFps(build.note());
+        if (target != null && target > high) {
+            return "帧率预估：按 " + partDisplayName(gpu) + " 和 " + partDisplayName(cpu)
+                    + " 保守估算，" + game + " 大约在 " + low + "-" + high + " 帧。你提到的 "
+                    + target + " 帧这个预算很难稳定达到，需要加预算、降低画质或降低分辨率目标。";
+        }
+        return "帧率预估：按这套 CPU 和显卡的定位，" + game + " 保守估算大约 " + low + "-" + high + " 帧，实际会受分辨率、画质和地图场景影响。";
+    }
+
+    private String detectGameName(String text) {
+        if (containsAny(text, "cs2", "反恐精英2", "csgo")) {
+            return "CS2";
+        }
+        if (containsAny(text, "无畏契约", "valorant")) {
+            return "无畏契约";
+        }
+        if (containsAny(text, "永劫无间")) {
+            return "永劫无间";
+        }
+        if (containsAny(text, "三角洲", "delta force")) {
+            return "三角洲行动";
+        }
+        if (containsAny(text, "黑神话", "悟空")) {
+            return "黑神话：悟空";
+        }
+        if (containsAny(text, "游戏", "帧", "fps")) {
+            return "目标游戏";
+        }
+        return "";
+    }
+
+    private int estimateGameFps(String game, Integer cpuScore, Integer gpuScore) {
+        int cpu = cpuScore == null ? 0 : cpuScore;
+        int gpu = gpuScore == null ? 0 : gpuScore;
+        if ("CS2".equals(game) || "无畏契约".equals(game)) {
+            return Math.round(cpu * 3.2f + gpu * 1.4f);
+        }
+        if ("三角洲行动".equals(game) || "永劫无间".equals(game)) {
+            return Math.round(cpu * 0.7f + gpu * 2.0f);
+        }
+        if ("黑神话：悟空".equals(game)) {
+            return Math.round(cpu * 0.35f + gpu * 1.35f);
+        }
+        return Math.round(cpu * 0.7f + gpu * 1.8f);
+    }
+
+    private Integer extractRequestedFps(String note) {
+        Matcher matcher = Pattern.compile("(\\d{2,4})\\s*(?:帧|fps)", Pattern.CASE_INSENSITIVE).matcher(note == null ? "" : note);
+        if (!matcher.find()) {
+            return null;
+        }
+        return parseInteger(matcher.group(1));
     }
 
     private boolean shouldGenerateBuild(String message, boolean hasAttachedBuild, AiSettingsService.EffectiveAiSettings settings) {
@@ -440,9 +521,10 @@ public class AiService {
         if (settings.colorMatchMode() == AiColorMatchMode.FLEXIBLE) {
             return "";
         }
-        String targetColor = StringUtils.hasText(preferences.preferredColor())
-                ? preferences.preferredColor()
-                : dominantColor(selections);
+        if (!StringUtils.hasText(preferences.preferredColor())) {
+            return "";
+        }
+        String targetColor = preferences.preferredColor();
         if (!StringUtils.hasText(targetColor)) {
             return "";
         }
@@ -625,7 +707,7 @@ public class AiService {
                                             continue;
                                         }
                                         BuildPlan plan = new BuildPlan(selected, selections, totalPrice(selected, selections), performanceScore(selected));
-                                        if (isBetterPlan(plan, fallback, budget, preferences, settings)) {
+                                        if (isBetterFallbackPlan(plan, fallback, budget, preferences, settings)) {
                                             fallback = plan;
                                         }
                                         if (plan.totalPrice() <= budget && isBetterPlan(plan, best, budget, preferences, settings)) {
@@ -643,7 +725,13 @@ public class AiService {
             return best;
         }
         if (fallback != null) {
-            return fallback;
+            int maxAcceptableOverBudget = budget + Math.max(500, Math.round(budget * 0.12f));
+            if (fallback.totalPrice() <= maxAcceptableOverBudget) {
+                return fallback;
+            }
+            throw new BusinessException("按当前京东可购买商品，完整主机最低可行方案约 ¥" + fallback.totalPrice()
+                    + "，已经明显超过你的预算 ¥" + budget
+                    + "。要达到这个用途需要加预算或降低帧率、画质、分辨率目标；我不会强行保存一套超预算太多的配置。");
         }
         throw new BusinessException("硬件库数据不足，暂时无法自动生成配置单");
     }
@@ -790,15 +878,10 @@ public class AiService {
     }
 
     private int colorHarmonyScore(List<BuildPartSelectionRequest> selections, BuildPreferences preferences, AiSettingsService.EffectiveAiSettings settings) {
-        if (settings.colorMatchMode() == AiColorMatchMode.FLEXIBLE) {
+        if (settings.colorMatchMode() == AiColorMatchMode.FLEXIBLE || !StringUtils.hasText(preferences.preferredColor())) {
             return 0;
         }
-        String targetColor = StringUtils.hasText(preferences.preferredColor())
-                ? preferences.preferredColor()
-                : dominantColor(selections);
-        if (!StringUtils.hasText(targetColor)) {
-            return 0;
-        }
+        String targetColor = preferences.preferredColor();
         int score = 0;
         for (BuildPartSelectionRequest selection : selections) {
             if (selection == null || !StringUtils.hasText(selection.title()) || !isVisualPartTitle(selection.title())) {
@@ -1041,6 +1124,27 @@ public class AiService {
         return Math.abs(plan.totalPrice() - budget) < Math.abs(current.totalPrice() - budget);
     }
 
+    private boolean isBetterFallbackPlan(
+            BuildPlan plan,
+            BuildPlan current,
+            int budget,
+            BuildPreferences preferences,
+            AiSettingsService.EffectiveAiSettings settings
+    ) {
+        if (current == null) {
+            return true;
+        }
+        boolean planWithin = plan.totalPrice() <= budget;
+        boolean currentWithin = current.totalPrice() <= budget;
+        if (planWithin || currentWithin) {
+            return isBetterPlan(plan, current, budget, preferences, settings);
+        }
+        if (plan.totalPrice() != current.totalPrice()) {
+            return plan.totalPrice() < current.totalPrice();
+        }
+        return planQualityScore(plan, budget, preferences, settings) > planQualityScore(current, budget, preferences, settings);
+    }
+
     private int planQualityScore(
             BuildPlan plan,
             int budget,
@@ -1157,6 +1261,7 @@ public class AiService {
     private String formatBuildConfig(String label, BuildConfigResponse build) {
         StringBuilder builder = new StringBuilder();
         builder.append(label).append("：").append(build.title())
+                .append(StringUtils.hasText(build.serialNumber()) ? "（编号 " + build.serialNumber() + "）" : "")
                 .append("，总价 ¥").append(build.totalPrice())
                 .append("，性能 ").append(build.performanceScore()).append(" 分。\n");
         for (HardwarePartResponse part : build.parts()) {
@@ -1176,6 +1281,9 @@ public class AiService {
             }
             if (StringUtils.hasText(part.productLink())) {
                 builder.append("，京东链接：").append(part.productLink());
+            }
+            if (StringUtils.hasText(part.skuId())) {
+                builder.append("，京东 SKU：").append(part.skuId());
             }
             builder.append("\n");
         }
@@ -1230,6 +1338,7 @@ public class AiService {
                 safety.message(),
                 generatedBuild == null ? null : generatedBuild.id(),
                 generatedBuild == null ? "" : generatedBuild.title(),
+                generatedBuild == null ? "" : generatedBuild.serialNumber(),
                 generatedBuild
         );
     }
@@ -1266,6 +1375,10 @@ public class AiService {
                 7. 如果系统提供了已生成配置单，直接说明已保存到配置页，并围绕该配置做简洁解释。
                 8. 如果用户附加了配置单，优先围绕附加配置单评价、优化或回答问题。
                 9. 当用户要求生成、保存、配一套、出一台或给出具体预算用途时，不要只写文字配置；应依赖系统自动生成的配置单上下文。若没有配置单上下文，必须说明无法保存的原因。
+                10. 配置单上下文里的京东商品名、京东 SKU、链接和价格来自实时检索或数据库快照，优先级高于你的训练知识；只要上下文出现京东链接或 SKU，不要说该商品“尚未上市”“未发布”“买不到”。
+                11. 不要用旧知识否定 RX 9060 XT、RX 9070、RTX 50 系等上下文商品；若需提醒，只能说以当前京东页面库存和价格为准。
+                12. 用户没有主动提颜色时，不要评价黑色、白色、海景房、外观配色等内容。
+                13. 用户询问游戏帧率时，需要基于配置单 CPU/GPU 定位给出保守帧率区间；如果预算达不到目标帧率，直接说明需要加预算或降低画质、分辨率、帧率目标。
                 %s
 
                 意图识别：
