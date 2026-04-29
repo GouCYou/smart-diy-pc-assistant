@@ -57,8 +57,31 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     'NEWS_COMMENT_REPLY'
                 ) NOT NULL
                 """);
+        ensureUserMemorySchema();
         ensureBuildConfigSchema();
         cleanLegacyUserData();
+    }
+
+    private void ensureUserMemorySchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_memory (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    user_id bigint NOT NULL,
+                    budget_preference varchar(120) NULL,
+                    usage_preference varchar(240) NULL,
+                    cpu_platform_preference varchar(160) NULL,
+                    gpu_platform_preference varchar(160) NULL,
+                    preferred_brands varchar(240) NULL,
+                    rejected_brands varchar(240) NULL,
+                    appearance_preference varchar(180) NULL,
+                    noise_preference varchar(160) NULL,
+                    upgrade_plan varchar(240) NULL,
+                    created_at datetime(6) NOT NULL,
+                    updated_at datetime(6) NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_user_memory_user_id (user_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
     }
 
     private void ensureBuildConfigSchema() {

@@ -51,6 +51,8 @@ public class AiService {
     private final SafetyRuleService safetyRuleService;
     private final ChatConversationRepository conversationRepository;
     private final ChatMessageRepository messageRepository;
+    private final MemoryService memoryService;
+    private final MemoryExtractor memoryExtractor;
     private final HardwarePartRepository hardwarePartRepository;
     private final BuildConfigService buildConfigService;
     private final UserAccessService userAccessService;
@@ -65,6 +67,8 @@ public class AiService {
             SafetyRuleService safetyRuleService,
             ChatConversationRepository conversationRepository,
             ChatMessageRepository messageRepository,
+            MemoryService memoryService,
+            MemoryExtractor memoryExtractor,
             HardwarePartRepository hardwarePartRepository,
             BuildConfigService buildConfigService,
             UserAccessService userAccessService,
@@ -78,6 +82,8 @@ public class AiService {
         this.safetyRuleService = safetyRuleService;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
+        this.memoryService = memoryService;
+        this.memoryExtractor = memoryExtractor;
         this.hardwarePartRepository = hardwarePartRepository;
         this.buildConfigService = buildConfigService;
         this.userAccessService = userAccessService;
@@ -120,8 +126,10 @@ public class AiService {
         }
 
         IntentAnalysis intent = intentAnalysisService.analyze(request.message());
+        UserMemory userMemory = mergeUserMemory(userId, request.message());
+        String memoryContext = memoryService.formatPromptContext(userMemory);
         BuildConfigResponse attachedBuild = request.buildConfigId() == null ? null : buildConfigService.get(userId, request.buildConfigId());
-        BuildGenerationResult buildGeneration = maybeGenerateBuildConfig(userId, request.message(), attachedBuild, settings);
+        BuildGenerationResult buildGeneration = maybeGenerateBuildConfig(userId, request.message(), attachedBuild, settings, userMemory);
         BuildConfigResponse generatedBuild = buildGeneration.build();
         String conversationContext = buildConversationContext(conversation.getId(), settings.contextMessageLimit());
         String buildContext = buildAiConfigContext(attachedBuild, generatedBuild);
@@ -166,6 +174,8 @@ public class AiService {
         String cacheKey = "ai:chat:v5:"
                 + conversation.getId()
                 + ":"
+                + Integer.toHexString(memoryContext.hashCode())
+                + ":"
                 + Integer.toHexString(conversationContext.hashCode())
                 + ":"
                 + Integer.toHexString(buildContext.hashCode())
@@ -188,7 +198,7 @@ public class AiService {
             );
         }
 
-        String content = callModel(request.message(), conversationContext, buildContext, intent, safety, settings);
+        String content = callModel(request.message(), memoryContext, conversationContext, buildContext, intent, safety, settings);
         if (generatedBuild == null) {
             redisTemplate.opsForValue().set(cacheKey, content, CACHE_TTL);
         }
@@ -295,18 +305,19 @@ public class AiService {
             Long userId,
             String message,
             BuildConfigResponse attachedBuild,
-            AiSettingsService.EffectiveAiSettings settings
+            AiSettingsService.EffectiveAiSettings settings,
+            UserMemory userMemory
     ) {
         if (!settings.autoBuildEnabled() || !shouldGenerateBuild(message, attachedBuild != null, settings)) {
             return BuildGenerationResult.none();
         }
         BuildPlan plan;
         try {
-            plan = selectBuildPlan(extractBudget(message), message, settings);
+            plan = selectBuildPlan(preferredBudget(message, userMemory), message, settings, userMemory);
         } catch (BusinessException exception) {
             return BuildGenerationResult.failed(exception.getMessage());
         }
-        BuildPreferences preferences = buildPreferences(message);
+        BuildPreferences preferences = buildPreferences(message, userMemory);
         String colorNote = createColorBuildNote(plan.selections(), preferences, settings);
         String title = createBuildTitle(message, attachedBuild != null, plan.totalPrice());
         String note = attachedBuild == null
@@ -323,6 +334,14 @@ public class AiService {
         String reason = StringUtils.hasText(failureMessage) ? failureMessage : "自动匹配商品时没有拿到完整结果";
         return "我识别到你想生成配置单，但这次没有保存成功。原因是：" + reason
                 + "\n\n为了避免把无价格、无链接或不可购买的商品写进配置单，我不会用本地参考价强行生成。你可以稍后再试，或者先到配置页手动选择京东商品。";
+    }
+
+    private UserMemory mergeUserMemory(Long userId, String message) {
+        UserMemoryPatch patch = memoryExtractor.extract(message);
+        if (patch.hasAnyValue()) {
+            return memoryService.merge(userId, patch);
+        }
+        return memoryService.findByUserId(userId).orElse(null);
     }
 
     private String createGeneratedBuildReply(boolean adjusted, BuildConfigResponse build) {
@@ -568,8 +587,27 @@ public class AiService {
     }
 
     private int extractBudget(String message) {
+        Integer budget = extractExplicitBudget(message);
+        return budget == null ? 6500 : budget;
+    }
+
+    private int preferredBudget(String message, UserMemory userMemory) {
+        Integer currentBudget = extractExplicitBudget(message);
+        if (currentBudget != null) {
+            return currentBudget;
+        }
+        if (userMemory != null && StringUtils.hasText(userMemory.getBudgetPreference())) {
+            Integer memoryBudget = extractExplicitBudget(userMemory.getBudgetPreference());
+            if (memoryBudget != null) {
+                return memoryBudget;
+            }
+        }
+        return 6500;
+    }
+
+    private Integer extractExplicitBudget(String message) {
         String text = message == null ? "" : message;
-        Matcher matcher = Pattern.compile("(\\d{4,5})\\s*(元|块|预算)?").matcher(message == null ? "" : message);
+        Matcher matcher = Pattern.compile("(\\d{4,5})\\s*(元|块|预算)?").matcher(text);
         if (matcher.find()) {
             return Integer.parseInt(matcher.group(1));
         }
@@ -581,13 +619,11 @@ public class AiService {
         if (chineseBudget != null) {
             return chineseBudget;
         }
-        return 6500;
+        return null;
     }
 
     private boolean hasBudgetAmount(String text) {
-        return Pattern.compile("\\d{4,5}").matcher(text).find()
-                || Pattern.compile("\\d+(?:\\.\\d+)?\\s*[kK]").matcher(text).find()
-                || containsChineseBudget(text);
+        return extractExplicitBudget(text) != null;
     }
 
     private boolean containsChineseBudget(String text) {
@@ -625,8 +661,8 @@ public class AiService {
         return null;
     }
 
-    private BuildPlan selectBuildPlan(int budget, String message, AiSettingsService.EffectiveAiSettings settings) {
-        BuildPreferences preferences = buildPreferences(message);
+    private BuildPlan selectBuildPlan(int budget, String message, AiSettingsService.EffectiveAiSettings settings, UserMemory userMemory) {
+        BuildPreferences preferences = buildPreferences(message, userMemory);
         Map<HardwarePartType, List<HardwarePart>> parts = new EnumMap<>(HardwarePartType.class);
         for (HardwarePart part : hardwarePartRepository.findByEnabledTrue()) {
             parts.computeIfAbsent(part.getType(), ignored -> new ArrayList<>()).add(part);
@@ -665,6 +701,13 @@ public class AiService {
                     .toList();
             if (!nvidiaGpus.isEmpty()) {
                 gpus = nvidiaGpus;
+            }
+        } else if (preferences.preferAmdGpu()) {
+            List<HardwarePart> amdGpus = gpus.stream()
+                    .filter(part -> part.getModel().toUpperCase(Locale.ROOT).startsWith("RX"))
+                    .toList();
+            if (!amdGpus.isEmpty()) {
+                gpus = amdGpus;
             }
         }
 
@@ -750,6 +793,7 @@ public class AiService {
         String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
         boolean productivity = containsAny(text, "生产力", "剪辑", "渲染", "建模", "设计", "cuda", "ai", "深度学习", "视频");
         boolean explicitAmdGpu = containsAny(text, "amd显卡", "a卡", "radeon", "rx ");
+        boolean explicitNvidiaGpu = containsAny(text, "nvidia", "英伟达", "n卡", "rtx", "cuda", "nvenc");
         String color = "";
         if (containsAny(text, "白色", "纯白", "海景房", "white")) {
             color = "WHITE";
@@ -759,7 +803,50 @@ public class AiService {
         String gpuModel = extractPreferredGpuModel(text);
         int memoryCapacity = extractPreferredMemoryCapacity(text);
         boolean preferX3d = text.contains("x3d");
-        return new BuildPreferences(productivity && !explicitAmdGpu, color, gpuModel, memoryCapacity, preferX3d);
+        return new BuildPreferences((productivity || explicitNvidiaGpu) && !explicitAmdGpu, explicitAmdGpu, color, gpuModel, memoryCapacity, preferX3d);
+    }
+
+    private BuildPreferences buildPreferences(String message, UserMemory userMemory) {
+        BuildPreferences current = buildPreferences(message);
+        if (userMemory == null || !userMemory.hasAnyMemory()) {
+            return current;
+        }
+        String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        boolean explicitGpuPlatform = containsAny(text, "amd显卡", "a卡", "radeon", "rx ", "nvidia", "英伟达", "n卡", "rtx", "cuda", "nvenc");
+        boolean preferNvidiaGpu = current.preferNvidiaGpu();
+        boolean preferAmdGpu = current.preferAmdGpu();
+        if (!explicitGpuPlatform && !preferNvidiaGpu && !preferAmdGpu) {
+            String gpuMemory = userMemory.getGpuPlatformPreference().toLowerCase(Locale.ROOT);
+            if (containsAny(gpuMemory, "nvidia", "cuda", "英伟达")) {
+                preferNvidiaGpu = true;
+            } else if (containsAny(gpuMemory, "amd", "radeon")) {
+                preferAmdGpu = true;
+            }
+        }
+        String preferredColor = current.preferredColor();
+        if (!StringUtils.hasText(preferredColor)) {
+            preferredColor = preferredColorFromMemory(userMemory);
+        }
+        boolean preferX3d = current.preferX3dCpu();
+        return new BuildPreferences(
+                preferNvidiaGpu,
+                preferAmdGpu,
+                preferredColor,
+                current.preferredGpuModel(),
+                current.preferredMemoryCapacityGb(),
+                preferX3d
+        );
+    }
+
+    private String preferredColorFromMemory(UserMemory userMemory) {
+        String appearance = userMemory.getAppearancePreference().toLowerCase(Locale.ROOT);
+        if (containsAny(appearance, "白色", "纯白", "海景房", "white")) {
+            return "WHITE";
+        }
+        if (containsAny(appearance, "黑色", "全黑", "black")) {
+            return "BLACK";
+        }
+        return "";
     }
 
     private String extractPreferredGpuModel(String text) {
@@ -1345,6 +1432,7 @@ public class AiService {
 
     private String callModel(
             String message,
+            String memoryContext,
             String conversationContext,
             String buildContext,
             IntentAnalysis intent,
@@ -1379,6 +1467,8 @@ public class AiService {
                 11. 不要用旧知识否定 RX 9060 XT、RX 9070、RTX 50 系等上下文商品；若需提醒，只能说以当前京东页面库存和价格为准。
                 12. 用户没有主动提颜色时，不要评价黑色、白色、海景房、外观配色等内容。
                 13. 用户询问游戏帧率时，需要基于配置单 CPU/GPU 定位给出保守帧率区间；如果预算达不到目标帧率，直接说明需要加预算或降低画质、分辨率、帧率目标。
+                14. 长期用户画像记忆只代表用户过去反复或明确表达过的默认偏好，当前用户需求优先级更高；如果当前输入与长期记忆冲突，必须以当前输入为准。
+                15. 不要把长期记忆扩写成用户没有明确提出的硬件参数、实时价格、商品链接或 SKU。
                 %s
 
                 意图识别：
@@ -1392,6 +1482,9 @@ public class AiService {
                 安全规则：
                 等级：%s
                 提醒：%s
+
+                长期用户画像记忆：
+                %s
 
                 当前会话上下文：
                 %s
@@ -1413,6 +1506,7 @@ public class AiService {
                 intent.safetyRiskLevel(),
                 safety.level().name(),
                 safety.message().isBlank() ? "无" : safety.message(),
+                StringUtils.hasText(memoryContext) ? memoryContext : "无",
                 conversationContext,
                 buildContext,
                 message
@@ -1452,6 +1546,7 @@ public class AiService {
 
     private record BuildPreferences(
             boolean preferNvidiaGpu,
+            boolean preferAmdGpu,
             String preferredColor,
             String preferredGpuModel,
             int preferredMemoryCapacityGb,

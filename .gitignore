@@ -8,6 +8,9 @@ target/
 build/
 unpackage/
 
+# Local database exports
+smart_diy_pc_assistant_1.sql
+
 # Local Maven cache
 .m2/
 
