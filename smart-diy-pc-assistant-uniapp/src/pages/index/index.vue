@@ -212,14 +212,17 @@
 								</view>
 							</view>
 								<view class="build-part-preview">
-								<view v-for="part in item.parts" :key="part.id" class="build-part-product">
+								<view v-for="part in getVisibleBuildParts(item.parts)" :key="part.id" class="build-part-product">
 									<image v-if="part.productImage.length > 0" class="build-part-product-image" :src="part.productImage" mode="aspectFill"></image>
 									<view v-else class="build-part-product-image build-part-product-fallback">
 										<text class="build-part-product-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
 									</view>
 									<view class="build-part-product-main">
 										<text class="build-part-product-title">{{ getCompactPartTitle(part, 24) }}</text>
-										<text class="build-part-product-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartPriceLabel(part) }}</text>
+										<view class="build-part-product-meta-row">
+											<text class="build-part-product-meta">{{ getHardwareTypeLabel(part.type) }}</text>
+											<text class="build-part-product-price">{{ getPartPriceLabel(part) }}</text>
+										</view>
 									</view>
 								</view>
 							</view>
@@ -292,14 +295,17 @@
 				</view>
 				<view class="build-page-section">
 					<text class="build-page-section-title">所选配件</text>
-					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="build-page-part-row" @click="openPartProduct(part)">
+					<view v-for="part in getVisibleBuildParts(selectedBuildDetail.parts)" :key="part.id" class="build-page-part-row" @click="openPartProduct(part)">
 						<image v-if="part.productImage.length > 0" class="build-page-part-image" :src="part.productImage" mode="aspectFill"></image>
 						<view v-else class="build-page-part-image detail-part-fallback">
 							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
 						</view>
 						<view class="build-page-part-main">
 							<text class="build-page-part-title">{{ getCompactPartTitle(part, 56) }}</text>
-							<text class="build-page-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<view class="build-page-part-meta-row">
+								<text class="build-page-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartMetaModelLabel(part) }}</text>
+								<text class="build-page-part-price">{{ getPartPriceLabel(part) }}</text>
+							</view>
 							<text class="build-page-part-spec">{{ getPartDetailSpecLine(part) }}</text>
 						</view>
 						<text v-if="part.productLink.length > 0" class="build-page-part-link">京东 ›</text>
@@ -821,14 +827,17 @@
 					</view>
 				</view>
 				<scroll-view class="build-detail-scroll" scroll-y="true">
-					<view v-for="part in selectedBuildDetail.parts" :key="part.id" class="detail-part-row" @click="openPartProduct(part)">
+					<view v-for="part in getVisibleBuildParts(selectedBuildDetail.parts)" :key="part.id" class="detail-part-row" @click="openPartProduct(part)">
 						<image v-if="part.productImage.length > 0" class="detail-part-image" :src="part.productImage" mode="aspectFill"></image>
 						<view v-else class="detail-part-image detail-part-fallback">
 							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
 						</view>
 						<view class="detail-part-main">
 							<text class="detail-part-title">{{ getCompactPartTitle(part, 54) }}</text>
-							<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<view class="detail-part-meta-row">
+								<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartMetaModelLabel(part) }}</text>
+								<text class="detail-part-price">{{ getPartPriceLabel(part) }}</text>
+							</view>
 							<text class="detail-part-product">{{ getPartDetailSpecLine(part) }}</text>
 						</view>
 						<text v-if="part.productLink.length > 0" class="detail-part-link">京东 ›</text>
@@ -4640,6 +4649,54 @@
 		return price > 0 ? '¥' + price : '暂无价格'
 	}
 
+	function getPartMetaModelLabel(part : HardwarePartItem) : string {
+		if (part == null) {
+			return ''
+		}
+		return part.matchedModel != null && part.matchedModel.length > 0 ? part.matchedModel : part.model
+	}
+
+	function isBundledMotherboardDisplayPart(part : HardwarePartItem) : boolean {
+		if (part == null || part.type != 'MOTHERBOARD') {
+			return false
+		}
+		const title = part.productTitle == null ? '' : part.productTitle
+		return title.indexOf('已包含在 CPU 板U套装中') >= 0 || title.indexOf('板U套装 主板部分') >= 0
+	}
+
+	function isLegacyCpuBundleDisplayPart(part : HardwarePartItem) : boolean {
+		if (part == null || part.type != 'CPU') {
+			return false
+		}
+		const title = part.productTitle == null ? '' : part.productTitle
+		return title.indexOf('板U套装 CPU 部分') >= 0
+	}
+
+	function getVisibleBuildParts(parts : HardwarePartItem[]) : HardwarePartItem[] {
+		if (parts == null || parts.length == 0) {
+			return [] as HardwarePartItem[]
+		}
+		let legacyBundleMotherboardPrice = 0
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i]
+			if (isBundledMotherboardDisplayPart(part) && part.productTitle.indexOf('板U套装 主板部分') >= 0 && part.productPrice > 0) {
+				legacyBundleMotherboardPrice += part.productPrice
+			}
+		}
+		return parts
+			.filter((part : HardwarePartItem) : boolean => !isBundledMotherboardDisplayPart(part))
+			.map((part : HardwarePartItem) : HardwarePartItem => {
+				if (legacyBundleMotherboardPrice > 0 && isLegacyCpuBundleDisplayPart(part)) {
+					return {
+						...part,
+						productTitle: part.productTitle.replace('（板U套装 CPU 部分）', '（板U套装）'),
+						productPrice: part.productPrice + legacyBundleMotherboardPrice
+					} as HardwarePartItem
+				}
+				return part
+			})
+	}
+
 	function getDisplayBuildTitle(title : string) : string {
 		const cleanTitle = stripBuildTitlePrice(title)
 		return cleanTitle.length > 0 ? cleanTitle : '未命名配置'
@@ -4891,8 +4948,9 @@
 		const lines = [] as string[]
 		lines.push(getDisplayBuildTitle(item.title) + (item.serialNumber.length > 0 ? ' ' + item.serialNumber : ''))
 		lines.push('总价：¥' + item.totalPrice + ' · 综合性能：' + item.performanceScore + ' 分')
-		for (let i = 0; i < item.parts.length; i++) {
-			const part = item.parts[i]
+		const parts = getVisibleBuildParts(item.parts)
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i]
 			lines.push(getHardwareTypeLabel(part.type) + '：' + getPartDisplayTitle(part) + ' · ' + getPartPriceLabel(part))
 		}
 		if (item.note.length > 0) {
@@ -6751,8 +6809,8 @@
 
 	.history-delete-action {
 		width: 0;
-		height: 42px;
-		border-radius: 21px;
+		height: 58px;
+		border-radius: 29px;
 		background-color: #ffffff;
 		align-items: center;
 		justify-content: center;
@@ -6761,22 +6819,22 @@
 		margin-left: 0;
 		transform: scale(0.88);
 		border-width: 1px;
-		border-color: #fee4e2;
-		box-shadow: 0 8px 18px rgba(180, 35, 24, 0.1);
+		border-color: #edf0f5;
+		box-shadow: none;
 		transition-property: width, opacity, margin-left, transform;
 		transition-duration: 180ms;
 	}
 
 	.history-delete-action-show {
-		width: 42px;
+		width: 58px;
 		opacity: 1;
 		margin-left: 8px;
 		transform: scale(1);
 	}
 
 	.history-delete-icon {
-		width: 32px;
-		height: 32px;
+		width: 46px;
+		height: 46px;
 	}
 
 	.history-item-title {
@@ -7771,6 +7829,30 @@
 		white-space: nowrap;
 	}
 
+	.detail-part-meta-row {
+		width: 100%;
+		min-width: 0;
+		margin-top: 4px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.detail-part-meta-row .detail-part-meta {
+		flex: 1;
+		min-width: 0;
+		width: auto;
+		margin-top: 0;
+	}
+
+	.detail-part-price {
+		margin-left: 7px;
+		font-size: 12px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #667085;
+		flex-shrink: 0;
+	}
+
 	.detail-part-product {
 		width: 100%;
 		margin-top: 4px;
@@ -8100,6 +8182,30 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.build-page-part-meta-row {
+		width: 100%;
+		min-width: 0;
+		margin-top: 3px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-page-part-meta-row .build-page-part-meta {
+		flex: 1;
+		min-width: 0;
+		width: auto;
+		margin-top: 0;
+	}
+
+	.build-page-part-price {
+		margin-left: 7px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #667085;
+		flex-shrink: 0;
 	}
 
 	.build-page-part-link {
@@ -8440,13 +8546,35 @@
 
 	.build-part-product-meta {
 		width: 100%;
-		margin-top: 3px;
 		font-size: 11px;
 		line-height: 15px;
 		color: #667085;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.build-part-product-meta-row {
+		width: 100%;
+		min-width: 0;
+		margin-top: 3px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-part-product-meta-row .build-part-product-meta {
+		flex: 1;
+		min-width: 0;
+		width: auto;
+	}
+
+	.build-part-product-price {
+		margin-left: 5px;
+		font-size: 11px;
+		line-height: 15px;
+		font-weight: 900;
+		color: #667085;
+		flex-shrink: 0;
 	}
 
 	.build-actions {

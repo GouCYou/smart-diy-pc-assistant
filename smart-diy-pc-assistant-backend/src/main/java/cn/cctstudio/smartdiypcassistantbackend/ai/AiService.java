@@ -60,6 +60,7 @@ public class AiService {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
     private static final Duration CHAT_DUPLICATE_TTL = Duration.ofMinutes(2);
+    private static final Pattern BOARD_CHIPSET_PATTERN = Pattern.compile("[ABHXZ]\\d{3,4}[A-Z]{0,3}", Pattern.CASE_INSENSITIVE);
 
     private final AiProperties properties;
     private final StringRedisTemplate redisTemplate;
@@ -741,6 +742,11 @@ public class AiService {
     }
 
     private String partDisplayName(HardwarePartResponse part) {
+        if (part.type() == HardwarePartType.MOTHERBOARD
+                && StringUtils.hasText(part.productTitle())
+                && part.productTitle().contains("已包含在 CPU 板U套装中")) {
+            return part.model();
+        }
         if (StringUtils.hasText(part.productTitle())) {
             return trim(part.productTitle(), 30) + "（" + part.model() + "）";
         }
@@ -1411,15 +1417,26 @@ public class AiService {
 
     private boolean isCpuMotherboardBundle(String title) {
         String text = title == null ? "" : title;
-        return text.contains("板U")
+        String normalizedTitle = text.toUpperCase(Locale.ROOT);
+        return text.contains("主板CPU套装")
+                || text.contains("主板+CPU")
+                || text.contains("CPU+主板")
+                || text.contains("板U")
+                || text.contains("板u")
                 || text.contains("主板套装")
-                || (text.contains("搭") && text.contains("主板"));
+                || (text.contains("主板") && text.contains("CPU") && text.contains("套装"))
+                || (text.contains("搭") && text.contains("主板"))
+                || (normalizedTitle.contains("CPU+") && BOARD_CHIPSET_PATTERN.matcher(normalizedTitle).find());
     }
 
     private boolean bundleMentionsMotherboard(String title, HardwarePart motherboard) {
         String compactTitle = compactText(title);
-        String model = compactText(motherboard.getModel());
-        return StringUtils.hasText(model) && compactTitle.contains(model);
+        String compactModel = compactText(motherboard.getModel());
+        if (StringUtils.hasText(compactModel) && compactTitle.contains(compactModel)) {
+            return true;
+        }
+        String chipset = extractBoardChipset(motherboard.getModel());
+        return StringUtils.hasText(chipset) && compactTitle.contains(chipset);
     }
 
     private void putCpuMotherboardBundleSelections(
@@ -1429,17 +1446,10 @@ public class AiService {
             JdProduct item
     ) {
         int bundlePrice = item.price() == null ? 0 : item.price();
-        int cpuEstimate = Math.max(1, referencePrice(cpu));
-        int motherboardEstimate = Math.max(1, referencePrice(motherboard));
-        int cpuPrice = Math.max(1, Math.round(bundlePrice * (cpuEstimate / (float) (cpuEstimate + motherboardEstimate))));
-        if (cpuPrice >= bundlePrice) {
-            cpuPrice = Math.max(1, bundlePrice - 1);
-        }
-        int motherboardPrice = Math.max(1, bundlePrice - cpuPrice);
         productSelections.put(cpu.getId(), new BuildPartSelectionRequest(
                 cpu.getId(),
-                item.title() + "（板U套装 CPU 部分）",
-                cpuPrice,
+                item.title() + "（板U套装）",
+                bundlePrice,
                 item.image(),
                 item.link(),
                 item.skuId(),
@@ -1447,17 +1457,25 @@ public class AiService {
         ));
         productSelections.put(motherboard.getId(), new BuildPartSelectionRequest(
                 motherboard.getId(),
-                item.title() + "（板U套装 主板部分）",
-                motherboardPrice,
-                item.image(),
-                item.link(),
-                item.skuId(),
+                "已包含在 CPU 板U套装中：" + motherboard.getModel(),
+                0,
+                "",
+                "",
+                "",
                 motherboard.getModel()
         ));
     }
 
     private String compactText(String value) {
         return value == null ? "" : value.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "");
+    }
+
+    private String extractBoardChipset(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        Matcher matcher = BOARD_CHIPSET_PATTERN.matcher(value.toUpperCase(Locale.ROOT));
+        return matcher.find() ? matcher.group().toUpperCase(Locale.ROOT) : "";
     }
 
     private List<HardwarePart> purchasableCandidates(List<HardwarePart> parts, Map<Long, BuildPartSelectionRequest> selections, HardwarePartType type) {
