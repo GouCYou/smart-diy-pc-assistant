@@ -87,44 +87,60 @@
 							</view>
 						</view>
 					</view>
-				</view>
-
-				<view v-if="activeBuildTasks.length > 0" class="build-task-list">
-					<view v-for="task in activeBuildTasks" :key="task.id" class="build-task-card">
-						<view class="build-task-head">
-							<view class="build-task-icon">
-								<view class="build-task-icon-line"></view>
-								<view class="build-task-icon-dot"></view>
+					<view v-for="task in activeBuildTasks" :key="'build-task-' + task.id" class="message-row message-row-build-task">
+						<view class="build-task-card">
+							<view class="build-task-head">
+								<view class="build-task-icon">
+									<view class="build-task-icon-line"></view>
+									<view class="build-task-icon-dot"></view>
+								</view>
+								<view class="build-task-title-wrap">
+									<text class="build-task-title">{{ task.stageTitle }}</text>
+									<text class="build-task-desc">{{ task.stageDescription }}</text>
+								</view>
+								<text class="build-task-percent">{{ task.progress }}%</text>
 							</view>
-							<view class="build-task-title-wrap">
-								<text class="build-task-title">{{ task.stageTitle }}</text>
-								<text class="build-task-desc">{{ task.stageDescription }}</text>
+							<view class="build-task-track">
+								<view class="build-task-fill" :style="'width: ' + task.progress + '%'"></view>
 							</view>
-							<text class="build-task-percent">{{ task.progress }}%</text>
+							<text class="build-task-foot">{{ getBuildTaskFoot(task) }}</text>
 						</view>
-						<view class="build-task-track">
-							<view class="build-task-fill" :style="'width: ' + task.progress + '%'"></view>
-						</view>
-						<text class="build-task-foot">{{ getBuildTaskFoot(task) }}</text>
 					</view>
 				</view>
 			</scroll-view>
 
-			<view v-if="attachedBuildId > 0" class="composer-attachment">
-				<text class="composer-attachment-text">已附加：{{ attachedBuildTitle }}</text>
-				<view class="composer-attachment-close" @click="clearAttachedBuild">
-					<view class="close-line"></view>
-					<view class="close-line close-line-two"></view>
-				</view>
-			</view>
-			<view class="composer">
-				<view :class="attachedBuildId > 0 ? 'attach-button attach-button-active' : 'attach-button'" @click="openChatBuildPicker">
-					<view class="build-link-mini">
-						<view class="build-link-mini-head"></view>
-						<view class="build-link-mini-row"></view>
-						<view class="build-link-mini-row build-link-mini-row-short"></view>
+				<view v-if="attachedBuildId > 0" class="composer-attachment">
+					<text class="composer-attachment-text">已附加：{{ attachedBuildTitle }}</text>
+					<view class="composer-attachment-close" @click="clearAttachedBuild">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
 					</view>
 				</view>
+				<view :class="getComposerActionMenuClass()">
+					<view class="composer-action-tail"></view>
+					<view class="composer-action-item composer-action-item-build" @click="openComposerBuildPicker">
+						<view class="composer-action-icon composer-action-icon-build">
+							<image class="composer-action-image" src="/static/icons/config-link.svg" mode="aspectFit"></image>
+						</view>
+						<view class="composer-action-copy">
+							<text class="composer-action-text">发送配置单</text>
+							<text class="composer-action-subtext">选择已有方案</text>
+						</view>
+					</view>
+					<view class="composer-action-item composer-action-item-last" @click="openComposerRequirementDrawer">
+						<view class="composer-action-icon composer-action-icon-setup">
+							<image class="composer-action-image" src="/static/icons/requirement-setup.svg" mode="aspectFit"></image>
+						</view>
+						<view class="composer-action-copy">
+							<text class="composer-action-text">按预算设定需求</text>
+							<text class="composer-action-subtext">快速生成描述</text>
+						</view>
+					</view>
+				</view>
+				<view class="composer">
+					<view :class="attachedBuildId > 0 || composerQuickMenuVisible ? 'attach-button attach-button-active' : 'attach-button'" @click="toggleComposerQuickMenu">
+						<image class="composer-hub-image" src="/static/icons/chat-actions.svg" mode="aspectFit"></image>
+					</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
 				<view :class="(draft.length > 0 || attachedBuildId > 0) && !chatLoading ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
 					<view class="send-arrow-line"></view>
@@ -932,6 +948,30 @@
 							</view>
 						</view>
 					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">机箱尺寸</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementCaseSizeOptions" :key="item.key" :class="requirementCaseSize == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementCaseSize = item.key">
+								<text :class="requirementCaseSize == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">机箱风格</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementCaseStyleOptions" :key="item.key" :class="requirementCaseStyle == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementCaseStyle = item.key">
+								<text :class="requirementCaseStyle == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
+					<view class="requirement-section">
+						<text class="requirement-section-title">散热偏好</text>
+						<view class="requirement-options">
+							<view v-for="item in requirementCoolerOptions" :key="item.key" :class="requirementCooler == item.key ? 'requirement-option requirement-option-active' : 'requirement-option'" @click="requirementCooler = item.key">
+								<text :class="requirementCooler == item.key ? 'requirement-option-text requirement-option-text-active' : 'requirement-option-text'">{{ item.label }}</text>
+							</view>
+						</view>
+					</view>
 					<view class="requirement-section requirement-section-last">
 						<text class="requirement-section-title">品牌倾向</text>
 						<view class="requirement-options">
@@ -1414,6 +1454,7 @@
 	const attachedBuildId = ref(0)
 	const attachedBuildTitle = ref('')
 	const attachedBuildSerialNumber = ref('')
+	const composerQuickMenuVisible = ref(false)
 	const requirementDrawerVisible = ref(false)
 	const requirementBudget = ref(6000)
 	const requirementScene = ref('game')
@@ -1421,6 +1462,9 @@
 	const requirementBrand = ref('any')
 	const requirementCpu = ref('any')
 	const requirementGpu = ref('any')
+	const requirementCaseSize = ref('any')
+	const requirementCaseStyle = ref('any')
+	const requirementCooler = ref('auto')
 	const selectedBuildDetail = ref({
 		id: 0,
 		serialNumber: '',
@@ -1551,6 +1595,27 @@
 		{ key: 'any', label: '不强制' },
 		{ key: 'nvidia', label: 'N 卡' },
 		{ key: 'amd', label: 'A 卡' }
+	] as RequirementOption[]
+
+	const requirementCaseSizeOptions = [
+		{ key: 'any', label: '默认' },
+		{ key: 'atx', label: '大 ATX' },
+		{ key: 'matx', label: '中 M-ATX' },
+		{ key: 'itx', label: '小 ITX' }
+	] as RequirementOption[]
+
+	const requirementCaseStyleOptions = [
+		{ key: 'any', label: '默认' },
+		{ key: 'panorama', label: '海景房' },
+		{ key: 'tower', label: '中塔风道' },
+		{ key: 'silent', label: '静音' }
+	] as RequirementOption[]
+
+	const requirementCoolerOptions = [
+		{ key: 'auto', label: '默认' },
+		{ key: 'air', label: '风冷' },
+		{ key: 'aio', label: '水冷' },
+		{ key: 'quiet', label: '安静' }
 	] as RequirementOption[]
 
 	const chatThinkingSteps = [
@@ -2038,6 +2103,7 @@
 	}
 
 	function openRequirementDrawer() {
+		composerQuickMenuVisible.value = false
 		requirementDrawerVisible.value = true
 	}
 
@@ -2118,16 +2184,23 @@
 		const brand = getRequirementOptionLabel(requirementBrandOptions, requirementBrand.value)
 		const cpuPreference = getRequirementOptionLabel(requirementCpuOptions, requirementCpu.value)
 		const gpuPreference = getRequirementOptionLabel(requirementGpuOptions, requirementGpu.value)
+		const caseSize = getRequirementOptionLabel(requirementCaseSizeOptions, requirementCaseSize.value)
+		const caseStyle = getRequirementOptionLabel(requirementCaseStyleOptions, requirementCaseStyle.value)
+		const cooler = getRequirementOptionLabel(requirementCoolerOptions, requirementCooler.value)
 		const sceneText = scene == 'AI' ? 'AI 本地推理和生产力' : (scene == '其他' ? '综合用途' : scene)
 		const brandText = requirementBrand.value == 'any' || requirementBrand.value == 'other' ? '品牌不强制，优先性价比和稳定性' : '更倾向 ' + brand + ' 生态'
 		const cpuText = requirementCpu.value == 'any' ? 'CPU 平台不强制' : 'CPU 更倾向 ' + cpuPreference
 		const gpuText = requirementGpu.value == 'any' ? '显卡平台不强制' : '显卡更倾向 ' + gpuPreference
-		draft.value = '预算 ' + requirementBudget.value + ' 元，主要用于' + sceneText + '，希望机箱主色是' + color + '，' + brandText + '，' + cpuText + '，' + gpuText + '。请帮我生成一套兼顾兼容性、散热、电源余量和后续升级空间的配置单。'
+		const caseSizeText = requirementCaseSize.value == 'any' ? '机箱尺寸不强制' : '机箱尺寸更倾向 ' + caseSize
+		const caseStyleText = requirementCaseStyle.value == 'any' ? '机箱风格不强制' : '机箱风格更倾向 ' + caseStyle
+		const coolerText = requirementCooler.value == 'auto' ? '散热方案由配置功耗决定' : '散热更倾向 ' + cooler
+		draft.value = '预算 ' + requirementBudget.value + ' 元，主要用于' + sceneText + '，希望机箱主色是' + color + '，' + brandText + '，' + cpuText + '，' + gpuText + '，' + caseSizeText + '，' + caseStyleText + '，' + coolerText + '。请帮我生成一套兼顾兼容性、散热、电源余量、京东可购买和后续升级空间的配置单。'
 		closeRequirementDrawer()
 		submitMessage()
 	}
 
 	function submitMessage() {
+		composerQuickMenuVisible.value = false
 		if (chatRequestLocked || chatLoading.value) {
 			return
 		}
@@ -2299,6 +2372,7 @@
 	}
 
 	function openChatBuildPicker() {
+		composerQuickMenuVisible.value = false
 		if (token.value.length == 0) {
 			openAuthPage()
 			return
@@ -2875,6 +2949,31 @@
 			postImageDragStartX.value = event.touches[0].clientX
 			postImageDragStartY.value = event.touches[0].clientY
 		}
+	}
+
+	function toggleComposerQuickMenu() {
+		composerQuickMenuVisible.value = !composerQuickMenuVisible.value
+	}
+
+	function getComposerActionMenuClass() : string {
+		let className = 'composer-action-menu'
+		if (composerQuickMenuVisible.value) {
+			className += ' composer-action-menu-visible'
+		}
+		if (attachedBuildId.value > 0) {
+			className += ' composer-action-menu-raised'
+		}
+		return className
+	}
+
+	function openComposerBuildPicker() {
+		composerQuickMenuVisible.value = false
+		openChatBuildPicker()
+	}
+
+	function openComposerRequirementDrawer() {
+		composerQuickMenuVisible.value = false
+		openRequirementDrawer()
 	}
 
 	function startPostImageTouch(index : number, event : TouchEvent) {
@@ -4954,7 +5053,7 @@
 		if (task.status == 'FAILED') {
 			return task.errorMessage.length > 0 ? task.errorMessage : '生成失败，请稍后重试'
 		}
-		return '正在逐步匹配京东可购买商品，离开页面后会继续生成'
+		return '正在逐步匹配京东可购买商品'
 	}
 
 	function isBuildTaskFinished(task : AiBuildTask) : boolean {
@@ -5846,6 +5945,11 @@
 		align-items: flex-end;
 	}
 
+	.message-row-build-task {
+		align-items: flex-start;
+		margin-top: -8px;
+	}
+
 	.message-bubble {
 		max-width: 82%;
 		padding: 13px 15px;
@@ -5999,11 +6103,6 @@
 		color: #111827;
 	}
 
-	.build-task-list {
-		padding: 0 0 12px;
-		align-items: flex-start;
-	}
-
 	.build-task-card {
 		width: 82%;
 		max-width: 82%;
@@ -6014,6 +6113,7 @@
 		padding: 14px;
 		margin-top: 0;
 		box-shadow: none;
+		box-sizing: border-box;
 	}
 
 	.build-task-head {
@@ -6324,6 +6424,141 @@
 		justify-content: center;
 	}
 
+	.composer-action-menu {
+		position: fixed;
+		left: 30px;
+		bottom: 162px;
+		bottom: calc(162px + constant(safe-area-inset-bottom));
+		bottom: calc(162px + env(safe-area-inset-bottom));
+		width: 184px;
+		flex-direction: column;
+		align-items: stretch;
+		padding: 8px;
+		border-radius: 24px;
+		background-color: rgba(255, 255, 255, 0.98);
+		border-width: 1px;
+		border-color: rgba(228, 232, 239, 0.96);
+		box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+		opacity: 0;
+		transform: translateY(18px) scale(0.94);
+		transform-origin: left bottom;
+		overflow: visible;
+		pointer-events: none;
+		transition-property: opacity, transform;
+		transition-duration: 280ms;
+		transition-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
+		z-index: 33;
+	}
+
+	.composer-action-menu-visible {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+		pointer-events: auto;
+		animation-name: composerMenuSpring;
+		animation-duration: 300ms;
+		animation-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
+	}
+
+	.composer-action-menu-raised {
+		bottom: 206px;
+		bottom: calc(206px + constant(safe-area-inset-bottom));
+		bottom: calc(206px + env(safe-area-inset-bottom));
+	}
+
+	.composer-action-tail {
+		position: absolute;
+		left: 22px;
+		bottom: -5px;
+		width: 14px;
+		height: 14px;
+		border-radius: 4px;
+		background-color: rgba(255, 255, 255, 0.98);
+		border-right-width: 1px;
+		border-bottom-width: 1px;
+		border-color: rgba(228, 232, 239, 0.96);
+		transform: rotate(45deg);
+	}
+
+	.composer-action-item {
+		min-height: 52px;
+		border-radius: 18px;
+		background-color: #f7f9fc;
+		flex-direction: row;
+		align-items: center;
+		padding-left: 9px;
+		padding-right: 10px;
+		margin-bottom: 8px;
+		transform: translateY(10px) scale(0.98);
+		opacity: 0;
+		transition-property: opacity, transform;
+		transition-duration: 260ms;
+		transition-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
+	}
+
+	.composer-action-menu-visible .composer-action-item {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+
+	.composer-action-menu-visible .composer-action-item-build {
+		transition-delay: 35ms;
+		animation-name: composerItemFloatIn;
+		animation-duration: 300ms;
+		animation-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
+	}
+
+	.composer-action-item-last {
+		margin-bottom: 0;
+		transition-delay: 75ms;
+		animation-name: composerItemFloatIn;
+		animation-duration: 340ms;
+		animation-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
+	}
+
+	.composer-action-icon {
+		width: 36px;
+		height: 36px;
+		border-radius: 14px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+		box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
+	}
+
+	.composer-action-icon-build {
+		background-color: #111827;
+	}
+
+	.composer-action-icon-setup {
+		background-color: #eef2f7;
+	}
+
+	.composer-action-image {
+		width: 24px;
+		height: 24px;
+	}
+
+	.composer-action-copy {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.composer-action-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.composer-action-subtext {
+		margin-top: 1px;
+		font-size: 10px;
+		line-height: 14px;
+		font-weight: 700;
+		color: #98a2b3;
+	}
+
 	.attach-button {
 		position: relative;
 		width: 42px;
@@ -6336,44 +6571,52 @@
 	}
 
 	.attach-button-active {
-		background-color: #eef5ff;
+		background-color: #eef2f7;
 	}
 
-	.build-link-mini {
-		width: 18px;
-		height: 22px;
-		border-radius: 6px;
-		border-width: 2px;
-		border-color: #667085;
-		padding: 3px;
+	.composer-hub-image {
+		width: 28px;
+		height: 28px;
+		opacity: 0.88;
+		transform: scale(1);
+		transition-property: opacity, transform;
+		transition-duration: 220ms;
+		transition-timing-function: cubic-bezier(0.18, 0.92, 0.22, 1);
 	}
 
-	.build-link-mini-head {
-		width: 10px;
-		height: 4px;
-		border-radius: 2px;
-		background-color: #667085;
+	.attach-button-active .composer-hub-image {
+		opacity: 1;
+		transform: scale(0.92) rotate(-8deg);
 	}
 
-	.build-link-mini-row {
-		width: 10px;
-		height: 2px;
-		border-radius: 1px;
-		background-color: #667085;
-		margin-top: 3px;
+	@keyframes composerMenuSpring {
+		0% {
+			opacity: 0;
+			transform: translateY(18px) scale(0.92);
+		}
+		62% {
+			opacity: 1;
+			transform: translateY(-2px) scale(1.015);
+		}
+		100% {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
 	}
 
-	.build-link-mini-row-short {
-		width: 7px;
-	}
-
-	.attach-button-active .build-link-mini {
-		border-color: #007aff;
-	}
-
-	.attach-button-active .build-link-mini-head,
-	.attach-button-active .build-link-mini-row {
-		background-color: #007aff;
+	@keyframes composerItemFloatIn {
+		0% {
+			opacity: 0;
+			transform: translateY(10px) scale(0.96);
+		}
+		68% {
+			opacity: 1;
+			transform: translateY(-1px) scale(1.01);
+		}
+		100% {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
 	}
 
 	.composer-input {

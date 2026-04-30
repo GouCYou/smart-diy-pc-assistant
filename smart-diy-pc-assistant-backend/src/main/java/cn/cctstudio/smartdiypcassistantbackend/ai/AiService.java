@@ -1003,13 +1003,13 @@ public class AiService {
             parts.computeIfAbsent(part.getType(), ignored -> new ArrayList<>()).add(part);
         }
         List<HardwarePart> cpus = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.CPU), 14), required(parts, HardwarePartType.CPU), preferences, HardwarePartType.CPU, 16);
-        List<HardwarePart> motherboards = prioritizeCandidates(required(parts, HardwarePartType.MOTHERBOARD), 16);
+        List<HardwarePart> motherboards = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.MOTHERBOARD), 16), required(parts, HardwarePartType.MOTHERBOARD), preferences, HardwarePartType.MOTHERBOARD, 18);
         List<HardwarePart> gpus = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.GPU), 14), required(parts, HardwarePartType.GPU), preferences, HardwarePartType.GPU, 18);
         List<HardwarePart> memories = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.MEMORY), 8), required(parts, HardwarePartType.MEMORY), preferences, HardwarePartType.MEMORY, 12);
         List<HardwarePart> storages = prioritizeCandidates(required(parts, HardwarePartType.STORAGE), 5);
         List<HardwarePart> psus = prioritizeCandidates(required(parts, HardwarePartType.PSU), 7);
-        List<HardwarePart> cases = prioritizeCandidates(required(parts, HardwarePartType.CASE), 7);
-        List<HardwarePart> coolers = prioritizeCandidates(required(parts, HardwarePartType.COOLER), 7);
+        List<HardwarePart> cases = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.CASE), 7), required(parts, HardwarePartType.CASE), preferences, HardwarePartType.CASE, 9);
+        List<HardwarePart> coolers = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.COOLER), 7), required(parts, HardwarePartType.COOLER), preferences, HardwarePartType.COOLER, 9);
         BuildPlan best = null;
         BuildPlan fallback = null;
         List<BuildPlan> localCandidates = new ArrayList<>();
@@ -1187,7 +1187,57 @@ public class AiService {
                 score -= 70;
             }
         }
+        score += casePreferenceScore(part, preferences) * 80;
+        score += coolerPreferenceScore(part, preferences) * 80;
         return score;
+    }
+
+    private int casePreferenceScore(HardwarePart part, BuildPreferences preferences) {
+        if (part.getType() != HardwarePartType.CASE && part.getType() != HardwarePartType.MOTHERBOARD) {
+            return 0;
+        }
+        int score = 0;
+        String text = hardwarePartText(part);
+        String size = preferences.preferredCaseSize();
+        String formFactor = part.getFormFactor() == null ? "" : part.getFormFactor().toUpperCase(Locale.ROOT);
+        if (StringUtils.hasText(size)) {
+            if ("ATX".equals(size) && ("ATX".equals(formFactor) || "E-ATX".equals(formFactor))) {
+                score += 3;
+            } else if ("M-ATX".equals(size) && ("M-ATX".equals(formFactor) || "MATX".equals(formFactor))) {
+                score += 4;
+            } else if ("ITX".equals(size) && "ITX".equals(formFactor)) {
+                score += 5;
+            }
+        }
+        if (part.getType() == HardwarePartType.CASE) {
+            String style = preferences.preferredCaseStyle();
+            if ("PANORAMA".equals(style) && containsAny(text, "海景房", "全景", "270", "玻璃")) {
+                score += 4;
+            } else if ("TOWER".equals(style) && containsAny(text, "中塔", "风道", "网孔", "MESH", "AIRFLOW")) {
+                score += 4;
+            } else if ("SILENT".equals(style) && containsAny(text, "静音", "隔音", "低噪")) {
+                score += 4;
+            }
+        }
+        return score;
+    }
+
+    private int coolerPreferenceScore(HardwarePart part, BuildPreferences preferences) {
+        if (part.getType() != HardwarePartType.COOLER) {
+            return 0;
+        }
+        String text = hardwarePartText(part);
+        String coolerType = preferences.preferredCoolerType();
+        if ("AIO".equals(coolerType)) {
+            return containsAny(text, "AIO", "水冷", "240", "280", "360") ? 5 : -4;
+        }
+        if ("AIR".equals(coolerType)) {
+            return containsAny(text, "风冷", "塔式", "双塔", "TOWER", "LOW PROFILE") ? 5 : text.contains("水冷") || text.contains("AIO") ? -5 : 0;
+        }
+        if ("QUIET".equals(coolerType)) {
+            return containsAny(text, "静音", "安静", "低噪", "PWM") ? 4 : 0;
+        }
+        return 0;
     }
 
     private boolean isCaseCompatible(HardwarePart motherboard, HardwarePart pcCase) {
@@ -1315,7 +1365,9 @@ public class AiService {
             Optional<JdProduct> product = jdProductSearchService.bestAvailableForPart(
                     part,
                     preferences.preferredColor(),
-                    part.getType() == HardwarePartType.CPU
+                    part.getType() == HardwarePartType.CPU,
+                    preferences.preferredCaseStyle(),
+                    preferences.preferredCoolerType()
             );
             if (product.isEmpty()) {
                 return Optional.empty();
@@ -1428,7 +1480,7 @@ public class AiService {
         boolean explicitIntelCpu = containsAny(text, "intel cpu", "intel处理器", "intel平台", "英特尔", "酷睿", "core ultra", "core i")
                 || (containsAny(text, "cpu", "处理器") && containsAny(text, "更倾向 intel", "倾向 intel", "偏向 intel", "选 intel"));
         String color = "";
-        if (containsAny(text, "白色", "纯白", "海景房", "white")) {
+        if (containsAny(text, "白色", "纯白", "white")) {
             color = "WHITE";
         } else if (containsAny(text, "黑色", "全黑", "black")) {
             color = "BLACK";
@@ -1436,6 +1488,9 @@ public class AiService {
         String gpuModel = extractPreferredGpuModel(text);
         int memoryCapacity = extractPreferredMemoryCapacity(text);
         boolean preferX3d = text.contains("x3d");
+        String caseSize = preferredCaseSizeFromText(text);
+        String caseStyle = preferredCaseStyleFromText(text);
+        String coolerType = preferredCoolerTypeFromText(text);
         return new BuildPreferences(
                 (productivity || explicitNvidiaGpu) && !explicitAmdGpu,
                 explicitAmdGpu,
@@ -1444,7 +1499,10 @@ public class AiService {
                 color,
                 gpuModel,
                 memoryCapacity,
-                preferX3d
+                preferX3d,
+                caseSize,
+                caseStyle,
+                coolerType
         );
     }
 
@@ -1481,6 +1539,20 @@ public class AiService {
         if (!StringUtils.hasText(preferredColor)) {
             preferredColor = preferredColorFromMemory(userMemory);
         }
+        String preferredCaseSize = current.preferredCaseSize();
+        String preferredCaseStyle = current.preferredCaseStyle();
+        String preferredCoolerType = current.preferredCoolerType();
+        String appearanceMemory = userMemory.getAppearancePreference().toLowerCase(Locale.ROOT);
+        String noiseMemory = userMemory.getNoisePreference().toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(preferredCaseSize)) {
+            preferredCaseSize = preferredCaseSizeFromText(appearanceMemory);
+        }
+        if (!StringUtils.hasText(preferredCaseStyle)) {
+            preferredCaseStyle = preferredCaseStyleFromText(appearanceMemory);
+        }
+        if (!StringUtils.hasText(preferredCoolerType)) {
+            preferredCoolerType = preferredCoolerTypeFromText(appearanceMemory + " " + noiseMemory);
+        }
         boolean preferX3d = current.preferX3dCpu();
         return new BuildPreferences(
                 preferNvidiaGpu,
@@ -1490,17 +1562,62 @@ public class AiService {
                 preferredColor,
                 current.preferredGpuModel(),
                 current.preferredMemoryCapacityGb(),
-                preferX3d
+                preferX3d,
+                preferredCaseSize,
+                preferredCaseStyle,
+                preferredCoolerType
         );
     }
 
     private String preferredColorFromMemory(UserMemory userMemory) {
         String appearance = userMemory.getAppearancePreference().toLowerCase(Locale.ROOT);
-        if (containsAny(appearance, "白色", "纯白", "海景房", "white")) {
+        if (containsAny(appearance, "白色", "纯白", "white")) {
             return "WHITE";
         }
         if (containsAny(appearance, "黑色", "全黑", "black")) {
             return "BLACK";
+        }
+        return "";
+    }
+
+    private String preferredCaseSizeFromText(String text) {
+        String value = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (containsAny(value, "itx", "小 itx", "小机箱", "迷你", "小钢炮")) {
+            return "ITX";
+        }
+        if (containsAny(value, "m-atx", "matx", "中 m-atx", "中等", "中机箱")) {
+            return "M-ATX";
+        }
+        if (containsAny(value, "e-atx", "大 atx", "大机箱", "全塔", "大塔")) {
+            return "ATX";
+        }
+        return "";
+    }
+
+    private String preferredCaseStyleFromText(String text) {
+        String value = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (containsAny(value, "海景房", "全景", "270°", "270度", "双面玻璃")) {
+            return "PANORAMA";
+        }
+        if (containsAny(value, "静音", "隔音", "安静")) {
+            return "SILENT";
+        }
+        if (containsAny(value, "中塔", "风道", "网孔", "mesh", "airflow")) {
+            return "TOWER";
+        }
+        return "";
+    }
+
+    private String preferredCoolerTypeFromText(String text) {
+        String value = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (containsAny(value, "水冷", "一体水", "aio")) {
+            return "AIO";
+        }
+        if (containsAny(value, "风冷", "塔式", "双塔", "下压")) {
+            return "AIR";
+        }
+        if (containsAny(value, "静音", "安静", "低噪")) {
+            return "QUIET";
         }
         return "";
     }
@@ -1687,6 +1804,17 @@ public class AiService {
         return "";
     }
 
+    private String hardwarePartText(HardwarePart part) {
+        if (part == null) {
+            return "";
+        }
+        return (part.getModel()
+                + " " + part.getSpecs()
+                + " " + part.getFormFactor()
+                + " " + part.getSupportedFormFactors()
+                + " " + part.getMemoryType()).toUpperCase(Locale.ROOT);
+    }
+
     private boolean hasAvailableSelection(BuildPartSelectionRequest selection) {
         return selection != null
                 && StringUtils.hasText(selection.title())
@@ -1757,6 +1885,13 @@ public class AiService {
         if (type == HardwarePartType.MEMORY && preferences.preferredMemoryCapacityGb() > 0) {
             return model.contains(preferences.preferredMemoryCapacityGb() + "GB")
                     || model.contains(preferences.preferredMemoryCapacityGb() + "G");
+        }
+        if ((type == HardwarePartType.MOTHERBOARD || type == HardwarePartType.CASE)
+                && StringUtils.hasText(preferences.preferredCaseSize())) {
+            return casePreferenceScore(part, preferences) > 0;
+        }
+        if (type == HardwarePartType.COOLER && StringUtils.hasText(preferences.preferredCoolerType())) {
+            return coolerPreferenceScore(part, preferences) > 0;
         }
         return false;
     }
@@ -1948,6 +2083,13 @@ public class AiService {
                     || model.contains(preferences.preferredMemoryCapacityGb() + "G"))) {
                 score += 5;
             }
+            if ((part.getType() == HardwarePartType.CASE || part.getType() == HardwarePartType.MOTHERBOARD)
+                    && casePreferenceScore(part, preferences) > 0) {
+                score += 4;
+            }
+            if (part.getType() == HardwarePartType.COOLER && coolerPreferenceScore(part, preferences) > 0) {
+                score += 4;
+            }
         }
         return score;
     }
@@ -1967,7 +2109,13 @@ public class AiService {
                     int progress = 28 + Math.min(54, Math.round(current * 54f / Math.max(1, total)));
                     progressReporter.update(progress, "检索京东商品", hardwareTypeLabel(part.getType()) + " " + part.getModel());
                 }
-                jdProductSearchService.bestAvailableForPart(part, preferences.preferredColor()).ifPresent(product -> result.put(part.getId(), new BuildPartSelectionRequest(
+                jdProductSearchService.bestAvailableForPart(
+                        part,
+                        preferences.preferredColor(),
+                        false,
+                        preferences.preferredCaseStyle(),
+                        preferences.preferredCoolerType()
+                ).ifPresent(product -> result.put(part.getId(), new BuildPartSelectionRequest(
                             part.getId(),
                             product.title(),
                             product.price(),
@@ -2452,7 +2600,10 @@ public class AiService {
             String preferredColor,
             String preferredGpuModel,
             int preferredMemoryCapacityGb,
-            boolean preferX3dCpu
+            boolean preferX3dCpu,
+            String preferredCaseSize,
+            String preferredCaseStyle,
+            String preferredCoolerType
     ) {
     }
 

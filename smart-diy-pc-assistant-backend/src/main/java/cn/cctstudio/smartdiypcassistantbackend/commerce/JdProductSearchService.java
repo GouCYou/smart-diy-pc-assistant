@@ -79,11 +79,21 @@ public class JdProductSearchService {
     }
 
     public Optional<JdProduct> bestAvailableForPart(HardwarePart part, String preferredColor, boolean allowCpuBundleFallback) {
+        return bestAvailableForPart(part, preferredColor, allowCpuBundleFallback, "", "");
+    }
+
+    public Optional<JdProduct> bestAvailableForPart(
+            HardwarePart part,
+            String preferredColor,
+            boolean allowCpuBundleFallback,
+            String preferredCaseStyle,
+            String preferredCoolerType
+    ) {
         String keyword = part.getModel() + " " + typeKeyword(part.getType());
         return searchProductsForPart(keyword, part, allowCpuBundleFallback).stream()
                 .filter(product -> part.getId().equals(product.hardwarePartId()))
                 .filter(this::isAvailableProduct)
-                .max(Comparator.comparingInt(product -> productRank(part, product, preferredColor)));
+                .max(Comparator.comparingInt(product -> productRank(part, product, preferredColor, preferredCaseStyle, preferredCoolerType)));
     }
 
     public List<JdProduct> searchProductsForPart(String keyword, HardwarePart part) {
@@ -315,24 +325,57 @@ public class JdProductSearchService {
         addKeyword(keywords, modelKey + " " + typeKeyword(part.getType()));
         if (part.getType() == HardwarePartType.CPU) {
             addKeyword(keywords, modelKey + " 处理器");
+            addKeyword(keywords, modelKey + " 盒装 处理器");
             if (part.getModel().toUpperCase(Locale.ROOT).contains("RYZEN")) {
                 addKeyword(keywords, "AMD " + modelKey);
                 addKeyword(keywords, "锐龙 " + modelKey);
+                addKeyword(keywords, "AMD 锐龙 " + extractPrimaryModelToken(modelKey) + " 盒装CPU");
+                addKeyword(keywords, "锐龙 " + extractPrimaryModelToken(modelKey) + " 台式机处理器");
             }
             if (part.getModel().toUpperCase(Locale.ROOT).contains("CORE")) {
                 addKeyword(keywords, "Intel " + modelKey);
                 addKeyword(keywords, "酷睿 " + modelKey);
+                addKeyword(keywords, "英特尔 酷睿 " + modelKey + " 盒装CPU");
+                addKeyword(keywords, modelKey + " 台式机处理器");
             }
         } else if (part.getType() == HardwarePartType.MOTHERBOARD) {
             addKeyword(keywords, modelKey + " 主板");
+            addMotherboardKeywords(keywords, part, modelKey);
         } else if (part.getType() == HardwarePartType.GPU) {
             addKeyword(keywords, modelKey + " 显卡");
+            addGpuKeywords(keywords, modelKey);
         } else if (part.getType() == HardwarePartType.CASE) {
             addCaseKeywords(keywords, part);
         } else if (part.getType() == HardwarePartType.COOLER) {
             addCoolerKeywords(keywords, part);
         }
         return keywords;
+    }
+
+    private void addMotherboardKeywords(List<String> keywords, HardwarePart part, String modelKey) {
+        String chipset = extractBoardChipset(part.getModel());
+        if (!StringUtils.hasText(chipset)) {
+            chipset = modelKey;
+        }
+        String memoryType = StringUtils.hasText(part.getMemoryType()) ? part.getMemoryType() : "";
+        String formFactor = StringUtils.hasText(part.getFormFactor()) ? part.getFormFactor() : "";
+        addKeyword(keywords, joinKeyword(chipset, memoryType, "主板"));
+        addKeyword(keywords, joinKeyword(chipset, formFactor, "台式机主板"));
+        addKeyword(keywords, joinKeyword(part.getSocketType(), chipset, "主板"));
+    }
+
+    private void addGpuKeywords(List<String> keywords, String modelKey) {
+        String normalized = modelKey.toUpperCase(Locale.ROOT);
+        addKeyword(keywords, modelKey + " 台式机显卡 全新");
+        if (normalized.startsWith("RTX") || normalized.startsWith("GTX")) {
+            addKeyword(keywords, "英伟达 " + modelKey + " 显卡 全新");
+            addKeyword(keywords, "NVIDIA " + modelKey + " 显卡");
+        } else if (normalized.startsWith("RX")) {
+            addKeyword(keywords, "AMD " + modelKey + " 显卡 全新");
+            addKeyword(keywords, "Radeon " + modelKey + " 显卡");
+        } else if (normalized.startsWith("ARC")) {
+            addKeyword(keywords, "英特尔 " + modelKey + " 显卡");
+        }
     }
 
     private void addCaseKeywords(List<String> keywords, HardwarePart part) {
@@ -344,6 +387,8 @@ public class JdProductSearchService {
             addKeyword(keywords, "全塔机箱");
             addKeyword(keywords, "大机箱");
             addKeyword(keywords, "大塔机箱");
+            addKeyword(keywords, "大中塔风道机箱");
+            addKeyword(keywords, "E-ATX 海景房机箱");
             addGenericCaseKeywords(keywords);
             return;
         }
@@ -351,6 +396,9 @@ public class JdProductSearchService {
             addKeyword(keywords, "M-ATX 机箱");
             addKeyword(keywords, "MATX 小机箱");
             addKeyword(keywords, "M-ATX 小机箱");
+            addKeyword(keywords, "MATX 海景房机箱");
+            addKeyword(keywords, "M-ATX 台式机机箱");
+            addKeyword(keywords, "MATX 风道机箱");
             addKeyword(keywords, "紧凑机箱");
             addKeyword(keywords, "小机箱");
             addKeyword(keywords, "海景房机箱");
@@ -361,6 +409,8 @@ public class JdProductSearchService {
             addKeyword(keywords, "ITX 小机箱");
             addKeyword(keywords, "迷你机箱");
             addKeyword(keywords, "小钢炮机箱");
+            addKeyword(keywords, "ITX 迷你海景房机箱");
+            addKeyword(keywords, "A4 ITX 机箱");
             addGenericCaseKeywords(keywords);
             return;
         }
@@ -369,6 +419,9 @@ public class JdProductSearchService {
         addKeyword(keywords, "台式机中塔机箱");
         addKeyword(keywords, "ATX 中塔机箱");
         addKeyword(keywords, "ATX 风道机箱");
+        addKeyword(keywords, "ATX 海景房机箱");
+        addKeyword(keywords, "中塔海景房机箱");
+        addKeyword(keywords, "网孔中塔机箱");
         addKeyword(keywords, "风道机箱");
         addKeyword(keywords, "海景房机箱");
         addGenericCaseKeywords(keywords);
@@ -385,32 +438,41 @@ public class JdProductSearchService {
         if (model.contains("360")) {
             addKeyword(keywords, "360 水冷");
             addKeyword(keywords, "360 一体式水冷");
+            addKeyword(keywords, "CPU散热器 水冷 360");
+            addKeyword(keywords, "360 一体水冷 CPU");
             return;
         }
         if (model.contains("280")) {
             addKeyword(keywords, "280 水冷");
             addKeyword(keywords, "280 一体式水冷");
+            addKeyword(keywords, "CPU散热器 水冷 280");
+            addKeyword(keywords, "280 一体水冷 CPU");
             return;
         }
         if (model.contains("240")) {
             addKeyword(keywords, "240 水冷");
             addKeyword(keywords, "240 一体式水冷");
+            addKeyword(keywords, "CPU散热器 水冷 240");
+            addKeyword(keywords, "240 一体水冷 CPU");
             return;
         }
         if (model.contains("DUAL TOWER")) {
             addKeyword(keywords, "双塔 风冷 散热器");
             addKeyword(keywords, "CPU 双塔散热器");
             addKeyword(keywords, "双塔 CPU 风冷");
+            addKeyword(keywords, "双塔风冷 CPU散热器");
             return;
         }
         if (model.contains("LOW PROFILE")) {
             addKeyword(keywords, "下压式 散热器");
             addKeyword(keywords, "ITX CPU 散热器");
+            addKeyword(keywords, "下压式 CPU 风冷");
             return;
         }
         addKeyword(keywords, "塔式 风冷 散热器");
         addKeyword(keywords, "CPU 风冷散热器");
         addKeyword(keywords, "单塔 CPU 散热器");
+        addKeyword(keywords, "塔式风冷 CPU散热器");
     }
 
     private void addMemoryKeywords(List<String> keywords, HardwarePart part) {
@@ -419,9 +481,11 @@ public class JdProductSearchService {
         int capacity = extractMemoryCapacityGb(text);
         String speed = extractMemorySpeed(text);
         if (capacity > 0 && StringUtils.hasText(speed)) {
+            addKeyword(keywords, capacity + "GB " + type + " " + speed + " 全新 台式机内存");
             addKeyword(keywords, capacity + "GB " + type + " " + speed + " 台式机内存");
             addKeyword(keywords, capacity + "G " + type + " " + speed + " 内存条");
             if (capacity % 2 == 0) {
+                addKeyword(keywords, type + " " + speed + " " + (capacity / 2) + "Gx2 全新 套条");
                 addKeyword(keywords, type + " " + speed + " " + (capacity / 2) + "Gx2 套条");
                 addKeyword(keywords, (capacity / 2) + "Gx2 " + type + " " + speed + " 内存");
             }
@@ -496,7 +560,7 @@ public class JdProductSearchService {
         return product != null && isAvailableProduct(product.title(), product.price(), product.link(), product.skuId());
     }
 
-    private int productRank(HardwarePart part, JdProduct product, String preferredColor) {
+    private int productRank(HardwarePart part, JdProduct product, String preferredColor, String preferredCaseStyle, String preferredCoolerType) {
         int score = 0;
         if (StringUtils.hasText(product.image())) {
             score += 12;
@@ -533,7 +597,55 @@ public class JdProductSearchService {
         if (StringUtils.hasText(modelKey) && title.contains(modelKey.toUpperCase(Locale.ROOT))) {
             score += 35;
         }
+        score += caseStyleProductScore(part, product.title(), preferredCaseStyle);
+        score += coolerProductScore(part, product.title(), preferredCoolerType);
         return score;
+    }
+
+    private int caseStyleProductScore(HardwarePart part, String title, String preferredCaseStyle) {
+        if (part.getType() != HardwarePartType.CASE || !StringUtils.hasText(preferredCaseStyle) || !StringUtils.hasText(title)) {
+            return 0;
+        }
+        String normalized = preferredCaseStyle.toUpperCase(Locale.ROOT);
+        if ("PANORAMA".equals(normalized)) {
+            if (containsAnyText(title, "海景房", "全景", "270°", "270度", "玻璃侧透", "双面玻璃")) {
+                return 110;
+            }
+            if (containsAnyText(title, "网孔", "Mesh", "风道")) {
+                return -20;
+            }
+        }
+        if ("TOWER".equals(normalized)) {
+            if (containsAnyText(title, "中塔", "风道", "网孔", "Mesh", "Airflow", "散热")) {
+                return 100;
+            }
+            if (containsAnyText(title, "海景房", "全景")) {
+                return -22;
+            }
+        }
+        if ("SILENT".equals(normalized)) {
+            if (containsAnyText(title, "静音", "隔音", "低噪")) {
+                return 120;
+            }
+        }
+        return 0;
+    }
+
+    private int coolerProductScore(HardwarePart part, String title, String preferredCoolerType) {
+        if (part.getType() != HardwarePartType.COOLER || !StringUtils.hasText(preferredCoolerType) || !StringUtils.hasText(title)) {
+            return 0;
+        }
+        String normalized = preferredCoolerType.toUpperCase(Locale.ROOT);
+        if ("AIO".equals(normalized)) {
+            return containsAnyText(title, "水冷", "一体水", "AIO") ? 100 : -80;
+        }
+        if ("AIR".equals(normalized)) {
+            return containsAnyText(title, "风冷", "塔式", "双塔", "下压") ? 95 : title.contains("水冷") ? -90 : 0;
+        }
+        if ("QUIET".equals(normalized)) {
+            return containsAnyText(title, "静音", "低噪", "PWM", "温控") ? 70 : 0;
+        }
+        return 0;
     }
 
     private int referencePrice(HardwarePart part) {
@@ -679,8 +791,9 @@ public class JdProductSearchService {
     }
 
     private boolean containsAnyText(String text, String... keywords) {
+        String source = text == null ? "" : text.toLowerCase(Locale.ROOT);
         for (String keyword : keywords) {
-            if (text.contains(keyword)) {
+            if (source.contains(keyword.toLowerCase(Locale.ROOT))) {
                 return true;
             }
         }
@@ -692,7 +805,18 @@ public class JdProductSearchService {
                 && price != null
                 && price > 0
                 && StringUtils.hasText(link)
-                && StringUtils.hasText(skuId);
+                && StringUtils.hasText(skuId)
+                && !isForbiddenProductTitle(title);
+    }
+
+    private boolean isForbiddenProductTitle(String title) {
+        if (!StringUtils.hasText(title)) {
+            return false;
+        }
+        String normalized = title.toUpperCase(Locale.ROOT);
+        return containsAnyText(title, "二手", "拆机", "翻新", "准新", "95新", "99新", "成色", "矿卡", "库存机", "闲置")
+                || normalized.contains("USED")
+                || normalized.contains("REFURBISHED");
     }
 
     private JdProduct toProductSnapshot(HardwarePart part, String title, Integer price, String image, String link, String skuId, String shopName) {
@@ -824,7 +948,8 @@ public class JdProductSearchService {
             case GPU -> (title.contains("显卡") || normalizedTitle.contains("RTX") || normalizedTitle.contains("GTX") || normalizedTitle.contains("RX"))
                     && !title.contains("整机")
                     && !title.contains("主机");
-            case MEMORY -> title.contains("内存") || normalizedTitle.contains("DDR");
+            case MEMORY -> (title.contains("内存") || normalizedTitle.contains("DDR"))
+                    && !isForbiddenMemoryTitle(title);
             case STORAGE -> title.contains("固态") || title.contains("硬盘") || normalizedTitle.contains("SSD") || normalizedTitle.contains("NVME");
             case PSU -> (title.contains("电源") || normalizedTitle.contains(" PSU"))
                     && !title.contains("电源线")
@@ -914,6 +1039,9 @@ public class JdProductSearchService {
         if (part == null || part.getType() != HardwarePartType.MEMORY || !StringUtils.hasText(title)) {
             return true;
         }
+        if (isForbiddenMemoryTitle(title)) {
+            return false;
+        }
         String normalizedTitle = title.toUpperCase(Locale.ROOT);
         String text = partText(part);
         boolean targetDdr4 = text.contains("DDR4");
@@ -933,10 +1061,60 @@ public class JdProductSearchService {
         if (capacity > 0 && !titleContainsMemoryCapacity(title, capacity)) {
             return false;
         }
+        if (capacity > 0 && !matchesMemoryPackageIntent(title, text, capacity)) {
+            return false;
+        }
         String speed = extractMemorySpeed(text);
         return !StringUtils.hasText(speed)
                 || normalizedTitle.contains(speed)
                 || titleContainsCompatibleMemorySpeed(title, speed);
+    }
+
+    private boolean matchesMemoryPackageIntent(String title, String targetText, int capacity) {
+        boolean targetKit = targetText.contains("X2") || targetText.contains("套条");
+        if (!targetKit || capacity <= 0) {
+            return true;
+        }
+        int stickCapacity = capacity / 2;
+        if (stickCapacity <= 0) {
+            return true;
+        }
+        if (titleMentionsMemoryPair(title, stickCapacity)
+                || containsAnyText(title, capacity + "GB套条", capacity + "G套条", capacity + "GB 套条", capacity + "G 套条")) {
+            return true;
+        }
+        if (containsAnyText(title, "单条", "单根")
+                || containsAnyCompact(title, stickCapacity + "GDDR", stickCapacity + "GBDDR")) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean titleMentionsMemoryPair(String title, int stickCapacity) {
+        return containsAnyCompact(
+                title,
+                stickCapacity + "GX2",
+                stickCapacity + "GBX2",
+                stickCapacity + "G2",
+                stickCapacity + "GB2"
+        ) || containsAnyText(title, stickCapacity + "G*2", stickCapacity + "GB*2", stickCapacity + "G×2", stickCapacity + "GB×2", "2条套条");
+    }
+
+    private boolean isForbiddenMemoryTitle(String title) {
+        if (isForbiddenProductTitle(title)) {
+            return true;
+        }
+        String normalizedTitle = title.toUpperCase(Locale.ROOT).replace(" ", "");
+        boolean ecc = normalizedTitle.contains("ECC")
+                && !normalizedTitle.contains("NONECC")
+                && !normalizedTitle.contains("NON-ECC");
+        return ecc
+                || normalizedTitle.contains("RDIMM")
+                || normalizedTitle.contains("RECC")
+                || title.contains("服务器内存")
+                || title.contains("服务器专用")
+                || title.contains("工作站内存")
+                || title.contains("专用条");
     }
 
     private boolean titleContainsCompatibleMemorySpeed(String title, String targetSpeed) {
@@ -1129,6 +1307,25 @@ public class JdProductSearchService {
             }
         }
         return String.join(" ", parts);
+    }
+
+    private String extractPrimaryModelToken(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("\\b\\d{4,5}[A-Z0-9]*\\b", Pattern.CASE_INSENSITIVE).matcher(value);
+        if (matcher.find()) {
+            return matcher.group();
+        }
+        return value;
+    }
+
+    private String extractBoardChipset(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        Matcher matcher = BOARD_CHIPSET_PATTERN.matcher(value.toUpperCase(Locale.ROOT));
+        return matcher.find() ? matcher.group() : "";
     }
 
     private String compact(String value) {
