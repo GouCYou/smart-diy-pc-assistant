@@ -5977,9 +5977,10 @@
 	}
 
 	.prompt-icon-image {
-		width: 32px;
-		height: 32px;
-		margin-right: 12px;
+		width: 24px;
+		height: 24px;
+		margin-right: 14px;
+		flex-shrink: 0;
 	}
 
 	.prompt-text {
