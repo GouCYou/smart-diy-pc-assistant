@@ -12,71 +12,73 @@
 			<view class="nav-spacer"></view>
 		</view>
 
-		<view class="hero">
-			<view class="ai-mark">
-				<image class="ai-mark-logo" src="/static/logo.png" mode="aspectFill"></image>
+		<scroll-view class="auth-scroll" scroll-y="true">
+			<view class="hero">
+				<view class="ai-mark">
+					<image class="ai-mark-logo" src="/static/logo.png" mode="aspectFill"></image>
+				</view>
+				<text class="hero-title">{{ authMode == 'login' ? '欢迎回来' : (authMode == 'register' ? '立即加入' : '重置密码') }}</text>
 			</view>
-			<text class="hero-title">{{ authMode == 'login' ? '欢迎回来' : (authMode == 'register' ? '立即加入' : '重置密码') }}</text>
-		</view>
 
-		<view v-if="authMode != 'reset'" class="mode-switch">
-			<view :class="authMode == 'login' ? 'mode-indicator mode-indicator-login' : 'mode-indicator mode-indicator-register'"></view>
-			<view :class="authMode == 'login' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('login')">
-				<text :class="authMode == 'login' ? 'mode-text mode-text-active' : 'mode-text'">登录</text>
-			</view>
-			<view :class="authMode == 'register' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('register')">
-				<text :class="authMode == 'register' ? 'mode-text mode-text-active' : 'mode-text'">注册</text>
-			</view>
-		</view>
-		<view v-else class="reset-switch">
-			<text class="reset-switch-text" @click="setAuthMode('login')">返回登录</text>
-		</view>
-
-		<view :class="authMotionClass.length > 0 ? 'form ' + authMotionClass : 'form'">
-			<input v-if="authMode != 'reset'" class="form-input" v-model="username" :placeholder="authMode == 'login' ? '用户名或邮箱' : '英文用户名'" placeholder-class="input-placeholder" @input="handleUsernameInput" />
-			<input v-if="authMode == 'register' || authMode == 'reset'" class="form-input" v-model="email" placeholder="邮箱" placeholder-class="input-placeholder" />
-			<view v-if="authMode == 'register' || authMode == 'reset'" class="captcha-row">
-				<input class="form-input captcha-input" v-model="captchaCode" maxlength="4" placeholder="验证码" placeholder-class="input-placeholder" />
-				<view class="captcha-image-box" @click="loadCaptcha">
-					<image v-if="captchaImage.length > 0" class="captcha-image" :src="captchaImage" mode="aspectFit"></image>
-					<text v-else class="captcha-refresh-text">刷新</text>
+			<view v-if="authMode != 'reset'" class="mode-switch">
+				<view :class="authMode == 'login' ? 'mode-indicator mode-indicator-login' : 'mode-indicator mode-indicator-register'"></view>
+				<view :class="authMode == 'login' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('login')">
+					<text :class="authMode == 'login' ? 'mode-text mode-text-active' : 'mode-text'">登录</text>
+				</view>
+				<view :class="authMode == 'register' ? 'mode-item mode-item-active' : 'mode-item'" @click="setAuthMode('register')">
+					<text :class="authMode == 'register' ? 'mode-text mode-text-active' : 'mode-text'">注册</text>
 				</view>
 			</view>
-			<view v-if="authMode == 'register' || authMode == 'reset'" class="verification-row">
-				<input class="form-input verification-input" v-model="verificationCode" maxlength="6" placeholder="邮箱验证码" placeholder-class="input-placeholder" />
-				<view :class="canSendCode ? 'code-button' : 'code-button code-button-disabled'" @click="sendVerificationCode">
-					<text class="code-button-text">{{ codeCountdown > 0 ? codeCountdown + 's' : (sendingCode ? '发送中' : '发送验证码') }}</text>
-				</view>
+			<view v-else class="reset-switch">
+				<text class="reset-switch-text" @click="setAuthMode('login')">返回登录</text>
 			</view>
-			<view class="password-field">
-				<input class="form-input password-input" v-model="password" :password="!passwordVisible" :placeholder="authMode == 'reset' ? '新密码' : '密码'" placeholder-class="input-placeholder" />
-				<view v-if="password.length > 0" class="password-eye-button" @click="passwordVisible = !passwordVisible">
-					<view :class="passwordVisible ? 'eye-icon eye-icon-active' : 'eye-icon'">
-						<view class="eye-line eye-line-top"></view>
-						<view class="eye-line eye-line-bottom"></view>
-						<view class="eye-pupil"></view>
-						<view v-if="!passwordVisible" class="eye-slash"></view>
+
+			<view :class="authMotionClass.length > 0 ? 'form ' + authMotionClass : 'form'">
+				<input v-if="authMode != 'reset'" class="form-input" v-model="username" :placeholder="authMode == 'login' ? '用户名或邮箱' : '英文用户名'" placeholder-class="input-placeholder" @input="handleUsernameInput" />
+				<input v-if="authMode == 'register' || authMode == 'reset'" class="form-input" v-model="email" placeholder="邮箱" placeholder-class="input-placeholder" />
+				<view v-if="authMode == 'register' || authMode == 'reset'" class="captcha-row">
+					<input class="form-input captcha-input" v-model="captchaCode" maxlength="4" placeholder="验证码" placeholder-class="input-placeholder" />
+					<view class="captcha-image-box" @click="loadCaptcha">
+						<image v-if="captchaImage.length > 0" class="captcha-image" :src="captchaImage" mode="aspectFit"></image>
+						<text v-else class="captcha-refresh-text">刷新</text>
 					</view>
 				</view>
-			</view>
-			<view v-if="authMode == 'register' || authMode == 'reset'" class="password-field">
-				<input class="form-input password-input" v-model="confirmPassword" :password="!confirmPasswordVisible" placeholder="确认密码" placeholder-class="input-placeholder" />
-				<view v-if="confirmPassword.length > 0" class="password-eye-button" @click="confirmPasswordVisible = !confirmPasswordVisible">
-					<view :class="confirmPasswordVisible ? 'eye-icon eye-icon-active' : 'eye-icon'">
-						<view class="eye-line eye-line-top"></view>
-						<view class="eye-line eye-line-bottom"></view>
-						<view class="eye-pupil"></view>
-						<view v-if="!confirmPasswordVisible" class="eye-slash"></view>
+				<view v-if="authMode == 'register' || authMode == 'reset'" class="verification-row">
+					<input class="form-input verification-input" v-model="verificationCode" maxlength="6" placeholder="邮箱验证码" placeholder-class="input-placeholder" />
+					<view :class="canSendCode ? 'code-button' : 'code-button code-button-disabled'" @click="sendVerificationCode">
+						<text class="code-button-text">{{ codeCountdown > 0 ? codeCountdown + 's' : (sendingCode ? '发送中' : '发送验证码') }}</text>
 					</view>
 				</view>
+				<view class="password-field">
+					<input class="form-input password-input" v-model="password" :password="!passwordVisible" :placeholder="authMode == 'reset' ? '新密码' : '密码'" placeholder-class="input-placeholder" />
+					<view v-if="password.length > 0" class="password-eye-button" @click="passwordVisible = !passwordVisible">
+						<view :class="passwordVisible ? 'eye-icon eye-icon-active' : 'eye-icon'">
+							<view class="eye-line eye-line-top"></view>
+							<view class="eye-line eye-line-bottom"></view>
+							<view class="eye-pupil"></view>
+							<view v-if="!passwordVisible" class="eye-slash"></view>
+						</view>
+					</view>
+				</view>
+				<view v-if="authMode == 'register' || authMode == 'reset'" class="password-field">
+					<input class="form-input password-input" v-model="confirmPassword" :password="!confirmPasswordVisible" placeholder="确认密码" placeholder-class="input-placeholder" />
+					<view v-if="confirmPassword.length > 0" class="password-eye-button" @click="confirmPasswordVisible = !confirmPasswordVisible">
+						<view :class="confirmPasswordVisible ? 'eye-icon eye-icon-active' : 'eye-icon'">
+							<view class="eye-line eye-line-top"></view>
+							<view class="eye-line eye-line-bottom"></view>
+							<view class="eye-pupil"></view>
+							<view v-if="!confirmPasswordVisible" class="eye-slash"></view>
+						</view>
+					</view>
+				</view>
+				<view v-if="authMode == 'login'" class="forgot-row">
+					<text class="forgot-link" @click="setAuthMode('reset')">忘记密码</text>
+				</view>
+				<view class="submit-button" @click="submitAuth">
+					<text class="submit-text">{{ loading ? '请稍候...' : (authMode == 'login' ? '登录' : (authMode == 'register' ? '注册并登录' : '重置密码')) }}</text>
+				</view>
 			</view>
-			<view v-if="authMode == 'login'" class="forgot-row">
-				<text class="forgot-link" @click="setAuthMode('reset')">忘记密码</text>
-			</view>
-			<view class="submit-button" @click="submitAuth">
-				<text class="submit-text">{{ loading ? '请稍候...' : (authMode == 'login' ? '登录' : (authMode == 'register' ? '注册并登录' : '重置密码')) }}</text>
-			</view>
-		</view>
+		</scroll-view>
 	</view>
 </template>
 
@@ -469,6 +471,7 @@
 
 	.auth-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		max-width: none;
 		background-color: #f6f7fb;
@@ -477,6 +480,7 @@
 		padding-bottom: constant(safe-area-inset-bottom);
 		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -524,6 +528,13 @@
 		flex-direction: row;
 		align-items: center;
 		justify-content: space-between;
+		flex-shrink: 0;
+	}
+
+	.auth-scroll {
+		flex: 1;
+		height: auto;
+		min-height: 0;
 	}
 
 	.nav-button,

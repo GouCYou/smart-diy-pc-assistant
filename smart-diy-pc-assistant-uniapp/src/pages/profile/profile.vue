@@ -659,6 +659,7 @@
 
 	.profile-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		max-width: none;
 		background-color: #f6f7fb;
@@ -667,6 +668,7 @@
 		padding-bottom: constant(safe-area-inset-bottom);
 		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -718,6 +720,8 @@
 
 	.profile-scroll {
 		flex: 1;
+		height: auto;
+		min-height: 0;
 	}
 
 	.nav-button {

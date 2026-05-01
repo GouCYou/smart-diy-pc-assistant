@@ -39,10 +39,8 @@
 							<text v-else-if="item.following" class="follow-chip follow-chip-muted">已关注</text>
 						</view>
 						<text class="follow-username">@{{ item.username }}</text>
-						<text class="follow-bio">{{ item.bio.length > 0 ? item.bio : '这个人还没有写简介。' }}</text>
 					</view>
 					<view class="follow-side">
-						<text class="follow-time">{{ formatTime(item.followedAt) }}</text>
 						<text class="follow-arrow">›</text>
 					</view>
 				</view>
@@ -186,16 +184,6 @@
 		uni.removeStorageSync('app_user_id')
 	}
 
-	function formatTime(value : string) : string {
-		if (value == null || value.length == 0) {
-			return ''
-		}
-		if (value.length >= 16) {
-			return value.substring(5, 16).replace('T', ' ')
-		}
-		return value
-	}
-
 	function goBack() {
 		if (pageLeaving.value) {
 			return
@@ -228,10 +216,13 @@
 
 	.follow-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		background-color: #f2f2f7;
 		padding-left: 18px;
 		padding-right: 18px;
+		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -385,7 +376,7 @@
 
 	.follow-scroll {
 		flex: 1;
-		height: 0;
+		height: auto;
 		min-height: 0;
 	}
 
@@ -493,30 +484,14 @@
 		color: #8e8e93;
 	}
 
-	.follow-bio {
-		margin-top: 4px;
-		font-size: 13px;
-		line-height: 18px;
-		color: #667085;
-		max-height: 36px;
-		overflow: hidden;
-	}
-
 	.follow-side {
-		width: 58px;
+		width: 28px;
 		align-items: flex-end;
+		justify-content: center;
 		margin-left: 10px;
 	}
 
-	.follow-time {
-		font-size: 11px;
-		line-height: 16px;
-		color: #8e8e93;
-		text-align: right;
-	}
-
 	.follow-arrow {
-		margin-top: 6px;
 		font-size: 28px;
 		line-height: 28px;
 		color: #c7c7cc;

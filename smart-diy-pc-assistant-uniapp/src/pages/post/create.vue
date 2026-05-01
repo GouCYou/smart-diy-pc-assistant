@@ -651,11 +651,15 @@
 
 <style>
 	.create-page {
+		width: 100vw;
+		height: 100vh;
 		min-height: 100vh;
 		background-color: #f6f7fb;
 		color: #111827;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
+		box-sizing: border-box;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -780,7 +784,8 @@
 
 	.create-scroll {
 		flex: 1;
-		height: 0;
+		height: auto;
+		min-height: 0;
 		padding-left: 20px;
 		padding-right: 20px;
 		box-sizing: border-box;

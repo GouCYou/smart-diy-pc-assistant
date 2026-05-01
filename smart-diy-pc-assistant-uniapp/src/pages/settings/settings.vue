@@ -314,10 +314,13 @@
 
 	.settings-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		background-color: #f6f7fb;
 		padding-left: 16px;
 		padding-right: 16px;
+		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -405,6 +408,8 @@
 
 	.settings-scroll {
 		flex: 1;
+		height: auto;
+		min-height: 0;
 	}
 
 	.setting-group {

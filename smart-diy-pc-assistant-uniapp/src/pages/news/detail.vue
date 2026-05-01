@@ -888,12 +888,14 @@
 <style>
 	.news-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		max-width: none;
 		background-color: #f6f7fb;
 		padding-left: 20px;
 		padding-right: 20px;
 		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -983,14 +985,17 @@
 
 	.news-scroll {
 		width: 100%;
-		height: calc(100vh - 180px);
+		flex: 1;
+		height: auto;
+		min-height: 0;
 		box-sizing: border-box;
 	}
 
 	.news-bottom-spacer {
-		height: 22px;
-		height: calc(22px + constant(safe-area-inset-bottom));
-		height: calc(22px + env(safe-area-inset-bottom));
+		height: 118px;
+		height: calc(118px + constant(safe-area-inset-bottom));
+		height: calc(118px + env(safe-area-inset-bottom));
+		flex-shrink: 0;
 	}
 
 	.article-card,

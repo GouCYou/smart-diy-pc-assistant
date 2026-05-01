@@ -189,7 +189,7 @@
 					<input class="section-search-input" v-model="buildSearchKeyword" placeholder="搜索配置名称、备注或配件" placeholder-class="section-search-placeholder" @input="resetBuildPage()" />
 				</view>
 
-				<scroll-view class="build-scroll" scroll-y="true">
+				<scroll-view class="build-scroll" scroll-y="true" enable-flex="true" :scroll-top="buildScrollTop">
 					<view v-if="getFilteredBuildList().length > 0" class="build-list">
 						<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildPageDetail(item)">
 							<view class="build-card-head">
@@ -274,6 +274,7 @@
 							</view>
 						</view>
 					</view>
+					<view class="build-bottom-spacer"></view>
 				</scroll-view>
 			</view>
 
@@ -291,7 +292,7 @@
 							<text class="build-live-value">{{ selectedBuildDetail.performanceScore }} 分</text>
 						</view>
 					</view>
-						<text v-if="selectedBuildDetail.note.length > 0" class="build-page-detail-note">备注：{{ selectedBuildDetail.note }}</text>
+					<text v-if="selectedBuildDetail.note.length > 0" class="build-page-detail-note">备注：{{ selectedBuildDetail.note }}</text>
 				</view>
 				<view class="build-page-section">
 					<text class="build-page-section-title">所选配件</text>
@@ -317,6 +318,7 @@
 						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
 					</view>
 				</view>
+				<view class="build-page-detail-bottom-spacer"></view>
 			</scroll-view>
 			<view v-if="buildPageDetailVisible" class="build-page-actions build-page-detail-actions">
 				<view v-if="selectedBuildCanEdit" class="build-action build-action-soft" @click="editBuild(selectedBuildDetail)">
@@ -362,7 +364,7 @@
 				<input class="section-search-input" v-model="communitySearchKeyword" placeholder="搜索动态内容、作者或配置" placeholder-class="section-search-placeholder" @input="resetCommunityPage()" />
 			</view>
 
-			<scroll-view class="community-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="communityRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshCommunityPosts">
+			<scroll-view class="community-scroll" scroll-y="true" enable-flex="true" :scroll-top="communityScrollTop" refresher-enabled="true" :refresher-triggered="communityRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshCommunityPosts">
 				<view v-if="getFilteredCommunityPosts().length > 0" class="community-list">
 					<view v-for="post in getPagedCommunityPosts()" :key="post.id" class="post-card" @click="openPostDetail(post.id)">
 						<view class="post-head">
@@ -463,7 +465,7 @@
 				<input class="section-search-input" v-model="newsSearchKeyword" placeholder="搜索新闻标题、标签或内容" placeholder-class="section-search-placeholder" @input="resetNewsPage()" />
 			</view>
 
-			<scroll-view class="news-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="newsRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshNews">
+			<scroll-view class="news-scroll" scroll-y="true" enable-flex="true" :scroll-top="newsScrollTop" refresher-enabled="true" :refresher-triggered="newsRefreshing" refresher-background="#f6f7fb" @refresherrefresh="refreshNews">
 				<view v-if="getFilteredNewsList().length > 0" class="news-feed">
 					<view v-for="(item, index) in getPagedNewsList()" :key="item.id" :class="index == 0 && newsPage == 1 ? 'tech-news-card tech-news-card-featured' : 'tech-news-card'" @click="openNewsDetail(item.id)">
 						<view class="tech-news-cover-wrap">
@@ -590,7 +592,7 @@
 			</view>
 		</view>
 
-		<view v-if="!historyOpen" class="tabbar">
+		<view v-if="!historyOpen && !buildPageDetailVisible" class="tabbar">
 			<view :class="'tab-indicator tab-indicator-' + activeTab"></view>
 			<view :class="activeTab == 0 ? 'tab-item tab-item-active' : 'tab-item'" @click="selectTab(0)">
 				<view class="tab-glyph ai-tab-glyph">
@@ -1249,7 +1251,7 @@
 </template>
 
 <script setup lang="ts">
-	import { ref } from 'vue'
+	import { nextTick, ref } from 'vue'
 	import { onHide, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
 	import { MentionItem, MentionSearchUser, MentionToken, buildMentionTokens, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers, normalizeMentions } from '../../common/mention'
@@ -1438,6 +1440,7 @@
 	const buildCustomPage = ref(1)
 	const buildAiPage = ref(1)
 	const buildFavoritePage = ref(1)
+	const buildScrollTop = ref(0)
 	const buildLoading = ref(false)
 	const buildFormVisible = ref(false)
 	const buildSaving = ref(false)
@@ -1523,12 +1526,14 @@
 	const communitySegment = ref(0)
 	const communitySearchKeyword = ref('')
 	const communityPage = ref(1)
+	const communityScrollTop = ref(0)
 	const communityLoading = ref(false)
 	const communityRefreshing = ref(false)
 	const newsList = ref([] as NewsItem[])
 	const newsSearchKeyword = ref('')
 	const newsSort = ref('latest')
 	const newsPage = ref(1)
+	const newsScrollTop = ref(0)
 	const newsLoading = ref(false)
 	const newsRefreshing = ref(false)
 	const postFormVisible = ref(false)
@@ -1755,8 +1760,28 @@
 		return value.toLowerCase().indexOf(keyword) >= 0
 	}
 
+	function resetScrollTop(scrollTopRef : { value : number }) {
+		scrollTopRef.value = scrollTopRef.value == 0 ? 1 : 0
+		nextTick(() => {
+			scrollTopRef.value = 0
+		})
+	}
+
+	function scrollBuildToTop() {
+		resetScrollTop(buildScrollTop)
+	}
+
+	function scrollCommunityToTop() {
+		resetScrollTop(communityScrollTop)
+	}
+
+	function scrollNewsToTop() {
+		resetScrollTop(newsScrollTop)
+	}
+
 	function resetBuildPage() {
 		setBuildPage(1)
+		scrollBuildToTop()
 	}
 
 	function getBuildPage() : number {
@@ -1803,10 +1828,12 @@
 
 	function previousBuildPage() {
 		setBuildPage(getBuildPage() - 1)
+		scrollBuildToTop()
 	}
 
 	function nextBuildPage() {
 		setBuildPage(getBuildPage() + 1)
+		scrollBuildToTop()
 	}
 
 	function getBuildPageCount() : number {
@@ -1845,6 +1872,7 @@
 
 	function resetCommunityPage() {
 		communityPage.value = 1
+		scrollCommunityToTop()
 	}
 
 	function clampCommunityPage() {
@@ -1862,6 +1890,7 @@
 			return
 		}
 		communityPage.value = communityPage.value - 1
+		scrollCommunityToTop()
 	}
 
 	function nextCommunityPage() {
@@ -1870,6 +1899,7 @@
 			return
 		}
 		communityPage.value = communityPage.value + 1
+		scrollCommunityToTop()
 	}
 
 	function getCommunityPageCount() : number {
@@ -1911,7 +1941,8 @@
 		}
 		newsSort.value = value
 		newsPage.value = 1
-		loadNewsWithForce(true)
+		scrollNewsToTop()
+		loadNewsWithForce(true, 1, true)
 	}
 
 	function getFilteredNewsList() : NewsItem[] {
@@ -1929,6 +1960,7 @@
 
 	function resetNewsPage() {
 		newsPage.value = 1
+		scrollNewsToTop()
 	}
 
 	function clampNewsPage() {
@@ -1946,6 +1978,7 @@
 			return
 		}
 		newsPage.value = newsPage.value - 1
+		scrollNewsToTop()
 	}
 
 	function nextNewsPage() {
@@ -1954,6 +1987,7 @@
 			return
 		}
 		newsPage.value = newsPage.value + 1
+		scrollNewsToTop()
 	}
 
 	function getNewsPageCount() : number {
@@ -2074,6 +2108,7 @@
 
 	function selectBuildSegment(index : number) {
 		buildSegment.value = index
+		scrollBuildToTop()
 		loadBuildConfigs()
 	}
 
@@ -2087,7 +2122,8 @@
 		}
 		communitySegment.value = index
 		communityPage.value = 1
-		loadCommunityPostsWithForce(true)
+		scrollCommunityToTop()
+		loadCommunityPostsWithForce(true, 1, true)
 	}
 
 	function toggleHistory() {
@@ -2640,9 +2676,10 @@
 	}
 
 	function refreshCommunityPosts() {
-		const keepPage = communityPage.value
 		communityRefreshing.value = true
-		loadCommunityPostsWithForce(true, keepPage)
+		communityPage.value = 1
+		scrollCommunityToTop()
+		loadCommunityPostsWithForce(true, 1, true)
 	}
 
 	function loadNews() {
@@ -2650,12 +2687,13 @@
 	}
 
 	function refreshNews() {
-		const keepPage = newsPage.value
 		newsRefreshing.value = true
-		loadNewsWithForce(true, keepPage)
+		newsPage.value = 1
+		scrollNewsToTop()
+		loadNewsWithForce(true, 1, true)
 	}
 
-	function loadNewsWithForce(force : boolean, keepPage = 0) {
+	function loadNewsWithForce(force : boolean, keepPage = 0, shouldScrollTop = false) {
 		if (newsLoading.value && !force) {
 			return
 		}
@@ -2676,6 +2714,9 @@
 					newsList.value = list
 					newsPage.value = targetPage
 					clampNewsPage()
+					if (shouldScrollTop) {
+						scrollNewsToTop()
+					}
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -2692,7 +2733,7 @@
 		})
 	}
 
-	function loadCommunityPostsWithForce(force : boolean, keepPage = 0) {
+	function loadCommunityPostsWithForce(force : boolean, keepPage = 0, shouldScrollTop = false) {
 		if (communityLoading.value && !force) {
 			return
 		}
@@ -2713,6 +2754,9 @@
 					communityPosts.value = posts
 					communityPage.value = targetPage
 					clampCommunityPage()
+					if (shouldScrollTop) {
+						scrollCommunityToTop()
+					}
 					return
 				}
 				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
@@ -5590,6 +5634,7 @@
 
 	.app-shell {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		max-width: none;
 		background-color: #f6f7fb;
@@ -7751,15 +7796,21 @@
 
 	.build-detail-metrics {
 		flex-direction: row;
-		align-items: center;
-		background-color: #f6f9ff;
-		border-radius: 22px;
-		padding: 12px;
+		align-items: stretch;
 		margin-bottom: 12px;
 	}
 
 	.build-detail-metric {
 		flex: 1;
+		min-width: 0;
+		border-radius: 18px;
+		background-color: #f6f9ff;
+		padding: 12px;
+		margin-right: 10px;
+	}
+
+	.build-detail-metric:last-child {
+		margin-right: 0;
 	}
 
 	.build-detail-scroll {
@@ -8074,21 +8125,41 @@
 	}
 
 	.build-scroll {
-		height: 465px;
+		flex: 1;
+		height: 0;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.build-list-pane {
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		min-height: 0;
 	}
 
 	.build-page-detail-scroll {
-		height: 610px;
-		padding-bottom: 110px;
+		flex: 1;
+		height: auto;
+		min-height: 0;
 		box-sizing: border-box;
 		animation-name: pageInRight;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
+	}
+
+	.build-bottom-spacer {
+		height: 118px;
+		height: calc(118px + constant(safe-area-inset-bottom));
+		height: calc(118px + env(safe-area-inset-bottom));
+		flex-shrink: 0;
+	}
+
+	.build-page-detail-bottom-spacer {
+		height: 110px;
+		height: calc(110px + constant(safe-area-inset-bottom));
+		height: calc(110px + env(safe-area-inset-bottom));
+		flex-shrink: 0;
 	}
 
 	.build-page-detail-card,
@@ -8228,9 +8299,9 @@
 		position: fixed;
 		left: 34px;
 		right: 34px;
-		bottom: 100px;
-		bottom: calc(100px + constant(safe-area-inset-bottom));
-		bottom: calc(100px + env(safe-area-inset-bottom));
+		bottom: 18px;
+		bottom: calc(18px + constant(safe-area-inset-bottom));
+		bottom: calc(18px + env(safe-area-inset-bottom));
 		width: auto;
 		margin-bottom: 0;
 		padding: 8px;
@@ -8240,11 +8311,13 @@
 		border-color: rgba(255, 255, 255, 0.9);
 		box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
 		justify-content: center;
-		z-index: 19;
+		z-index: 21;
 	}
 
 	.build-list {
 		width: 100%;
+		flex-direction: column;
+		flex-shrink: 0;
 		padding-top: 4px;
 		padding-bottom: 18px;
 	}
@@ -8301,6 +8374,7 @@
 		max-width: none;
 		flex-direction: column;
 		align-self: stretch;
+		flex-shrink: 0;
 		overflow: hidden;
 		border-radius: 28px;
 		background-color: #ffffff;
@@ -8850,9 +8924,12 @@
 		flex: 1;
 		height: 0;
 		min-height: 0;
+		overflow: hidden;
 	}
 
 	.community-list {
+		flex-direction: column;
+		flex-shrink: 0;
 		padding-bottom: 0;
 	}
 
@@ -9784,9 +9861,12 @@
 		flex: 1;
 		height: 0;
 		min-height: 0;
+		overflow: hidden;
 	}
 
 	.news-feed {
+		flex-direction: column;
+		flex-shrink: 0;
 		padding-bottom: 0;
 	}
 

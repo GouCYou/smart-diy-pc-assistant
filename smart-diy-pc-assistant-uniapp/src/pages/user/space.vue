@@ -98,25 +98,31 @@
 
 			<view v-if="activeSegment == 1 && !isSpaceHidden()" class="content-list">
 				<view v-for="item in getFavoriteItems()" :key="item.type + '-' + item.id">
-					<view v-if="item.type == 'build'" class="build-link-card-row-wrap" @click="openBuildDetail(item.build)">
-						<view class="build-link-icon">
+					<view v-if="item.type == 'build'" class="favorite-build-card" @click="openBuildDetail(item.build)">
+						<view class="favorite-build-icon">
 							<view class="build-link-card">
 								<view class="build-link-card-head"></view>
 								<view class="build-link-card-row"></view>
 								<view class="build-link-card-row build-link-card-row-short"></view>
 							</view>
 						</view>
-						<view class="build-link-main">
-							<text class="build-link-title">{{ item.build.title }}</text>
-							<text class="build-link-desc">{{ getBuildCardDesc(item.build) }}</text>
+						<view class="favorite-build-main">
+							<view class="favorite-build-head">
+								<text class="favorite-build-title">{{ item.build.title }}</text>
+								<text class="favorite-build-chip">配置单</text>
+							</view>
+							<text v-if="item.build.serialNumber.length > 0" class="favorite-build-serial">{{ item.build.serialNumber }}</text>
 						</view>
-						<text class="build-link-arrow">›</text>
+						<text class="favorite-build-arrow">›</text>
 					</view>
-					<view v-if="item.type == 'post'" class="post-card" @click="openPostDetail(item.post.id)">
-						<view class="post-content mention-content">
-							<text v-for="(token, index) in buildMentionTokens(item.post.content, item.post.mentions)" :key="'favorite-post-mention-' + item.post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+					<view v-if="item.type == 'post'" class="favorite-post-card" @click="openPostDetail(item.post.id)">
+						<view class="favorite-post-main">
+							<view class="favorite-post-content mention-content">
+								<text v-for="(token, index) in buildMentionTokens(item.post.content, item.post.mentions)" :key="'favorite-post-mention-' + item.post.id + '-' + index" :class="token.userId > 0 ? 'mention-token mention-token-active post-mention-token' : 'mention-token post-mention-token'" @click.stop="openMentionToken(token)">{{ token.text }}</text>
+							</view>
+							<text class="favorite-post-meta">收藏动态 · {{ item.post.author.nickname }} · {{ formatTime(item.time) }}</text>
 						</view>
-						<text class="item-meta">收藏动态 · {{ item.post.author.nickname }} · {{ formatTime(item.time) }}</text>
+						<image v-if="item.post.imageUrls.length > 0" class="favorite-post-thumb" :src="item.post.imageUrls[0]" mode="aspectFill"></image>
 					</view>
 					<view v-if="item.type == 'news'" class="favorite-news-card" @click="openNewsDetail(item.news.id)">
 						<view class="favorite-news-cover-wrap">
@@ -1004,10 +1010,13 @@
 
 	.space-page {
 		min-height: 100vh;
+		height: 100vh;
 		width: 100vw;
 		background-color: #f6f7fb;
 		padding-left: 16px;
 		padding-right: 16px;
+		box-sizing: border-box;
+		overflow: hidden;
 		animation-name: appPageIn;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -1080,6 +1089,26 @@
 	.back-chevron-line-top { top: 4px; transform: rotate(-45deg); }
 	.back-chevron-line-bottom { top: 10px; transform: rotate(45deg); }
 
+	.space-nav .nav-button .back-chevron {
+		position: relative;
+		left: auto;
+		top: auto;
+	}
+
+	.space-nav .nav-button .back-chevron-line {
+		background-color: #111827;
+	}
+
+	.space-nav .nav-button .back-chevron-line-top {
+		top: 4px;
+		transform: rotate(-45deg);
+	}
+
+	.space-nav .nav-button .back-chevron-line-bottom {
+		top: 10px;
+		transform: rotate(45deg);
+	}
+
 	.nav-title {
 		position: absolute;
 		pointer-events: none;
@@ -1112,6 +1141,8 @@
 
 	.space-scroll {
 		flex: 1;
+		height: auto;
+		min-height: 0;
 	}
 
 	.hero-card,
@@ -1429,6 +1460,10 @@
 		transition-timing-function: ease-out;
 	}
 
+	.space-page .space-segmented .segment-indicator {
+		width: calc((100% - 8px) / 2);
+	}
+
 	.segment-indicator-0 { transform: translateX(0); }
 	.segment-indicator-1 { transform: translateX(100%); }
 
@@ -1507,26 +1542,28 @@
 		margin-top: 6px;
 	}
 
-	.build-link-card-row-wrap {
-		min-height: 70px;
-		border-radius: 22px;
-		background-color: #f6f9ff;
+	.favorite-build-card {
+		min-height: 76px;
+		border-radius: 26px;
+		background-color: #ffffff;
 		border-width: 1px;
-		border-color: #e8eef8;
+		border-color: #dbe8ff;
 		flex-direction: row;
 		align-items: center;
-		padding: 12px;
-		margin-bottom: 10px;
+		padding: 14px;
+		margin-bottom: 12px;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
 	}
 
-	.build-link-icon {
-		width: 42px;
-		height: 42px;
+	.favorite-build-icon {
+		width: 48px;
+		height: 48px;
 		border-radius: 16px;
 		background-color: #111827;
 		align-items: center;
 		justify-content: center;
 		margin-right: 12px;
+		flex-shrink: 0;
 	}
 
 	.build-link-card {
@@ -1558,29 +1595,137 @@
 		margin-bottom: 0;
 	}
 
-	.build-link-main {
+	.favorite-build-main {
 		flex: 1;
+		min-width: 0;
 	}
 
-	.build-link-title {
+	.favorite-build-head {
+		width: 100%;
+		flex-direction: row;
+		align-items: center;
+		min-width: 0;
+	}
+
+	.favorite-build-title {
+		flex: 1;
+		min-width: 0;
+		font-size: 15px;
+		line-height: 21px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.favorite-build-chip {
+		height: 24px;
+		border-radius: 12px;
+		background-color: #e8f2ff;
+		padding-left: 9px;
+		padding-right: 9px;
+		margin-left: 8px;
+		font-size: 11px;
+		line-height: 24px;
+		font-weight: 900;
+		color: #007aff;
+		flex-shrink: 0;
+	}
+
+	.favorite-build-serial {
+		font-size: 12px;
+		line-height: 17px;
+		color: #667085;
+		margin-top: 4px;
+	}
+
+	.favorite-build-metrics {
+		width: 100%;
+		flex-direction: row;
+		margin-top: 10px;
+	}
+
+	.favorite-build-metric {
+		flex: 1;
+		min-width: 0;
+		border-radius: 16px;
+		background-color: #f6f9ff;
+		padding: 9px 10px;
+		margin-right: 8px;
+	}
+
+	.favorite-build-metric:last-child {
+		margin-right: 0;
+	}
+
+	.favorite-build-metric-label {
+		font-size: 11px;
+		line-height: 16px;
+		font-weight: 800;
+		color: #98a2b3;
+	}
+
+	.favorite-build-metric-value {
+		margin-top: 2px;
 		font-size: 15px;
 		line-height: 21px;
 		font-weight: 900;
 		color: #111827;
 	}
 
-	.build-link-desc {
-		font-size: 12px;
-		line-height: 17px;
-		color: #667085;
-		margin-top: 2px;
-	}
-
-	.build-link-arrow {
+	.favorite-build-arrow {
 		font-size: 28px;
 		line-height: 28px;
 		color: #98a2b3;
 		margin-left: 8px;
+		flex-shrink: 0;
+	}
+
+	.favorite-post-card {
+		width: 100%;
+		min-height: 92px;
+		border-radius: 28px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 14px 16px;
+		margin-bottom: 10px;
+		flex-direction: row;
+		align-items: center;
+		overflow: hidden;
+	}
+
+	.favorite-post-main {
+		flex: 1;
+		min-width: 0;
+		padding-right: 12px;
+	}
+
+	.favorite-post-content {
+		width: 100%;
+		max-height: 48px;
+		font-size: 16px;
+		line-height: 24px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+	}
+
+	.favorite-post-meta {
+		margin-top: 6px;
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 700;
+		color: #667085;
+	}
+
+	.favorite-post-thumb {
+		width: 72px;
+		height: 72px;
+		border-radius: 18px;
+		background-color: #eef2f7;
+		flex-shrink: 0;
 	}
 
 	.favorite-news-card {
@@ -1831,15 +1976,21 @@
 
 	.detail-metrics {
 		flex-direction: row;
-		background-color: #f6f9ff;
-		border-radius: 20px;
-		padding: 14px;
 		margin-top: 12px;
 		margin-bottom: 12px;
 	}
 
 	.detail-metric {
 		flex: 1;
+		min-width: 0;
+		border-radius: 18px;
+		background-color: #f6f9ff;
+		padding: 14px;
+		margin-right: 10px;
+	}
+
+	.detail-metric:last-child {
+		margin-right: 0;
 	}
 
 	.detail-label {

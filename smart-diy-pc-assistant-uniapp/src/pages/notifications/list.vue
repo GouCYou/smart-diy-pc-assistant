@@ -247,10 +247,13 @@
 
 	.notification-page {
 		width: 100vw;
+		height: 100vh;
 		min-height: 100vh;
 		background-color: #f2f2f7;
 		padding-left: 18px;
 		padding-right: 18px;
+		overflow: hidden;
+		box-sizing: border-box;
 		animation-name: pageInRight;
 		animation-duration: 260ms;
 		animation-timing-function: ease-out;
@@ -344,7 +347,7 @@
 
 	.notification-scroll {
 		flex: 1;
-		height: 0;
+		height: auto;
 		min-height: 0;
 	}
 
