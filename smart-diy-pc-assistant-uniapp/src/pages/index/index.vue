@@ -652,7 +652,7 @@
 					<view class="close-line close-line-two"></view>
 				</view>
 			</view>
-			<scroll-view class="history-list" scroll-y="true" :refresher-enabled="token.length > 0" :refresher-triggered="historyRefreshing" @refresherrefresh="refreshConversations">
+			<scroll-view class="history-list" scroll-y="true" enable-flex="true" :refresher-enabled="token.length > 0" :refresher-triggered="historyRefreshing" @refresherrefresh="refreshConversations">
 				<view v-if="conversationList.length > 0">
 					<view v-for="item in conversationList" :key="item.id" class="history-row">
 						<view :class="getHistoryItemClass(item.id)" @click="openConversation(item.id)" @longpress="showConversationDeleteAction(item.id)">
@@ -671,6 +671,7 @@
 					<text class="history-empty-title">暂无对话记录</text>
 					<text class="history-empty-desc">{{ token.length > 0 ? '开始第一次对话后，会在这里继续查看和切换。' : '登录后可以同步查看历史对话。' }}</text>
 				</view>
+				<view class="history-bottom-spacer"></view>
 			</scroll-view>
 		</view>
 
@@ -1433,6 +1434,7 @@
 	const historyOpen = ref(false)
 	const touchStartX = ref(0)
 	const touchStartY = ref(0)
+	let swipeNavigationStartLocked = false
 	const draft = ref('')
 	const buildSegment = ref(0)
 	const buildList = ref([] as BuildConfigItem[])
@@ -4936,14 +4938,10 @@
 			return
 		}
 		uni.showActionSheet({
-			itemList: ['分享到动态', '微信', 'QQ', '复制文本'],
+			itemList: ['分享到动态', '复制文本'],
 			success: (res) => {
 				if (res.tapIndex == 0) {
 					shareBuildToPost(item)
-					return
-				}
-				if (res.tapIndex == 1 || res.tapIndex == 2) {
-					shareBuildToSystem(item)
 					return
 				}
 				copyShareBuildText(item)
@@ -4959,21 +4957,6 @@
 		uni.setStorageSync('share_build_title', getDisplayBuildTitle(item.title))
 		uni.setStorageSync('share_build_serial_number', item.serialNumber)
 		publishPost()
-	}
-
-	function shareBuildToSystem(item : BuildConfigItem) {
-		const text = formatShareBuildText(item)
-		// #ifdef APP-PLUS
-		plus.share.sendWithSystem({
-			type: 'text',
-			content: text
-		}, () => {}, () => {
-			copyShareBuildText(item)
-		})
-		// #endif
-		// #ifndef APP-PLUS
-		copyShareBuildText(item)
-		// #endif
 	}
 
 	function copyShareBuildText(item : BuildConfigItem) {
@@ -5558,10 +5541,29 @@
 		return message
 	}
 
+	function isSwipeNavigationLocked() : boolean {
+		return buildFormVisible.value
+			|| partPickerVisible.value
+			|| productPickerVisible.value
+			|| buildDetailVisible.value
+			|| buildPageDetailVisible.value
+			|| chatBuildPickerVisible.value
+			|| composerQuickMenuVisible.value
+			|| requirementDrawerVisible.value
+			|| postFormVisible.value
+			|| postBuildPickerVisible.value
+			|| postDetailVisible.value
+			|| imagePreviewVisible.value
+			|| uploadProgressVisible.value
+			|| deleteDialogVisible.value
+	}
+
 	function handleTouchStart(event : TouchEvent) {
-		if (imagePreviewVisible.value) {
+		if (isSwipeNavigationLocked()) {
+			swipeNavigationStartLocked = true
 			return
 		}
+		swipeNavigationStartLocked = false
 		if (event.touches.length > 0) {
 			touchStartX.value = event.touches[0].clientX
 			touchStartY.value = event.touches[0].clientY
@@ -5569,7 +5571,11 @@
 	}
 
 	function handleTouchEnd(event : TouchEvent) {
-		if (imagePreviewVisible.value) {
+		if (swipeNavigationStartLocked) {
+			swipeNavigationStartLocked = false
+			return
+		}
+		if (isSwipeNavigationLocked()) {
 			return
 		}
 		if (event.changedTouches.length == 0) {
@@ -6792,8 +6798,11 @@
 		top: 0;
 		bottom: 0;
 		width: 304px;
+		height: 100vh;
 		background-color: #ffffff;
 		z-index: 61;
+		display: flex;
+		flex-direction: column;
 		padding-top: 56px;
 		padding-top: calc(56px + constant(safe-area-inset-top));
 		padding-top: calc(56px + env(safe-area-inset-top));
@@ -6804,6 +6813,7 @@
 		padding-bottom: env(safe-area-inset-bottom);
 		box-sizing: border-box;
 		box-shadow: none;
+		overflow: hidden;
 		transition-property: left;
 		transition-duration: 240ms;
 	}
@@ -6818,11 +6828,20 @@
 		flex-direction: row;
 		align-items: center;
 		justify-content: space-between;
+		flex-shrink: 0;
 	}
 
 	.history-list {
 		margin-top: 18px;
-		height: 620px;
+		flex: 1;
+		height: 0;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.history-bottom-spacer {
+		height: 16px;
+		flex-shrink: 0;
 	}
 
 	.history-row {
