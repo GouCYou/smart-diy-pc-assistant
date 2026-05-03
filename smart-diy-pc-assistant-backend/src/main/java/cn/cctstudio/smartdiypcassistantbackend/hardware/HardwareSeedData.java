@@ -65,8 +65,6 @@ public class HardwareSeedData implements ApplicationRunner {
         seed(gpu("", "RX 9070 XT", 0, 90, 304, 0, "RDNA 4 高端 2K/4K 显卡"));
         seed(gpu("", "RX 9070", 0, 86, 220, 0, "RDNA 4 高刷 2K 显卡"));
         seed(gpu("", "RX 9060 XT", 0, 76, 160, 0, "RDNA 4 主流 1080P/2K 显卡"));
-        seed(gpu("", "Arc B580", 0, 70, 190, 0, "Intel Battlemage 中端性价比显卡"));
-        seed(gpu("", "Arc B570", 0, 64, 150, 0, "Intel Battlemage 入门显卡"));
         seed(gpu("", "RTX 4070 SUPER", 0, 84, 220, 0, "上代高刷 2K 显卡"));
         seed(gpu("", "RTX 4070", 0, 80, 200, 0, "上代 2K 高画质显卡"));
         seed(gpu("", "RTX 4060 Ti", 0, 70, 160, 0, "上代主流 1080P/2K 入门显卡"));
@@ -74,13 +72,13 @@ public class HardwareSeedData implements ApplicationRunner {
         seed(gpu("", "RX 7800 XT", 0, 80, 263, 0, "上代大显存 2K 显卡"));
         seed(gpu("", "RX 7700 XT", 0, 74, 245, 0, "上代 2K 游戏显卡"));
 
-        seed(memory("", "64GB DDR5 6400", 0, 90, "DDR5", "32GBx2 套条，创作和高端游戏"));
-        seed(memory("", "32GB DDR5 7200", 0, 88, "DDR5", "16GBx2 高频套条"));
-        seed(memory("", "32GB DDR5 6400", 0, 84, "DDR5", "16GBx2 套条"));
-        seed(memory("", "32GB DDR5 6000", 0, 82, "DDR5", "16GBx2 套条，AM5 主流甜点"));
-        seed(memory("", "16GB DDR5 6000", 0, 70, "DDR5", "8GBx2 入门套条"));
-        seed(memory("", "32GB DDR4 3600", 0, 64, "DDR4", "16GBx2 套条"));
-        seed(memory("", "16GB DDR4 3200", 0, 56, "DDR4", "8GBx2 套条"));
+        seed(memory("", "64GB DDR5 6400", 0, 90, "DDR5", "2x32GB 双通道套条，创作和高端游戏"));
+        seed(memory("", "32GB DDR5 7200", 0, 88, "DDR5", "2x16GB 双通道高频套条"));
+        seed(memory("", "32GB DDR5 6400", 0, 84, "DDR5", "2x16GB 双通道套条"));
+        seed(memory("", "32GB DDR5 6000", 0, 82, "DDR5", "2x16GB 双通道套条，AM5 主流甜点"));
+        seed(memory("", "16GB DDR5 6000", 0, 70, "DDR5", "2x8GB 双通道入门套条"));
+        seed(memory("", "32GB DDR4 3600", 0, 64, "DDR4", "2x16GB 双通道套条"));
+        seed(memory("", "16GB DDR4 3200", 0, 56, "DDR4", "2x8GB 双通道套条"));
 
         seed(storage("", "PCIe 5.0 NVMe SSD 2TB", 0, 94, "新平台高端 PCIe 5.0 固态硬盘"));
         seed(storage("", "PCIe 5.0 NVMe SSD 1TB", 0, 88, "新平台 PCIe 5.0 固态硬盘"));

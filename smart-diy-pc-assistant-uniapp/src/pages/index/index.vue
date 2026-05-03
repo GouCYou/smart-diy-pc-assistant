@@ -14,7 +14,7 @@
 				</view>
 			</view>
 
-			<scroll-view class="chat-scroll" scroll-y="true">
+				<scroll-view class="chat-scroll" scroll-y="true" :scroll-top="chatScrollTop">
 				<view v-if="chatMessages.length == 0" class="chat-empty">
 					<view class="ai-orbit">
 						<view class="ai-core">
@@ -35,7 +35,7 @@
 				</view>
 
 				<view v-else class="message-list">
-					<view v-for="(message, index) in chatMessages" :key="index" :class="message.role == 'user' ? 'message-row message-row-user' : 'message-row'">
+					<view v-for="(message, index) in chatMessages" :key="message.localId || index" :class="message.role == 'user' ? 'message-row message-row-user' : 'message-row'">
 						<view :class="message.role == 'user' ? 'message-bubble message-bubble-user' : 'message-bubble message-bubble-ai'">
 							<text :class="message.role == 'user' ? 'message-text message-text-user' : 'message-text'">{{ message.content }}</text>
 						</view>
@@ -64,8 +64,8 @@
 									<view class="chat-news-tag-wrap">
 										<text class="chat-news-tag">{{ news.tag || '科技新闻' }}</text>
 									</view>
-									<text class="chat-news-title">{{ news.title }}</text>
-									<text class="chat-news-summary">{{ news.summary }}</text>
+									<text class="chat-news-title">{{ getCompactChatNewsTitle(news.title) }}</text>
+									<text v-if="getCompactChatNewsSummary(news.summary).length > 0" class="chat-news-summary">{{ getCompactChatNewsSummary(news.summary) }}</text>
 								</view>
 								<text class="chat-news-arrow">›</text>
 							</view>
@@ -107,6 +107,7 @@
 						</view>
 					</view>
 				</view>
+					<view class="chat-bottom-anchor"></view>
 			</scroll-view>
 
 				<view v-if="attachedBuildId > 0" class="composer-attachment">
@@ -142,7 +143,7 @@
 						<image class="composer-hub-image" src="/static/icons/chat-actions.svg" mode="aspectFit"></image>
 					</view>
 				<input class="composer-input" v-model="draft" confirm-type="send" placeholder="询问任何装机问题" placeholder-class="composer-placeholder" @confirm="submitMessage" />
-				<view :class="(draft.length > 0 || attachedBuildId > 0) && !chatLoading ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
+				<view :class="(draft.length > 0 || attachedBuildId > 0) && !chatLoading && !assistantTypingActive ? 'send-button send-button-ready' : 'send-button'" @click="submitMessage">
 					<view class="send-arrow-line"></view>
 					<view class="send-arrow-head send-arrow-head-top"></view>
 					<view class="send-arrow-head send-arrow-head-bottom"></view>
@@ -278,7 +279,7 @@
 				</scroll-view>
 			</view>
 
-			<scroll-view v-else class="build-page-detail-scroll" scroll-y="true">
+			<scroll-view v-else :class="buildPageDetailLeaving ? 'build-page-detail-scroll build-page-detail-scroll-leave' : 'build-page-detail-scroll'" scroll-y="true" :scroll-top="buildPageDetailScrollTop">
 				<view class="build-page-detail-card">
 					<text class="build-page-detail-title">{{ getDisplayBuildTitle(selectedBuildDetail.title) }}</text>
 					<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-page-detail-serial">{{ selectedBuildDetail.serialNumber }}</text>
@@ -318,6 +319,17 @@
 						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
 					</view>
 				</view>
+				<view class="build-page-section build-ai-review-section">
+					<view class="build-ai-review-head">
+						<text class="build-page-section-title build-ai-review-title">AI评价</text>
+						<view v-if="canGenerateBuildAiReview()" :class="buildReviewLoading ? 'build-ai-review-button build-ai-review-button-disabled' : 'build-ai-review-button'" @click="generateBuildAiReview">
+							<text class="build-ai-review-button-text">{{ buildReviewLoading ? '生成中' : (buildAiReviewDisplay.length > 0 ? '重新生成' : '生成') }}</text>
+						</view>
+					</view>
+					<text v-if="buildAiReviewDisplay.length > 0" class="build-ai-review-text">{{ buildAiReviewDisplay }}</text>
+					<text v-if="buildAiReviewDisplay.length > 0 && selectedBuildDetail.aiReviewUpdatedAt.length > 0" class="build-ai-review-time">生成于 {{ formatHistoryTime(selectedBuildDetail.aiReviewUpdatedAt) }}</text>
+					<text v-else-if="buildAiReviewDisplay.length == 0" class="build-ai-review-empty">{{ token.length > 0 ? '暂无AI评价' : '登录后可生成AI评价' }}</text>
+				</view>
 				<view class="build-page-detail-bottom-spacer"></view>
 			</scroll-view>
 			<view v-if="buildPageDetailVisible" class="build-page-actions build-page-detail-actions">
@@ -329,9 +341,9 @@
 					<text class="build-action-icon">↗</text>
 					<text class="build-action-text">分享</text>
 				</view>
-				<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
-					<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
-					<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
+				<view :class="selectedBuildDetail.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click="toggleBuildFavorite(selectedBuildDetail)">
+					<text :class="selectedBuildDetail.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
+					<text :class="selectedBuildDetail.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
 				</view>
 			</view>
 		</view>
@@ -585,6 +597,10 @@
 					</view>
 					<text class="menu-arrow">›</text>
 				</view>
+				<view class="menu-item" @click="openFeedback">
+					<text class="menu-text">反馈</text>
+					<text class="menu-arrow">›</text>
+				</view>
 				<view class="menu-item" @click="openSettings">
 					<text class="menu-text">设置</text>
 					<text class="menu-arrow">›</text>
@@ -829,7 +845,7 @@
 						<text class="build-live-value">{{ selectedBuildDetail.performanceScore }} 分</text>
 					</view>
 				</view>
-				<scroll-view class="build-detail-scroll" scroll-y="true">
+				<scroll-view class="build-detail-scroll" scroll-y="true" :scroll-top="buildDetailScrollTop">
 					<view v-for="part in getVisibleBuildParts(selectedBuildDetail.parts)" :key="part.id" class="detail-part-row" @click="openPartProduct(part)">
 						<image v-if="part.productImage.length > 0" class="detail-part-image" :src="part.productImage" mode="aspectFill"></image>
 						<view v-else class="detail-part-image detail-part-fallback">
@@ -848,6 +864,17 @@
 					<view class="compat-list compat-list-detail">
 						<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="compat-message">{{ message }}</text>
 					</view>
+					<view class="build-ai-review-compact">
+						<view class="build-ai-review-head">
+							<text class="build-page-section-title build-ai-review-title">AI评价</text>
+							<view v-if="canGenerateBuildAiReview()" :class="buildReviewLoading ? 'build-ai-review-button build-ai-review-button-disabled' : 'build-ai-review-button'" @click="generateBuildAiReview">
+								<text class="build-ai-review-button-text">{{ buildReviewLoading ? '生成中' : (buildAiReviewDisplay.length > 0 ? '重新生成' : '生成') }}</text>
+							</view>
+						</view>
+						<text v-if="buildAiReviewDisplay.length > 0" class="build-ai-review-text">{{ buildAiReviewDisplay }}</text>
+						<text v-if="buildAiReviewDisplay.length > 0 && selectedBuildDetail.aiReviewUpdatedAt.length > 0" class="build-ai-review-time">生成于 {{ formatHistoryTime(selectedBuildDetail.aiReviewUpdatedAt) }}</text>
+						<text v-else-if="buildAiReviewDisplay.length == 0" class="build-ai-review-empty">{{ token.length > 0 ? '暂无AI评价' : '登录后可生成AI评价' }}</text>
+					</view>
 					<text v-if="selectedBuildDetail.note.length > 0" class="detail-note">备注：{{ selectedBuildDetail.note }}</text>
 				</scroll-view>
 				<view class="build-detail-actions">
@@ -859,9 +886,9 @@
 						<text class="build-action-icon">↗</text>
 						<text class="build-action-text">分享</text>
 					</view>
-					<view class="build-action build-action-soft" @click="toggleBuildFavorite(selectedBuildDetail)">
-						<text :class="selectedBuildDetail.favorite ? 'favorite-icon favorite-icon-active' : 'favorite-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
-						<text class="build-action-text">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
+					<view :class="selectedBuildDetail.favorite ? 'build-action build-action-favorite build-action-favorite-active' : 'build-action build-action-favorite'" @click="toggleBuildFavorite(selectedBuildDetail)">
+						<text :class="selectedBuildDetail.favorite ? 'build-action-icon favorite-icon-active' : 'build-action-icon'">{{ selectedBuildDetail.favorite ? '★' : '☆' }}</text>
+						<text :class="selectedBuildDetail.favorite ? 'favorite-text favorite-text-active' : 'favorite-text'">{{ selectedBuildDetail.favorite ? '已收藏' : '收藏' }}</text>
 					</view>
 				</view>
 			</view>
@@ -924,7 +951,14 @@
 						</view>
 						<view class="requirement-range-row">
 							<text class="requirement-range-text">¥3000</text>
-							<text class="requirement-range-text">¥20000</text>
+							<text class="requirement-range-text">¥50000</text>
+						</view>
+						<view class="requirement-budget-input-row">
+							<text class="requirement-budget-input-label">自定义预算</text>
+							<view class="requirement-budget-input-shell">
+								<text class="requirement-budget-input-prefix">¥</text>
+								<input class="requirement-budget-input" type="number" :value="requirementBudgetDraft" maxlength="5" @input="handleRequirementBudgetInput" @blur="commitRequirementBudgetInput" @confirm="commitRequirementBudgetInput" />
+							</view>
 						</view>
 					</view>
 					<view class="requirement-section">
@@ -1284,6 +1318,8 @@
 		buildConfigTitle : string
 		buildConfigSerialNumber : string
 		newsReferences ?: ChatNewsReference[]
+		localId ?: string
+		typing ?: boolean
 	}
 
 	type AiBuildTask = {
@@ -1360,6 +1396,8 @@
 		content : string
 		source : string
 		favorite : boolean
+		aiReview : string
+		aiReviewUpdatedAt : string
 		updatedAt : string
 	}
 
@@ -1430,6 +1468,10 @@
 	}
 
 	const apiBaseUrl = API_BASE_URL
+	const REQUIREMENT_BUDGET_MIN = 3000
+	const REQUIREMENT_BUDGET_MAX = 50000
+	const REQUIREMENT_BUDGET_STEP = 500
+	const REQUIREMENT_BUDGET_RANGE = REQUIREMENT_BUDGET_MAX - REQUIREMENT_BUDGET_MIN
 	const activeTab = ref(0)
 	const historyOpen = ref(false)
 	const touchStartX = ref(0)
@@ -1462,6 +1504,9 @@
 	const activeStandardPart = ref(null as HardwarePartItem | null)
 	const buildDetailVisible = ref(false)
 	const buildPageDetailVisible = ref(false)
+	const buildPageDetailLeaving = ref(false)
+	const buildPageDetailScrollTop = ref(0)
+	const buildDetailScrollTop = ref(0)
 	const selectedBuildCanEdit = ref(true)
 	const chatBuildPickerVisible = ref(false)
 	const chatAttachBuildList = ref([] as BuildConfigItem[])
@@ -1471,6 +1516,7 @@
 	const composerQuickMenuVisible = ref(false)
 	const requirementDrawerVisible = ref(false)
 	const requirementBudget = ref(6000)
+	const requirementBudgetDraft = ref('6000')
 	const requirementScene = ref('game')
 	const requirementColor = ref('white')
 	const requirementBrand = ref('any')
@@ -1493,10 +1539,16 @@
 		content: '',
 		source: 'MANUAL',
 		favorite: false,
+		aiReview: '',
+		aiReviewUpdatedAt: '',
 		updatedAt: ''
 	} as BuildConfigItem)
+	const buildReviewLoading = ref(false)
+	const buildAiReviewDisplay = ref('')
 	const pageMotionClass = ref('')
 	const chatMessages = ref([] as ChatMessage[])
+	const chatScrollTop = ref(0)
+	const assistantTypingActive = ref(false)
 	const activeBuildTasks = ref([] as AiBuildTask[])
 	const conversationList = ref([] as ConversationSummary[])
 	const currentConversationId = ref(0)
@@ -1655,11 +1707,24 @@
 	let historyRefreshTimer : number = 0
 	let backendReconnectTimer : number = 0
 	let chatThinkingTimer : number = 0
+	let chatScrollTimer : number = 0
+	let chatScrollSequence = 100000
+	let assistantTypingTimer : number = 0
+	let assistantTypingMessageId = ''
+	let assistantTypingCursor = 0
+	let assistantTypingChars = [] as string[]
+	let assistantTypingFinalMessage = null as ChatMessage | null
+	let buildAiReviewTypingTimer : number = 0
+	let buildAiReviewTypingCursor = 0
+	let buildAiReviewTypingText = ''
+	let buildAiReviewScrollSequence = 90000
+	let chatMessageLocalIdSeed = 0
 	let buildTaskPollTimer : number = 0
 	let backendProbeRunning = false
 	let unreadNotificationReady = false
 	const backendReconnectPending = ref(false)
 	const chatThinkingStepIndex = ref(0)
+	const assistantTypingIntervalMs = 18
 
 	loadAuth()
 	if (token.value.length > 0) {
@@ -1706,6 +1771,9 @@
 		stopHistoryRefreshTimer()
 		stopBackendReconnectTimer()
 		stopChatThinkingTimer()
+		stopAssistantTyping(true)
+		stopBuildAiReviewTyping()
+		clearChatScrollTimer()
 		stopBuildTaskPolling()
 	})
 
@@ -1723,6 +1791,8 @@
 			content: '',
 			source: '',
 			favorite: false,
+			aiReview: '',
+			aiReviewUpdatedAt: '',
 			updatedAt: ''
 		} as BuildConfigItem
 	}
@@ -1767,6 +1837,39 @@
 		nextTick(() => {
 			scrollTopRef.value = 0
 		})
+	}
+
+	function clearChatScrollTimer() {
+		if (chatScrollTimer == 0) {
+			return
+		}
+		clearTimeout(chatScrollTimer)
+		chatScrollTimer = 0
+	}
+
+	function applyChatScrollToBottom() {
+		nextTick(() => {
+			chatScrollSequence += 100000
+			chatScrollTop.value = chatScrollSequence
+		})
+	}
+
+	function scrollChatToBottom(delay : number = 24) {
+		clearChatScrollTimer()
+		chatScrollTimer = setTimeout(() => {
+			chatScrollTimer = 0
+			applyChatScrollToBottom()
+		}, delay) as unknown as number
+	}
+
+	function scheduleChatScrollToBottom(delay : number = 90) {
+		if (chatScrollTimer != 0) {
+			return
+		}
+		chatScrollTimer = setTimeout(() => {
+			chatScrollTimer = 0
+			applyChatScrollToBottom()
+		}, delay) as unknown as number
 	}
 
 	function scrollBuildToTop() {
@@ -2086,7 +2189,9 @@
 		activeTab.value = index
 		historyOpen.value = false
 		if (index != 1) {
+			stopBuildAiReviewTyping()
 			buildPageDetailVisible.value = false
+			buildPageDetailLeaving.value = false
 		}
 		if (index == 4) {
 			loadAuth()
@@ -2178,8 +2283,8 @@
 					return
 				}
 				const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-				const rawBudget = 3000 + ratio * 17000
-				requirementBudget.value = snapRequirementBudget(rawBudget)
+				const rawBudget = REQUIREMENT_BUDGET_MIN + ratio * REQUIREMENT_BUDGET_RANGE
+				setRequirementBudget(rawBudget)
 			})
 			.exec()
 	}
@@ -2204,12 +2309,32 @@
 		if (Number.isNaN(value)) {
 			return requirementBudget.value
 		}
-		const stepped = Math.round((value - 3000) / 500) * 500 + 3000
-		return Math.max(3000, Math.min(20000, stepped))
+		const stepped = Math.round((value - REQUIREMENT_BUDGET_MIN) / REQUIREMENT_BUDGET_STEP) * REQUIREMENT_BUDGET_STEP + REQUIREMENT_BUDGET_MIN
+		return Math.max(REQUIREMENT_BUDGET_MIN, Math.min(REQUIREMENT_BUDGET_MAX, stepped))
+	}
+
+	function setRequirementBudget(value : number) {
+		const next = snapRequirementBudget(value)
+		requirementBudget.value = next
+		requirementBudgetDraft.value = String(next)
+	}
+
+	function handleRequirementBudgetInput(event : any) {
+		const raw = event != null && event.detail != null && event.detail.value != null ? String(event.detail.value) : ''
+		requirementBudgetDraft.value = raw.replace(/[^\d]/g, '').slice(0, 5)
+	}
+
+	function commitRequirementBudgetInput() {
+		const parsed = Number(requirementBudgetDraft.value)
+		if (!Number.isFinite(parsed)) {
+			setRequirementBudget(requirementBudget.value)
+			return
+		}
+		setRequirementBudget(parsed)
 	}
 
 	function getRequirementBudgetPercent() : number {
-		return Math.round(((requirementBudget.value - 3000) / 17000) * 1000) / 10
+		return Math.round(((requirementBudget.value - REQUIREMENT_BUDGET_MIN) / REQUIREMENT_BUDGET_RANGE) * 1000) / 10
 	}
 
 	function getSelectedRequirementSceneLabel() : string {
@@ -2226,6 +2351,7 @@
 	}
 
 	function submitRequirementPreset() {
+		commitRequirementBudgetInput()
 		const scene = getRequirementOptionLabel(requirementSceneOptions, requirementScene.value)
 		const color = getRequirementOptionLabel(requirementColorOptions, requirementColor.value)
 		const brand = getRequirementOptionLabel(requirementBrandOptions, requirementBrand.value)
@@ -2246,9 +2372,138 @@
 		submitMessage()
 	}
 
+	function createChatMessageLocalId() : string {
+		chatMessageLocalIdSeed += 1
+		return 'chat-message-' + Date.now() + '-' + chatMessageLocalIdSeed
+	}
+
+	function createAssistantMessage(content : string, buildConfigId : number = 0, buildConfigTitle : string = '', buildConfigSerialNumber : string = '', newsReferences : ChatNewsReference[] = [] as ChatNewsReference[]) : ChatMessage {
+		return {
+			role: 'assistant',
+			content,
+			buildConfigId,
+			buildConfigTitle,
+			buildConfigSerialNumber,
+			newsReferences
+		} as ChatMessage
+	}
+
+	function appendAssistantMessage(message : ChatMessage, animated : boolean = true) {
+		if (!animated) {
+			chatMessages.value.push({
+				...message,
+				localId: createChatMessageLocalId(),
+				typing: false
+			})
+			scrollChatToBottom()
+			return
+		}
+		startAssistantTyping(message)
+	}
+
+	function startAssistantTyping(finalMessage : ChatMessage) {
+		stopAssistantTyping(true)
+		const localId = createChatMessageLocalId()
+		chatMessages.value.push({
+			role: finalMessage.role,
+			content: '',
+			buildConfigId: 0,
+			buildConfigTitle: '',
+			buildConfigSerialNumber: '',
+			newsReferences: [] as ChatNewsReference[],
+			localId,
+			typing: true
+		} as ChatMessage)
+		assistantTypingActive.value = true
+		assistantTypingMessageId = localId
+		assistantTypingCursor = 0
+		assistantTypingChars = Array.from(finalMessage.content)
+		assistantTypingFinalMessage = {
+			...finalMessage,
+			localId,
+			typing: false
+		} as ChatMessage
+		scrollChatToBottom()
+		if (assistantTypingChars.length == 0) {
+			finishAssistantTyping()
+			return
+		}
+		assistantTypingTimer = setInterval(() => {
+			typeNextAssistantCharacter()
+		}, assistantTypingIntervalMs) as unknown as number
+	}
+
+	function typeNextAssistantCharacter() {
+		if (assistantTypingFinalMessage == null || assistantTypingMessageId.length == 0) {
+			stopAssistantTyping(false)
+			return
+		}
+		const messageIndex = chatMessages.value.findIndex(item => item.localId == assistantTypingMessageId)
+		if (messageIndex < 0) {
+			stopAssistantTyping(false)
+			return
+		}
+		if (assistantTypingCursor >= assistantTypingChars.length) {
+			finishAssistantTyping()
+			return
+		}
+		chatMessages.value[messageIndex].content = chatMessages.value[messageIndex].content + assistantTypingChars[assistantTypingCursor]
+		assistantTypingCursor += 1
+		scheduleChatScrollToBottom()
+		if (assistantTypingCursor >= assistantTypingChars.length) {
+			finishAssistantTyping()
+		}
+	}
+
+	function finishAssistantTyping() {
+		if (assistantTypingTimer != 0) {
+			clearInterval(assistantTypingTimer)
+			assistantTypingTimer = 0
+		}
+		const localId = assistantTypingMessageId
+		const finalMessage = assistantTypingFinalMessage
+		assistantTypingActive.value = false
+		assistantTypingMessageId = ''
+		assistantTypingCursor = 0
+		assistantTypingChars = [] as string[]
+		assistantTypingFinalMessage = null
+		if (finalMessage != null && localId.length > 0) {
+			const messageIndex = chatMessages.value.findIndex(item => item.localId == localId)
+			if (messageIndex >= 0) {
+				chatMessages.value[messageIndex] = {
+					...finalMessage,
+					localId,
+					typing: false
+				} as ChatMessage
+			}
+		}
+		scrollChatToBottom()
+	}
+
+	function stopAssistantTyping(completeCurrent : boolean) {
+		if (completeCurrent && assistantTypingFinalMessage != null) {
+			finishAssistantTyping()
+			return
+		}
+		if (assistantTypingTimer != 0) {
+			clearInterval(assistantTypingTimer)
+			assistantTypingTimer = 0
+		}
+		assistantTypingActive.value = false
+		assistantTypingMessageId = ''
+		assistantTypingCursor = 0
+		assistantTypingChars = [] as string[]
+		assistantTypingFinalMessage = null
+	}
+
+	function finishChatWaiting() {
+		chatLoading.value = false
+		stopChatThinkingTimer()
+	}
+
 	function submitMessage() {
 		composerQuickMenuVisible.value = false
-		if (chatRequestLocked || chatLoading.value) {
+		if (chatRequestLocked || chatLoading.value || assistantTypingActive.value) {
 			return
 		}
 		let text = draft.value.trim()
@@ -2275,8 +2530,10 @@
 			content: text,
 			buildConfigId: sentBuildId,
 			buildConfigTitle: sentBuildTitle,
-			buildConfigSerialNumber: sentBuildSerialNumber
+			buildConfigSerialNumber: sentBuildSerialNumber,
+			localId: createChatMessageLocalId()
 		})
+		scrollChatToBottom()
 		draft.value = ''
 		clearAttachedBuild()
 		chatLoading.value = true
@@ -2304,6 +2561,7 @@
 						upsertBuildTask(buildTask)
 						startBuildTaskPolling()
 						loadConversations()
+						scrollChatToBottom()
 						return
 					}
 					let generatedBuildId = 0
@@ -2320,14 +2578,14 @@
 					} else if (data.generatedBuildConfig != null && data.generatedBuildConfig.serialNumber != null) {
 						generatedBuildSerialNumber = data.generatedBuildConfig.serialNumber as string
 					}
-					chatMessages.value.push({
-						role: 'assistant',
-						content: normalizeAiReply(data.content),
-						buildConfigId: generatedBuildId,
-						buildConfigTitle: generatedBuildTitle,
-						buildConfigSerialNumber: generatedBuildSerialNumber,
-						newsReferences: normalizeChatNewsReferences(data.newsReferences)
-					})
+					finishChatWaiting()
+					appendAssistantMessage(createAssistantMessage(
+						normalizeAiReply(data.content),
+						generatedBuildId,
+						generatedBuildTitle,
+						generatedBuildSerialNumber,
+						normalizeChatNewsReferences(data.newsReferences)
+					))
 					if (generatedBuildId > 0) {
 						loadBuildConfigs()
 					}
@@ -2335,57 +2593,32 @@
 					return
 				}
 				if (res.statusCode == 403 || (body != null && body.code == 403)) {
-					chatMessages.value.push({
-						role: 'assistant',
-						content: body != null && body.message != null ? body.message as string : '该账户已被封禁，暂时无法使用 AI 对话。',
-						buildConfigId: 0,
-						buildConfigTitle: '',
-						buildConfigSerialNumber: ''
-					})
+					finishChatWaiting()
+					appendAssistantMessage(createAssistantMessage(body != null && body.message != null ? body.message as string : '该账户已被封禁，暂时无法使用 AI 对话。'))
 					return
 				}
 				if (res.statusCode == 401 || (body != null && body.code == 401)) {
 					clearAuth()
-					chatMessages.value.push({
-						role: 'assistant',
-						content: '登录状态已失效，请重新登录后继续对话。',
-						buildConfigId: 0,
-						buildConfigTitle: '',
-						buildConfigSerialNumber: ''
-					})
+					finishChatWaiting()
+					appendAssistantMessage(createAssistantMessage('登录状态已失效，请重新登录后继续对话。'))
 					openAuthPage()
 					return
 				}
 				const responseMessage = getApiResponseMessage(body)
 				if (responseMessage.length > 0) {
-					chatMessages.value.push({
-						role: 'assistant',
-						content: responseMessage,
-						buildConfigId: 0,
-						buildConfigTitle: '',
-						buildConfigSerialNumber: ''
-					})
+					finishChatWaiting()
+					appendAssistantMessage(createAssistantMessage(responseMessage))
 					return
 				}
-				chatMessages.value.push({
-					role: 'assistant',
-					content: '后端暂时没有返回有效内容，请稍后再试。',
-					buildConfigId: 0,
-					buildConfigTitle: '',
-					buildConfigSerialNumber: ''
-				})
+				finishChatWaiting()
+				appendAssistantMessage(createAssistantMessage('后端暂时没有返回有效内容，请稍后再试。'))
 			},
 			fail: (error) => {
 				if (!isRequestTimeout(error)) {
 					scheduleBackendReconnect()
 				}
-				chatMessages.value.push({
-					role: 'assistant',
-					content: isRequestTimeout(error) ? '这次生成耗时比较久，后端可能仍在处理。请稍后打开历史对话或刷新页面查看结果。' : '暂时连接不到后端服务，请确认后端已经启动。',
-					buildConfigId: 0,
-					buildConfigTitle: '',
-					buildConfigSerialNumber: ''
-				})
+				finishChatWaiting()
+				appendAssistantMessage(createAssistantMessage(isRequestTimeout(error) ? '这次生成耗时比较久，后端可能仍在处理。请稍后打开历史对话或刷新页面查看结果。' : '暂时连接不到后端服务，请确认后端已经启动。'))
 			},
 			complete: () => {
 				chatLoading.value = false
@@ -2400,10 +2633,12 @@
 			return
 		}
 		newConversationPressed.value = true
+		stopAssistantTyping(false)
 		chatMessages.value = []
 		currentConversationId.value = 0
 		clearAttachedBuild()
 		draft.value = ''
+		scrollChatToBottom()
 		setTimeout(() => {
 			newConversationPressed.value = false
 			uni.showToast({
@@ -3752,6 +3987,17 @@
 		})
 	}
 
+	function openFeedback() {
+		if (!requireLogin()) {
+			return
+		}
+		uni.navigateTo({
+			url: '/pages/feedback/create',
+			animationType: 'slide-in-right',
+			animationDuration: 260
+		})
+	}
+
 	function loadAuth() {
 		const savedToken = uni.getStorageSync('app_token')
 		const savedUserId = uni.getStorageSync('app_user_id')
@@ -4367,6 +4613,8 @@
 			content: item == null || item.content == null ? '' : item.content as string,
 			source: item == null || item.source == null ? '' : item.source as string,
 			favorite: item == null || item.favorite == null ? false : Boolean(item.favorite),
+			aiReview: item == null || item.aiReview == null ? '' : item.aiReview as string,
+			aiReviewUpdatedAt: item == null || item.aiReviewUpdatedAt == null ? '' : item.aiReviewUpdatedAt as string,
 			updatedAt: item == null || item.updatedAt == null ? '' : item.updatedAt as string
 		} as BuildConfigItem
 	}
@@ -4780,17 +5028,23 @@
 
 	function openBuildDetail(item : BuildConfigItem) {
 		selectedBuildDetail.value = normalizeBuildConfigItem(item)
+		setBuildAiReviewDisplay(selectedBuildDetail.value.aiReview)
 		selectedBuildCanEdit.value = item.id > 0 && item.source != 'PUBLIC'
+		resetScrollTop(buildDetailScrollTop)
 		buildDetailVisible.value = true
 	}
 
 	function closeBuildDetail() {
+		stopBuildAiReviewTyping()
 		buildDetailVisible.value = false
 	}
 
 	function openBuildPageDetail(item : BuildConfigItem) {
 		selectedBuildDetail.value = normalizeBuildConfigItem(item)
+		setBuildAiReviewDisplay(selectedBuildDetail.value.aiReview)
 		selectedBuildCanEdit.value = canEditBuildItem(item)
+		buildPageDetailLeaving.value = false
+		resetScrollTop(buildPageDetailScrollTop)
 		buildPageDetailVisible.value = true
 		buildDetailVisible.value = false
 	}
@@ -4800,7 +5054,15 @@
 	}
 
 	function closeBuildPageDetail() {
-		buildPageDetailVisible.value = false
+		if (buildPageDetailLeaving.value) {
+			return
+		}
+		stopBuildAiReviewTyping()
+		buildPageDetailLeaving.value = true
+		setTimeout(() => {
+			buildPageDetailVisible.value = false
+			buildPageDetailLeaving.value = false
+		}, 220)
 	}
 
 	function openChatBuildDetail(buildConfigId : number) {
@@ -4820,7 +5082,9 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					selectedBuildDetail.value = normalizeBuildConfigItem(body.data)
+					setBuildAiReviewDisplay(selectedBuildDetail.value.aiReview)
 					selectedBuildCanEdit.value = true
+					resetScrollTop(buildDetailScrollTop)
 					buildDetailVisible.value = true
 					return
 				}
@@ -4851,7 +5115,9 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					selectedBuildDetail.value = normalizeBuildConfigItem(body.data)
+					setBuildAiReviewDisplay(selectedBuildDetail.value.aiReview)
 					selectedBuildCanEdit.value = false
+					resetScrollTop(buildDetailScrollTop)
 					buildDetailVisible.value = true
 					return
 				}
@@ -4865,6 +5131,102 @@
 					title: '暂时读取不到配置详情',
 					icon: 'none'
 				})
+			}
+		})
+	}
+
+	function canGenerateBuildAiReview() : boolean {
+		return selectedBuildDetail.value.id > 0 && token.value.length > 0
+	}
+
+	function setBuildAiReviewDisplay(value : string) {
+		stopBuildAiReviewTyping()
+		buildAiReviewDisplay.value = value == null ? '' : value
+	}
+
+	function startBuildAiReviewTyping(value : string) {
+		stopBuildAiReviewTyping()
+		buildAiReviewTypingText = value == null ? '' : value
+		buildAiReviewTypingCursor = 0
+		buildAiReviewDisplay.value = ''
+		if (buildAiReviewTypingText.length == 0) {
+			return
+		}
+		typeBuildAiReviewNext()
+	}
+
+	function typeBuildAiReviewNext() {
+		if (buildAiReviewTypingCursor >= buildAiReviewTypingText.length) {
+			buildAiReviewTypingTimer = 0
+			scrollBuildReviewToBottom()
+			return
+		}
+		buildAiReviewTypingCursor = Math.min(buildAiReviewTypingCursor + 1, buildAiReviewTypingText.length)
+		buildAiReviewDisplay.value = buildAiReviewTypingText.slice(0, buildAiReviewTypingCursor)
+		scrollBuildReviewToBottom()
+		buildAiReviewTypingTimer = setTimeout(typeBuildAiReviewNext, 18)
+	}
+
+	function stopBuildAiReviewTyping() {
+		if (buildAiReviewTypingTimer > 0) {
+			clearTimeout(buildAiReviewTypingTimer)
+			buildAiReviewTypingTimer = 0
+		}
+	}
+
+	function scrollBuildReviewToBottom() {
+		nextTick(() => {
+			buildAiReviewScrollSequence += 1
+			const nextTop = 999999 + buildAiReviewScrollSequence
+			if (buildPageDetailVisible.value) {
+				buildPageDetailScrollTop.value = nextTop
+			}
+			if (buildDetailVisible.value) {
+				buildDetailScrollTop.value = nextTop
+			}
+		})
+	}
+
+	function generateBuildAiReview() {
+		if (buildReviewLoading.value || selectedBuildDetail.value.id <= 0) {
+			return
+		}
+		if (!requireLogin()) {
+			return
+		}
+		buildReviewLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + selectedBuildDetail.value.id + '/ai-review',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const next = normalizeBuildConfigItem(body.data)
+					selectedBuildDetail.value = next
+					buildList.value = buildList.value.map((item : BuildConfigItem) : BuildConfigItem => item.id == next.id ? next : item)
+					startBuildAiReviewTyping(next.aiReview)
+					uni.showToast({
+						title: 'AI评价已生成',
+						icon: 'none'
+					})
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '生成失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: 'AI评价生成失败',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				buildReviewLoading.value = false
 			}
 		})
 	}
@@ -5055,6 +5417,7 @@
 			openAuthPage()
 			return
 		}
+		stopAssistantTyping(true)
 		uni.request({
 			url: apiBaseUrl + '/api/ai/conversations/' + conversationId + '/messages',
 			method: 'GET',
@@ -5064,10 +5427,12 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					stopAssistantTyping(false)
 					currentConversationId.value = conversationId
 					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
 					loadActiveBuildTasks(conversationId)
 					historyOpen.value = false
+					scrollChatToBottom()
 					return
 				}
 				uni.showToast({
@@ -5154,6 +5519,7 @@
 			next.push(task)
 		}
 		activeBuildTasks.value = next.sort((left, right) => right.id - left.id)
+		scheduleChatScrollToBottom()
 	}
 
 	function removeBuildTask(taskId : number) {
@@ -5187,6 +5553,9 @@
 					if (currentConversationId.value == 0 && tasks.length > 0) {
 						currentConversationId.value = tasks[0].conversationId
 						reloadConversationMessages(tasks[0].conversationId)
+					}
+					if (tasks.length > 0) {
+						scheduleChatScrollToBottom()
 					}
 					if (tasks.length > 0) {
 						startBuildTaskPolling()
@@ -5269,7 +5638,9 @@
 			success: (res) => {
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
+					stopAssistantTyping(false)
 					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
+					scrollChatToBottom()
 				}
 			}
 		})
@@ -5299,6 +5670,25 @@
 
 	function getChatNewsReferences(message : ChatMessage) : ChatNewsReference[] {
 		return message.newsReferences == null ? [] as ChatNewsReference[] : message.newsReferences
+	}
+
+	function compactSingleLineText(value : string, limit : number) : string {
+		const text = (value == null ? '' : String(value)).replace(/\s+/g, ' ').trim()
+		if (text.length <= limit) {
+			return text
+		}
+		if (limit <= 3) {
+			return text.substring(0, limit)
+		}
+		return text.substring(0, limit - 3) + '...'
+	}
+
+	function getCompactChatNewsTitle(title : string) : string {
+		return compactSingleLineText(title, 30)
+	}
+
+	function getCompactChatNewsSummary(summary : string) : string {
+		return compactSingleLineText(summary, 42)
 	}
 
 	function getHistoryItemClass(conversationId : number) : string {
@@ -5356,8 +5746,10 @@
 				if (body != null && body.code == 0) {
 					conversationList.value = conversationList.value.filter((item) : boolean => item.id != conversationId)
 					if (currentConversationId.value == conversationId) {
+						stopAssistantTyping(false)
 						currentConversationId.value = 0
 						chatMessages.value = []
+						scrollChatToBottom()
 					}
 					deleteActionConversationId.value = 0
 					deleteDialogVisible.value = false
@@ -5679,6 +6071,17 @@
 		to {
 			opacity: 1;
 			transform: translateX(0);
+		}
+	}
+
+	@keyframes pageOutRight {
+		from {
+			opacity: 1;
+			transform: translateX(0);
+		}
+		to {
+			opacity: 0;
+			transform: translateX(28px);
 		}
 	}
 
@@ -6045,6 +6448,11 @@
 		padding-bottom: 24px;
 	}
 
+	.chat-bottom-anchor {
+		height: 1px;
+		flex-shrink: 0;
+	}
+
 	.message-row {
 		flex-direction: column;
 		align-items: flex-start;
@@ -6384,8 +6792,9 @@
 	}
 
 	.chat-news-sources {
-		width: 286px;
-		margin-top: 8px;
+		width: 318px;
+		max-width: 92%;
+		margin-top: 10px;
 	}
 
 	.chat-news-source-label {
@@ -6397,25 +6806,27 @@
 	}
 
 	.chat-news-card {
-		width: 286px;
-		min-height: 82px;
-		border-radius: 18px;
+		width: 100%;
+		min-height: 100px;
+		border-radius: 20px;
 		background-color: #ffffff;
 		border-width: 1px;
 		border-color: #dbeafe;
 		margin-bottom: 8px;
-		padding: 10px;
+		padding: 11px;
 		flex-direction: row;
-		align-items: center;
+		align-items: flex-start;
 		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+		box-sizing: border-box;
 	}
 
 	.chat-news-cover {
-		width: 58px;
-		height: 58px;
-		border-radius: 14px;
+		width: 76px;
+		height: 76px;
+		border-radius: 16px;
 		background-color: #eef4ff;
-		margin-right: 10px;
+		margin-right: 12px;
+		flex-shrink: 0;
 	}
 
 	.chat-news-cover-empty {
@@ -6432,6 +6843,10 @@
 
 	.chat-news-main {
 		flex: 1;
+		min-width: 0;
+		height: 76px;
+		justify-content: center;
+		overflow: hidden;
 	}
 
 	.chat-news-tag-wrap {
@@ -6439,7 +6854,7 @@
 		border-radius: 9px;
 		background-color: #eef6ff;
 		padding: 2px 7px;
-		margin-bottom: 4px;
+		margin-bottom: 3px;
 	}
 
 	.chat-news-tag {
@@ -6450,16 +6865,16 @@
 	}
 
 	.chat-news-title {
-		font-size: 13px;
-		line-height: 18px;
+		font-size: 14px;
+		line-height: 19px;
 		font-weight: 900;
 		color: #111827;
 	}
 
 	.chat-news-summary {
-		margin-top: 2px;
+		margin-top: 3px;
 		font-size: 11px;
-		line-height: 16px;
+		line-height: 15px;
 		color: #667085;
 	}
 
@@ -6468,6 +6883,8 @@
 		line-height: 28px;
 		color: #98a2b3;
 		margin-left: 6px;
+		align-self: center;
+		flex-shrink: 0;
 	}
 
 	.composer {
@@ -7264,6 +7681,51 @@
 		font-size: 11px;
 		line-height: 16px;
 		color: #98a2b3;
+	}
+
+	.requirement-budget-input-row {
+		margin-top: 14px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.requirement-budget-input-label {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.requirement-budget-input-shell {
+		width: 122px;
+		min-width: 122px;
+		height: 40px;
+		border-radius: 20px;
+		background-color: #f3f6fb;
+		padding-left: 12px;
+		padding-right: 12px;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.requirement-budget-input-prefix {
+		font-size: 15px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #98a2b3;
+		margin-right: 4px;
+	}
+
+	.requirement-budget-input {
+		flex: 1;
+		min-width: 0;
+		height: 40px;
+		font-size: 16px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+		text-align: right;
 	}
 
 	.requirement-options {
@@ -8167,6 +8629,13 @@
 		animation-timing-function: ease-out;
 	}
 
+	.build-page-detail-scroll-leave {
+		animation-name: pageOutRight;
+		animation-duration: 220ms;
+		animation-fill-mode: forwards;
+		animation-timing-function: ease-in;
+	}
+
 	.build-bottom-spacer {
 		height: 118px;
 		height: calc(118px + constant(safe-area-inset-bottom));
@@ -8223,6 +8692,75 @@
 		font-weight: 900;
 		color: #111827;
 		margin-bottom: 10px;
+	}
+
+	.build-ai-review-section {
+		padding-bottom: 18px;
+	}
+
+	.build-ai-review-compact {
+		border-radius: 20px;
+		background-color: #f8fafc;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 13px;
+		margin-top: 10px;
+		margin-bottom: 10px;
+	}
+
+	.build-ai-review-head {
+		width: 100%;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+
+	.build-ai-review-title {
+		margin-bottom: 0;
+	}
+
+	.build-ai-review-button {
+		min-width: 72px;
+		height: 32px;
+		border-radius: 16px;
+		background-color: #111827;
+		padding-left: 14px;
+		padding-right: 14px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-ai-review-button-disabled {
+		opacity: 0.58;
+	}
+
+	.build-ai-review-button-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.build-ai-review-text {
+		font-size: 14px;
+		line-height: 22px;
+		color: #344054;
+	}
+
+	.build-ai-review-time {
+		margin-top: 8px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #98a2b3;
+	}
+
+	.build-ai-review-empty {
+		font-size: 13px;
+		line-height: 20px;
+		color: #98a2b3;
 	}
 
 	.build-page-part-row {

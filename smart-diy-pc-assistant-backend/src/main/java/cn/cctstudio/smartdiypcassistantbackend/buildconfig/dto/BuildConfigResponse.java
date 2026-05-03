@@ -26,10 +26,23 @@ public record BuildConfigResponse(
         String content,
         BuildConfigSource source,
         boolean favorite,
+        String aiReview,
+        LocalDateTime aiReviewUpdatedAt,
         LocalDateTime updatedAt
 ) {
 
     public static BuildConfigResponse from(BuildConfig config, List<HardwarePart> parts, List<BuildPartSelection> selections, boolean favorite) {
+        return from(config, parts, selections, favorite, "", null);
+    }
+
+    public static BuildConfigResponse from(
+            BuildConfig config,
+            List<HardwarePart> parts,
+            List<BuildPartSelection> selections,
+            boolean favorite,
+            String aiReview,
+            LocalDateTime aiReviewUpdatedAt
+    ) {
         Map<Long, BuildPartSelection> selectionMap = selections.stream()
                 .filter(item -> item.hardwarePartId() != null)
                 .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (left, right) -> left));
@@ -47,6 +60,8 @@ public record BuildConfigResponse(
                 config.getContent(),
                 config.getSource(),
                 favorite,
+                aiReview == null ? "" : aiReview,
+                aiReviewUpdatedAt,
                 config.getUpdatedAt()
         );
     }

@@ -15,8 +15,8 @@
 		<scroll-view class="notification-scroll" scroll-y="true" refresher-enabled="true" :refresher-triggered="refreshing" refresher-background="#f2f2f7" @refresherrefresh="refreshList">
 			<view v-if="items.length > 0" class="notification-group">
 				<view v-for="item in items" :key="item.id" class="notification-row" @click="openNotification(item)">
-					<view :class="item.type == 'SYSTEM' ? 'notification-avatar notification-avatar-system' : 'notification-avatar'">
-						<text v-if="item.type == 'SYSTEM'" class="system-mark">i</text>
+					<view :class="item.type == 'SYSTEM' || item.type == 'FEEDBACK_RESOLVED' ? 'notification-avatar notification-avatar-system' : 'notification-avatar'">
+						<text v-if="item.type == 'SYSTEM' || item.type == 'FEEDBACK_RESOLVED'" class="system-mark">i</text>
 						<image v-else-if="item.actor != null && item.actor.avatarUrl.length > 0" class="notification-avatar-image" :src="item.actor.avatarUrl" mode="aspectFill"></image>
 						<view v-else class="avatar-placeholder">
 							<view class="avatar-placeholder-head"></view>
@@ -168,6 +168,14 @@
 	}
 
 	function openNotification(item : NotificationItem) {
+		if (item.type == 'FEEDBACK_RESOLVED') {
+			uni.navigateTo({
+				url: '/pages/feedback/list',
+				animationType: 'slide-in-right',
+				animationDuration: 260
+			})
+			return
+		}
 		if (item.type == 'SYSTEM') {
 			uni.navigateTo({
 				url: '/pages/notifications/detail?id=' + item.id,

@@ -71,6 +71,20 @@
 			}
 		},
 		{
+			"path": "pages/feedback/create",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "反馈"
+			}
+		},
+		{
+			"path": "pages/feedback/list",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "我的反馈"
+			}
+		},
+		{
 			"path": "pages/news/detail",
 			"style": {
 				"navigationStyle": "custom",

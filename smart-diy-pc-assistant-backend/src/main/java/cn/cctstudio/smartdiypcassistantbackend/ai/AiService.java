@@ -27,6 +27,8 @@ import cn.cctstudio.smartdiypcassistantbackend.user.UserAccessService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
@@ -58,6 +60,7 @@ import java.util.regex.Pattern;
 @Service
 public class AiService {
 
+    private static final Logger log = LoggerFactory.getLogger(AiService.class);
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
     private static final Duration CHAT_DUPLICATE_TTL = Duration.ofMinutes(2);
     private static final Pattern BOARD_CHIPSET_PATTERN = Pattern.compile("[ABHXZ]\\d{3,4}[A-Z]{0,3}", Pattern.CASE_INSENSITIVE);
@@ -1020,7 +1023,7 @@ public class AiService {
         BuildPlan fallback = null;
         List<BuildPlan> localCandidates = new ArrayList<>();
         Map<Long, BuildPartSelectionRequest> localSelections = Map.of();
-        int maxLocalBudget = budget + Math.max(900, Math.round(budget * 0.18f));
+        int maxLocalBudget = budget + budgetFlexRange(budget);
         for (int cpuIndex = 0; cpuIndex < cpus.size(); cpuIndex++) {
             HardwarePart cpu = cpus.get(cpuIndex);
             if (progressReporter != null && (cpuIndex == 0 || cpuIndex % 2 == 0)) {
@@ -1053,7 +1056,7 @@ public class AiService {
                     if (compatibleCoolers.isEmpty()) {
                         continue;
                     }
-                    List<HardwarePart> selectedStorages = topSupportingCandidates(storages, 2, Math.max(280, Math.round(budget * 0.08f)), preferences);
+                    List<HardwarePart> selectedStorages = storageCandidates(storages, budget, preferences);
                     for (HardwarePart memory : compatibleMemories) {
                         int corePrice = referencePrice(cpu) + referencePrice(motherboard) + referencePrice(gpu) + referencePrice(memory);
                         if (corePrice > maxLocalBudget) {
@@ -1115,7 +1118,7 @@ public class AiService {
                 return purchasableBest;
             }
             if (purchasableFallback != null) {
-                int maxAcceptableOverBudget = budget + Math.max(3000, Math.round(budget * 0.50f));
+                int maxAcceptableOverBudget = budget + budgetFlexRange(budget);
                 if (purchasableFallback.totalPrice() <= maxAcceptableOverBudget) {
                     return purchasableFallback;
                 }
@@ -1129,7 +1132,7 @@ public class AiService {
             return best;
         }
         if (fallback != null) {
-            int maxAcceptableOverBudget = budget + Math.max(500, Math.round(budget * 0.12f));
+            int maxAcceptableOverBudget = budget + budgetFlexRange(budget);
             if (fallback.totalPrice() <= maxAcceptableOverBudget) {
                 return fallback;
             }
@@ -1146,10 +1149,26 @@ public class AiService {
             int budget,
             BuildPreferences preferences
     ) {
-        return topSupportingCandidates(motherboards.stream()
+        List<HardwarePart> compatible = motherboards.stream()
                 .filter(motherboard -> same(cpu.getSocketType(), motherboard.getSocketType()))
                 .filter(motherboard -> isMotherboardBalancedForCpu(cpu, motherboard))
-                .toList(), 5, Math.max(480, Math.round(budget * 0.14f)), preferences);
+                .toList();
+        if (StringUtils.hasText(preferences.preferredMemoryType())) {
+            List<HardwarePart> preferredMemoryTypeBoards = compatible.stream()
+                    .filter(motherboard -> preferences.preferredMemoryType().equalsIgnoreCase(motherboard.getMemoryType()))
+                    .toList();
+            if (!preferredMemoryTypeBoards.isEmpty()) {
+                compatible = preferredMemoryTypeBoards;
+            }
+        } else if (shouldPreferLegacyIntelDdr4(cpu, budget)) {
+            List<HardwarePart> ddr4Boards = compatible.stream()
+                    .filter(motherboard -> "DDR4".equalsIgnoreCase(motherboard.getMemoryType()))
+                    .toList();
+            if (!ddr4Boards.isEmpty()) {
+                compatible = ddr4Boards;
+            }
+        }
+        return topSupportingCandidates(compatible, 5, Math.max(480, Math.round(budget * 0.14f)), preferences);
     }
 
     private List<HardwarePart> compatibleMemoryCandidates(
@@ -1158,9 +1177,70 @@ public class AiService {
             int budget,
             BuildPreferences preferences
     ) {
-        return topSupportingCandidates(memories.stream()
+        List<HardwarePart> compatible = memories.stream()
                 .filter(memory -> same(memory.getMemoryType(), motherboard.getMemoryType()))
-                .toList(), 3, Math.max(260, Math.round(budget * 0.08f)), preferences);
+                .toList();
+        if (preferences.preferredMemoryCapacityGb() > 0) {
+            List<HardwarePart> preferredCapacity = compatible.stream()
+                    .filter(memory -> memoryCapacityGb(memory) == preferences.preferredMemoryCapacityGb())
+                    .toList();
+            if (!preferredCapacity.isEmpty()) {
+                compatible = preferredCapacity;
+            }
+        } else if (shouldDefaultTo16GbMemory(budget)) {
+            List<HardwarePart> valueCapacity = compatible.stream()
+                    .filter(memory -> memoryCapacityGb(memory) > 0 && memoryCapacityGb(memory) <= 16)
+                    .toList();
+            if (!valueCapacity.isEmpty()) {
+                compatible = valueCapacity;
+            }
+        }
+        return topSupportingCandidates(compatible, 3, Math.max(260, Math.round(budget * 0.08f)), preferences);
+    }
+
+    private List<HardwarePart> storageCandidates(List<HardwarePart> storages, int budget, BuildPreferences preferences) {
+        List<HardwarePart> candidates = storages;
+        if (budget < 10000) {
+            List<HardwarePart> valueStorages = storages.stream()
+                    .filter(storage -> {
+                        String model = storage.getModel().toUpperCase(Locale.ROOT);
+                        return model.contains("PCIE 4.0") && model.contains("1TB");
+                    })
+                    .toList();
+            if (!valueStorages.isEmpty()) {
+                candidates = valueStorages;
+            }
+        }
+        return topSupportingCandidates(candidates, 2, Math.max(280, Math.round(budget * 0.08f)), preferences);
+    }
+
+    private boolean shouldPreferLegacyIntelDdr4(HardwarePart cpu, int budget) {
+        return isLegacyIntelCore(cpu) && budget < 10000;
+    }
+
+    private boolean isLegacyIntelCore(HardwarePart cpu) {
+        if (cpu == null || cpu.getType() != HardwarePartType.CPU) {
+            return false;
+        }
+        String model = cpu.getModel().toUpperCase(Locale.ROOT);
+        return "LGA1700".equalsIgnoreCase(cpu.getSocketType())
+                && model.contains("CORE")
+                && !model.contains("CORE ULTRA");
+    }
+
+    private boolean shouldDefaultTo16GbMemory(int budget) {
+        return budget < 10000;
+    }
+
+    private int memoryCapacityGb(HardwarePart memory) {
+        if (memory == null || memory.getType() != HardwarePartType.MEMORY) {
+            return 0;
+        }
+        Matcher matcher = Pattern.compile("(\\d{1,3})\\s*G(?:B)?", Pattern.CASE_INSENSITIVE).matcher(memory.getModel());
+        if (!matcher.find()) {
+            return 0;
+        }
+        return parseInteger(matcher.group(1));
     }
 
     private List<HardwarePart> topSupportingCandidates(
@@ -1259,7 +1339,7 @@ public class AiService {
             BuildPreferences preferences,
             AiSettingsService.EffectiveAiSettings settings
     ) {
-        int maxLocalBudget = budget + Math.max(900, Math.round(budget * 0.18f));
+        int maxLocalBudget = budget + budgetFlexRange(budget);
         if (plan.totalPrice() > maxLocalBudget) {
             return;
         }
@@ -1287,8 +1367,13 @@ public class AiService {
                 - overBudget / 12;
     }
 
+    private int budgetFlexRange(int budget) {
+        return Math.max(600, Math.min(1200, Math.round(budget * 0.18f)));
+    }
+
     private void keepDiverseLocalCandidates(List<BuildPlan> candidates) {
-        if (candidates.size() <= 10) {
+        int targetSize = 24;
+        if (candidates.size() <= targetSize) {
             return;
         }
         List<BuildPlan> ranked = new ArrayList<>(candidates);
@@ -1304,12 +1389,18 @@ public class AiService {
             diverse.add(plan);
             cpuCounts.merge(cpuKey, 1, Integer::sum);
             gpuCounts.merge(gpuKey, 1, Integer::sum);
-            if (diverse.size() >= 10) {
+            if (diverse.size() >= 12) {
                 break;
             }
         }
+        candidates.stream()
+                .sorted(Comparator.comparingInt(BuildPlan::totalPrice)
+                        .thenComparing(Comparator.comparingInt(BuildPlan::performanceScore).reversed()))
+                .filter(plan -> !diverse.contains(plan))
+                .limit(targetSize - diverse.size())
+                .forEach(diverse::add);
         for (BuildPlan plan : ranked) {
-            if (diverse.size() >= 10) {
+            if (diverse.size() >= targetSize) {
                 break;
             }
             if (!diverse.contains(plan)) {
@@ -1368,39 +1459,53 @@ public class AiService {
                         "候选 " + candidateIndex + "/" + candidateCount + " · " + hardwareTypeLabel(part.getType()) + " " + part.getModel()
                 );
             }
-            Optional<JdProduct> product = jdProductSearchService.bestAvailableForPart(
+            List<JdProduct> products = jdProductSearchService.availableProductsForPart(
                     part,
                     preferences.preferredColor(),
                     part.getType() == HardwarePartType.CPU,
                     preferences.preferredCaseStyle(),
                     preferences.preferredCoolerType()
             );
-            if (product.isEmpty()) {
-                return Optional.empty();
-            }
-            JdProduct item = product.get();
-            if (part.getType() == HardwarePartType.CPU && isCpuMotherboardBundle(item.title())) {
-                Optional<HardwarePart> motherboard = selectedPart(parts, HardwarePartType.MOTHERBOARD);
-                if (motherboard.isPresent() && bundleMentionsMotherboard(item.title(), motherboard.get())) {
-                    putCpuMotherboardBundleSelections(productSelections, part, motherboard.get(), item);
+            boolean attached = false;
+            for (JdProduct item : products) {
+                if (part.getType() == HardwarePartType.CPU && isCpuMotherboardBundle(item.title())) {
+                    Optional<HardwarePart> motherboard = selectedPart(parts, HardwarePartType.MOTHERBOARD);
+                    if (motherboard.isPresent() && bundleMentionsMotherboard(item.title(), motherboard.get())) {
+                        putCpuMotherboardBundleSelections(productSelections, part, motherboard.get(), item);
+                        attached = true;
+                        break;
+                    }
                     continue;
                 }
+                productSelections.put(part.getId(), new BuildPartSelectionRequest(
+                        part.getId(),
+                        item.title(),
+                        item.price(),
+                        item.image(),
+                        item.link(),
+                        item.skuId(),
+                        StringUtils.hasText(item.matchedModel()) ? item.matchedModel() : part.getModel()
+                ));
+                attached = true;
+                break;
+            }
+            if (!attached) {
+                log.info("Reject JD purchasable candidate {}/{}: no compatible product for {} {}",
+                        candidateIndex,
+                        candidateCount,
+                        hardwareTypeLabel(part.getType()),
+                        part.getModel());
                 return Optional.empty();
             }
-            productSelections.put(part.getId(), new BuildPartSelectionRequest(
-                    part.getId(),
-                    item.title(),
-                    item.price(),
-                    item.image(),
-                    item.link(),
-                    item.skuId(),
-                    StringUtils.hasText(item.matchedModel()) ? item.matchedModel() : part.getModel()
-            ));
         }
         List<BuildPartSelectionRequest> selections = parts.stream()
                 .map(part -> selectionForPart(part, productSelections))
                 .toList();
         if (hasStrictColorConflict(selections, preferences, settings)) {
+            log.info("Reject JD purchasable candidate {}/{}: strict color conflict for preferred color {}",
+                    candidateIndex,
+                    candidateCount,
+                    preferences.preferredColor());
             return Optional.empty();
         }
         return Optional.of(new BuildPlan(
@@ -1430,12 +1535,19 @@ public class AiService {
     }
 
     private boolean bundleMentionsMotherboard(String title, HardwarePart motherboard) {
+        String chipset = extractBoardChipset(motherboard.getModel());
+        if (StringUtils.hasText(chipset)) {
+            List<String> titleChipsets = extractBoardChipsets(title);
+            if (!titleChipsets.isEmpty()) {
+                String selectedVariantChipset = titleChipsets.get(titleChipsets.size() - 1);
+                return selectedVariantChipset.equalsIgnoreCase(chipset);
+            }
+        }
         String compactTitle = compactText(title);
         String compactModel = compactText(motherboard.getModel());
         if (StringUtils.hasText(compactModel) && compactTitle.contains(compactModel)) {
             return true;
         }
-        String chipset = extractBoardChipset(motherboard.getModel());
         return StringUtils.hasText(chipset) && compactTitle.contains(chipset);
     }
 
@@ -1478,6 +1590,18 @@ public class AiService {
         return matcher.find() ? matcher.group().toUpperCase(Locale.ROOT) : "";
     }
 
+    private List<String> extractBoardChipsets(String value) {
+        if (!StringUtils.hasText(value)) {
+            return List.of();
+        }
+        List<String> chipsets = new ArrayList<>();
+        Matcher matcher = BOARD_CHIPSET_PATTERN.matcher(value.toUpperCase(Locale.ROOT));
+        while (matcher.find()) {
+            chipsets.add(matcher.group().toUpperCase(Locale.ROOT));
+        }
+        return chipsets;
+    }
+
     private List<HardwarePart> purchasableCandidates(List<HardwarePart> parts, Map<Long, BuildPartSelectionRequest> selections, HardwarePartType type) {
         List<HardwarePart> result = parts.stream()
                 .filter(part -> hasAvailableSelection(selections.get(part.getId())))
@@ -1505,6 +1629,7 @@ public class AiService {
         }
         String gpuModel = extractPreferredGpuModel(text);
         int memoryCapacity = extractPreferredMemoryCapacity(text);
+        String memoryType = extractPreferredMemoryType(text);
         boolean preferX3d = text.contains("x3d");
         String caseSize = preferredCaseSizeFromText(text);
         String caseStyle = preferredCaseStyleFromText(text);
@@ -1516,6 +1641,7 @@ public class AiService {
                 explicitIntelCpu && !explicitAmdCpu,
                 color,
                 gpuModel,
+                memoryType,
                 memoryCapacity,
                 preferX3d,
                 caseSize,
@@ -1560,6 +1686,7 @@ public class AiService {
         String preferredCaseSize = current.preferredCaseSize();
         String preferredCaseStyle = current.preferredCaseStyle();
         String preferredCoolerType = current.preferredCoolerType();
+        String preferredMemoryType = current.preferredMemoryType();
         String appearanceMemory = userMemory.getAppearancePreference().toLowerCase(Locale.ROOT);
         String noiseMemory = userMemory.getNoisePreference().toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(preferredCaseSize)) {
@@ -1579,6 +1706,7 @@ public class AiService {
                 preferIntelCpu,
                 preferredColor,
                 current.preferredGpuModel(),
+                preferredMemoryType,
                 current.preferredMemoryCapacityGb(),
                 preferX3d,
                 preferredCaseSize,
@@ -1594,6 +1722,17 @@ public class AiService {
         }
         if (containsAny(appearance, "黑色", "全黑", "black")) {
             return "BLACK";
+        }
+        return "";
+    }
+
+    private String extractPreferredMemoryType(String text) {
+        String value = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (containsAny(value, "ddr4", "d4内存", "四代内存")) {
+            return "DDR4";
+        }
+        if (containsAny(value, "ddr5", "d5内存", "五代内存")) {
+            return "DDR5";
         }
         return "";
     }
@@ -2230,8 +2369,6 @@ public class AiService {
         if (model.contains("RX 9060 XT")) return 2600;
         if (model.contains("RX 7800 XT")) return 3500;
         if (model.contains("RX 7700 XT")) return 2900;
-        if (model.contains("ARC B580")) return 1600;
-        if (model.contains("ARC B570")) return 1300;
         return 2500;
     }
 
@@ -2617,6 +2754,7 @@ public class AiService {
             boolean preferIntelCpu,
             String preferredColor,
             String preferredGpuModel,
+            String preferredMemoryType,
             int preferredMemoryCapacityGb,
             boolean preferX3dCpu,
             String preferredCaseSize,

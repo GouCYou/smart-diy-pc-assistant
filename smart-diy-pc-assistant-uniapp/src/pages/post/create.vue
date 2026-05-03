@@ -61,7 +61,7 @@
 				</view>
 				<view class="selected-build-main">
 					<text class="selected-build-title">{{ selectedBuildTitle }}</text>
-					<text class="selected-build-desc">{{ selectedBuildSerialNumber.length > 0 ? selectedBuildSerialNumber + ' · 已关联配置' : '已关联配置，点击可预览' }}</text>
+					<text class="selected-build-desc">{{ selectedBuildSerialNumber.length > 0 ? selectedBuildSerialNumber + ' · 点击查看详情' : '已关联配置，点击查看详情' }}</text>
 				</view>
 				<view class="build-clear" @click.stop="clearBuild">
 					<view class="close-line"></view>
@@ -89,33 +89,114 @@
 				</view>
 			</view>
 
-			<view v-if="buildPickerVisible" class="build-list-section">
-				<view class="section-head">
-					<text class="section-title">选择关联配置</text>
-					<view class="section-refresh" @click="loadBuilds">
-						<text class="section-refresh-text">{{ buildLoading ? '读取中' : '刷新' }}</text>
-					</view>
-				</view>
-				<view v-for="item in buildList" :key="item.id" class="build-item" @click="toggleBuild(item)">
-					<view class="build-item-main">
-						<text class="build-item-title">{{ item.title }}</text>
-						<text class="build-item-desc">{{ getBuildCardDesc(item) }}</text>
-					</view>
-					<view :class="selectedBuildId == item.id ? 'build-check build-check-active' : 'build-check'">
-						<text :class="selectedBuildId == item.id ? 'build-check-text build-check-text-active' : 'build-check-text'">{{ selectedBuildId == item.id ? '✓' : '+' }}</text>
-					</view>
-				</view>
-				<view v-if="buildList.length == 0 && !buildLoading" class="empty-builds">
-					<text class="empty-builds-title">暂无可关联配置</text>
-					<text class="empty-builds-desc">先在配置页保存一套方案后，就可以关联到动态里。</text>
-				</view>
-			</view>
 			<view class="bottom-space"></view>
 		</scroll-view>
 
 		<view class="bottom-submit-wrap">
 			<view :class="canSubmit() ? 'bottom-submit bottom-submit-ready' : 'bottom-submit'" @click="submitPost">
 				<text :class="canSubmit() ? 'bottom-submit-text bottom-submit-text-ready' : 'bottom-submit-text'">{{ publishing ? '正在发布...' : '发布动态' }}</text>
+			</view>
+		</view>
+
+		<view v-if="buildPickerVisible" class="build-picker-mask" @click="closeBuildPicker">
+			<view class="build-picker-drawer" @click.stop>
+				<view class="drawer-handle"></view>
+				<view class="build-picker-head">
+					<text class="build-picker-title">选择关联配置</text>
+					<view class="build-picker-close" @click="closeBuildPicker">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<scroll-view class="build-picker-scroll" scroll-y="true">
+					<view v-for="item in buildList" :key="item.id" class="build-item" @click="toggleBuild(item)">
+						<view class="build-item-main">
+							<text class="build-item-title">{{ item.title }}</text>
+							<text class="build-item-desc">{{ getBuildCardDesc(item) }}</text>
+						</view>
+						<view class="build-item-side">
+							<view :class="selectedBuildId == item.id ? 'plus-circle-button plus-circle-button-selected' : 'plus-circle-button'">
+								<text :class="selectedBuildId == item.id ? 'plus-circle-text plus-circle-text-selected' : 'plus-circle-text'">{{ selectedBuildId == item.id ? '-' : '+' }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-if="buildList.length == 0 && !buildLoading" class="empty-builds">
+						<text class="empty-builds-title">暂无可关联配置</text>
+						<text class="empty-builds-desc">先在配置页保存一套方案后，就可以关联到动态里。</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
+		<view v-if="buildPreviewVisible" class="build-preview-mask" @click="closeBuildPreview">
+			<view class="build-preview-drawer" @click.stop>
+				<view class="drawer-handle"></view>
+				<view class="build-picker-head">
+					<text class="build-picker-title">配置详情</text>
+					<view class="build-picker-close" @click="closeBuildPreview">
+						<view class="close-line"></view>
+						<view class="close-line close-line-two"></view>
+					</view>
+				</view>
+				<view v-if="buildPreviewLoading" class="build-preview-loading">
+					<text class="build-preview-loading-text">正在读取配置详情...</text>
+				</view>
+				<scroll-view v-else class="build-preview-scroll" scroll-y="true">
+					<view class="build-preview-card">
+						<view class="build-preview-title-row">
+							<text class="build-preview-title">{{ selectedBuildDetail.title }}</text>
+							<text v-if="selectedBuildDetail.serialNumber.length > 0" class="build-preview-serial">{{ selectedBuildDetail.serialNumber }}</text>
+						</view>
+						<view class="build-preview-metrics">
+							<view class="build-preview-metric">
+								<text class="build-preview-label">总价</text>
+								<text class="build-preview-value">¥{{ selectedBuildDetail.totalPrice }}</text>
+							</view>
+							<view class="build-preview-metric">
+								<text class="build-preview-label">性能</text>
+								<text class="build-preview-value">{{ selectedBuildDetail.performanceScore }} 分</text>
+							</view>
+						</view>
+					</view>
+					<view class="build-preview-section">
+						<text class="build-preview-section-title">所选配件</text>
+						<view v-for="(part, index) in getVisibleBuildParts(selectedBuildDetail.parts)" :key="part.id + '-' + index" class="build-preview-part-row">
+							<image v-if="part.productImage.length > 0" class="build-preview-part-image" :src="part.productImage" mode="aspectFill"></image>
+							<view v-else class="build-preview-part-image build-preview-part-fallback">
+								<text class="build-preview-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
+							</view>
+							<view class="build-preview-part-main">
+								<text class="build-preview-part-title">{{ getCompactPartTitle(part, 48) }}</text>
+								<view class="build-preview-part-meta-row">
+									<text class="build-preview-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartMetaModelLabel(part) }}</text>
+									<text class="build-preview-part-price">{{ getPartPriceLabel(part) }}</text>
+								</view>
+								<text class="build-preview-part-spec">{{ getPartDetailSpecLine(part) }}</text>
+							</view>
+						</view>
+						<view v-if="getVisibleBuildParts(selectedBuildDetail.parts).length == 0" class="empty-builds">
+							<text class="empty-builds-title">暂无配件详情</text>
+						</view>
+					</view>
+					<view class="build-preview-section">
+						<text class="build-preview-section-title">兼容性检查</text>
+						<view class="build-preview-compat-list">
+							<text v-if="selectedBuildDetail.compatibilityMessages.length == 0" class="build-preview-compat-message build-preview-compat-good">当前配置未发现明显兼容性问题。</text>
+							<text v-for="message in selectedBuildDetail.compatibilityMessages" :key="message" class="build-preview-compat-message">{{ message }}</text>
+						</view>
+					</view>
+					<view class="build-preview-section">
+						<view class="build-preview-section-head">
+							<text class="build-preview-section-title build-preview-section-title-inline">AI评价</text>
+							<view v-if="token.length > 0" :class="buildReviewLoading ? 'build-preview-ai-button build-preview-ai-button-disabled' : 'build-preview-ai-button'" @click="generateBuildAiReview">
+								<text class="build-preview-ai-button-text">{{ buildReviewLoading ? '生成中' : (selectedBuildDetail.aiReview.length > 0 ? '重新生成' : '生成') }}</text>
+							</view>
+						</view>
+						<text v-if="selectedBuildDetail.aiReview.length > 0" class="build-preview-ai-text">{{ selectedBuildDetail.aiReview }}</text>
+						<text v-if="selectedBuildDetail.aiReview.length > 0 && selectedBuildDetail.aiReviewUpdatedAt.length > 0" class="build-preview-ai-time">生成于 {{ formatBuildTime(selectedBuildDetail.aiReviewUpdatedAt) }}</text>
+						<text v-if="selectedBuildDetail.aiReview.length == 0" class="build-preview-ai-empty">{{ token.length > 0 ? '暂无AI评价' : '登录后可生成AI评价' }}</text>
+					</view>
+				</scroll-view>
 			</view>
 		</view>
 
@@ -134,15 +215,50 @@
 <script setup lang="ts">
 	import { ref } from 'vue'
 	import { onLoad, onShow } from '@dcloudio/uni-app'
-	import { API_BASE_URL } from '../../common/api'
+	import { API_BASE_URL, normalizeMediaUrl } from '../../common/api'
 	import { MentionSearchUser, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers } from '../../common/mention'
+
+	type HardwareTypeOption = {
+		key : string
+		label : string
+	}
+
+	type HardwarePartItem = {
+		id : number
+		type : string
+		brand : string
+		model : string
+		price : number
+		productTitle : string
+		productPrice : number
+		productImage : string
+		productLink : string
+		skuId : string
+		matchedModel : string
+		performanceScore : number
+		socketType : string
+		memoryType : string
+		formFactor : string
+		wattage : number
+		gpuLengthMm : number
+		coolerHeightMm : number
+		supportedFormFactors : string
+		specs : string
+		enabled : boolean
+	}
 
 	type BuildConfigItem = {
 		id : number
 		serialNumber : string
 		title : string
+		note : string
 		totalPrice : number
 		performanceScore : number
+		compatibilityStatus : string
+		compatibilityMessages : string[]
+		parts : HardwarePartItem[]
+		aiReview : string
+		aiReviewUpdatedAt : string
 	}
 
 	const apiBaseUrl = API_BASE_URL
@@ -160,6 +276,10 @@
 	const buildPickerVisible = ref(false)
 	const buildLoading = ref(false)
 	const buildList = ref([] as BuildConfigItem[])
+	const buildPreviewVisible = ref(false)
+	const buildPreviewLoading = ref(false)
+	const buildReviewLoading = ref(false)
+	const selectedBuildDetail = ref(createEmptyBuildConfig())
 	const selectedBuildId = ref(0)
 	const selectedBuildTitle = ref('')
 	const selectedBuildSerialNumber = ref('')
@@ -172,6 +292,16 @@
 	const mentionQuery = ref('')
 	const mentionUsers = ref([] as MentionSearchUser[])
 	let mentionSearchTimer : number = 0
+	const hardwareTypeOptions = [
+		{ key: 'CPU', label: 'CPU' },
+		{ key: 'MOTHERBOARD', label: '主板' },
+		{ key: 'GPU', label: '显卡' },
+		{ key: 'MEMORY', label: '内存' },
+		{ key: 'STORAGE', label: '硬盘' },
+		{ key: 'PSU', label: '电源' },
+		{ key: 'CASE', label: '机箱' },
+		{ key: 'COOLER', label: '散热' }
+	] as HardwareTypeOption[]
 
 	onLoad((options : any) => {
 		applySharedBuild(options)
@@ -430,6 +560,10 @@
 		}
 	}
 
+	function closeBuildPicker() {
+		buildPickerVisible.value = false
+	}
+
 	function loadBuilds() {
 		if (token.value.length == 0 || buildLoading.value) {
 			return
@@ -465,13 +599,63 @@
 	}
 
 	function normalizeBuild(item : any) : BuildConfigItem {
+		const messages = item != null && Array.isArray(item.compatibilityMessages) ? item.compatibilityMessages as string[] : [] as string[]
+		const parts = item != null && Array.isArray(item.parts) ? item.parts as any[] : [] as any[]
 		return {
 			id: Number(item == null || item.id == null ? 0 : item.id),
 			serialNumber: item == null || item.serialNumber == null ? '' : item.serialNumber as string,
 			title: item == null || item.title == null ? '' : item.title as string,
+			note: item == null || item.note == null ? '' : item.note as string,
 			totalPrice: Number(item == null || item.totalPrice == null ? 0 : item.totalPrice),
-			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore)
+			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore),
+			compatibilityStatus: item == null || item.compatibilityStatus == null ? '' : item.compatibilityStatus as string,
+			compatibilityMessages: messages,
+			parts: parts.map((part : any) : HardwarePartItem => normalizeHardwarePart(part)),
+			aiReview: item == null || item.aiReview == null ? '' : item.aiReview as string,
+			aiReviewUpdatedAt: item == null || item.aiReviewUpdatedAt == null ? '' : item.aiReviewUpdatedAt as string
 		}
+	}
+
+	function normalizeHardwarePart(item : any) : HardwarePartItem {
+		return {
+			id: Number(item == null || item.id == null ? 0 : item.id),
+			type: item == null || item.type == null ? '' : item.type as string,
+			brand: item == null || item.brand == null ? '' : item.brand as string,
+			model: item == null || item.model == null ? '' : item.model as string,
+			price: Number(item == null || item.price == null ? 0 : item.price),
+			productTitle: item == null || item.productTitle == null ? '' : item.productTitle as string,
+			productPrice: Number(item == null || item.productPrice == null ? 0 : item.productPrice),
+			productImage: normalizeMediaUrl(item == null || item.productImage == null ? '' : item.productImage as string),
+			productLink: item == null || item.productLink == null ? '' : item.productLink as string,
+			skuId: item == null || item.skuId == null ? '' : item.skuId as string,
+			matchedModel: item == null || item.matchedModel == null ? '' : item.matchedModel as string,
+			performanceScore: Number(item == null || item.performanceScore == null ? 0 : item.performanceScore),
+			socketType: item == null || item.socketType == null ? '' : item.socketType as string,
+			memoryType: item == null || item.memoryType == null ? '' : item.memoryType as string,
+			formFactor: item == null || item.formFactor == null ? '' : item.formFactor as string,
+			wattage: Number(item == null || item.wattage == null ? 0 : item.wattage),
+			gpuLengthMm: Number(item == null || item.gpuLengthMm == null ? 0 : item.gpuLengthMm),
+			coolerHeightMm: Number(item == null || item.coolerHeightMm == null ? 0 : item.coolerHeightMm),
+			supportedFormFactors: item == null || item.supportedFormFactors == null ? '' : item.supportedFormFactors as string,
+			specs: item == null || item.specs == null ? '' : item.specs as string,
+			enabled: item == null || item.enabled == null ? true : Boolean(item.enabled)
+		} as HardwarePartItem
+	}
+
+	function createEmptyBuildConfig() : BuildConfigItem {
+		return {
+			id: 0,
+			serialNumber: '',
+			title: '',
+			note: '',
+			totalPrice: 0,
+			performanceScore: 0,
+			compatibilityStatus: '',
+			compatibilityMessages: [] as string[],
+			parts: [] as HardwarePartItem[],
+			aiReview: '',
+			aiReviewUpdatedAt: ''
+		} as BuildConfigItem
 	}
 
 	function toggleBuild(item : BuildConfigItem) {
@@ -489,6 +673,7 @@
 		selectedBuildId.value = 0
 		selectedBuildTitle.value = ''
 		selectedBuildSerialNumber.value = ''
+		closeBuildPreview()
 	}
 
 	function getBuildCardDesc(build : BuildConfigItem) : string {
@@ -500,11 +685,182 @@
 		if (selectedBuildId.value <= 0) {
 			return
 		}
-		uni.setStorageSync('current_build_id', selectedBuildId.value)
-		uni.showToast({
-			title: '可在配置页查看详情',
-			icon: 'none'
+		buildPreviewVisible.value = true
+		buildPreviewLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + selectedBuildId.value,
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					selectedBuildDetail.value = normalizeBuild(body.data)
+					if (selectedBuildTitle.value.length == 0) {
+						selectedBuildTitle.value = selectedBuildDetail.value.title
+					}
+					if (selectedBuildSerialNumber.value.length == 0) {
+						selectedBuildSerialNumber.value = selectedBuildDetail.value.serialNumber
+					}
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					closeBuildPreview()
+					openAuthPage()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : '配置详情读取失败',
+					icon: 'none'
+				})
+				closeBuildPreview()
+			},
+			fail: () => {
+				uni.showToast({
+					title: '暂时读取不到配置详情',
+					icon: 'none'
+				})
+				closeBuildPreview()
+			},
+			complete: () => {
+				buildPreviewLoading.value = false
+			}
 		})
+	}
+
+	function closeBuildPreview() {
+		buildPreviewVisible.value = false
+		buildPreviewLoading.value = false
+		buildReviewLoading.value = false
+	}
+
+	function generateBuildAiReview() {
+		if (buildReviewLoading.value || selectedBuildDetail.value.id <= 0) {
+			return
+		}
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		buildReviewLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + selectedBuildDetail.value.id + '/ai-review',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const next = normalizeBuild(body.data)
+					selectedBuildDetail.value = next
+					buildList.value = buildList.value.map((item : BuildConfigItem) : BuildConfigItem => item.id == next.id ? next : item)
+					if (selectedBuildId.value == next.id) {
+						selectedBuildTitle.value = next.title
+						selectedBuildSerialNumber.value = next.serialNumber
+					}
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					closeBuildPreview()
+					openAuthPage()
+					return
+				}
+				uni.showToast({
+					title: body != null && body.message != null ? body.message as string : 'AI评价生成失败',
+					icon: 'none'
+				})
+			},
+			fail: () => {
+				uni.showToast({
+					title: 'AI评价生成失败',
+					icon: 'none'
+				})
+			},
+			complete: () => {
+				buildReviewLoading.value = false
+			}
+		})
+	}
+
+	function getHardwareTypeLabel(type : string) : string {
+		for (let i = 0; i < hardwareTypeOptions.length; i++) {
+			if (hardwareTypeOptions[i].key == type) {
+				return hardwareTypeOptions[i].label
+			}
+		}
+		return type
+	}
+
+	function getHardwareTypeShortLabel(type : string) : string {
+		const label = getHardwareTypeLabel(type)
+		return label.length > 2 ? label.substring(0, 2) : label
+	}
+
+	function getPartDisplayTitle(part : HardwarePartItem) : string {
+		if (part.productTitle != null && part.productTitle.length > 0) {
+			return part.productTitle
+		}
+		return [part.brand, part.model].filter((item : string) : boolean => item.length > 0).join(' ')
+	}
+
+	function getCompactPartTitle(part : HardwarePartItem, maxLength : number) : string {
+		const text = getPartDisplayTitle(part).replace(/\s+/g, ' ').trim()
+		if (text.length <= maxLength) {
+			return text
+		}
+		return text.substring(0, Math.max(0, maxLength - 3)) + '...'
+	}
+
+	function getPartPriceLabel(part : HardwarePartItem) : string {
+		const price = part.productPrice > 0 ? part.productPrice : part.price
+		return price > 0 ? '¥' + price : '暂无价格'
+	}
+
+	function getPartMetaModelLabel(part : HardwarePartItem) : string {
+		if (part.matchedModel.length > 0) {
+			return part.matchedModel
+		}
+		if (part.model.length > 0) {
+			return part.model
+		}
+		return part.brand
+	}
+
+	function getPartDetailSpecLine(part : HardwarePartItem) : string {
+		const spec = part.specs.length > 0 ? part.specs : getPartMetaModelLabel(part)
+		if (part.performanceScore > 0 && hasPartPerformanceScore(part.type)) {
+			return '性能 ' + part.performanceScore + ' · ' + spec
+		}
+		return spec.length > 0 ? spec : '标准型号'
+	}
+
+	function hasPartPerformanceScore(type : string) : boolean {
+		return type == 'CPU' || type == 'GPU' || type == 'MEMORY' || type == 'STORAGE'
+	}
+
+	function isBundledMotherboardDisplayPart(part : HardwarePartItem) : boolean {
+		if (part == null || part.type != 'MOTHERBOARD') {
+			return false
+		}
+		return part.productTitle.indexOf('已包含在 CPU 板U套装中') >= 0 || part.productTitle.indexOf('板U套装 主板部分') >= 0
+	}
+
+	function getVisibleBuildParts(parts : HardwarePartItem[]) : HardwarePartItem[] {
+		if (parts == null || parts.length == 0) {
+			return [] as HardwarePartItem[]
+		}
+		return parts.filter((part : HardwarePartItem) : boolean => !isBundledMotherboardDisplayPart(part))
+	}
+
+	function formatBuildTime(value : string) : string {
+		if (value == null || value.length == 0) {
+			return ''
+		}
+		return value.replace('T', ' ').slice(0, 16)
 	}
 
 	function submitPost() {
@@ -1325,7 +1681,69 @@
 		padding: 16px;
 	}
 
-	.section-head {
+	.build-picker-mask,
+	.build-preview-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		z-index: 50;
+		background-color: rgba(15, 23, 42, 0.32);
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+	}
+
+	.build-picker-drawer,
+	.build-preview-drawer {
+		margin-left: 8px;
+		margin-right: 8px;
+		margin-bottom: 8px;
+		max-height: 74vh;
+		border-radius: 28px;
+		background-color: #f8fafc;
+		padding: 18px;
+		padding-bottom: calc(20px + constant(safe-area-inset-bottom));
+		padding-bottom: calc(20px + env(safe-area-inset-bottom));
+		box-sizing: border-box;
+		display: flex;
+		flex-direction: column;
+		animation-name: drawerUp;
+		animation-duration: 240ms;
+		animation-timing-function: ease-out;
+	}
+
+	.build-preview-drawer {
+		max-height: 82vh;
+	}
+
+	.drawer-handle {
+		width: 42px;
+		height: 5px;
+		border-radius: 3px;
+		background-color: #d1d5db;
+		align-self: center;
+		margin-bottom: 14px;
+	}
+
+	@keyframes drawerUp {
+		from {
+			transform: translateY(42px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+
+	.build-picker-scroll {
+		height: 390px;
+		max-height: 58vh;
+	}
+
+	.build-picker-head {
 		display: flex;
 		flex-direction: row;
 		align-items: center;
@@ -1333,40 +1751,35 @@
 		margin-bottom: 12px;
 	}
 
-	.section-title {
-		font-size: 16px;
-		line-height: 22px;
+	.build-picker-title {
+		font-size: 18px;
+		line-height: 25px;
 		font-weight: 900;
 		color: #111827;
 	}
 
-	.section-refresh {
-		height: 30px;
-		border-radius: 15px;
+	.build-picker-close {
+		position: relative;
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
 		background-color: #f3f6fb;
-		padding-left: 12px;
-		padding-right: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-	}
-
-	.section-refresh-text {
-		font-size: 12px;
-		line-height: 17px;
-		font-weight: 800;
-		color: #007aff;
+		flex-shrink: 0;
 	}
 
 	.build-item {
-		min-height: 64px;
-		border-radius: 20px;
-		background-color: #f7f9fc;
-		padding: 12px;
+		min-height: 62px;
+		border-radius: 16px;
+		background-color: #f6f7fb;
+		padding: 11px;
 		margin-bottom: 10px;
 		display: flex;
 		flex-direction: row;
 		align-items: center;
+		justify-content: space-between;
 	}
 
 	.build-item-main {
@@ -1386,35 +1799,43 @@
 	}
 
 	.build-item-desc {
-		margin-top: 4px;
+		margin-top: 2px;
 		font-size: 12px;
 		line-height: 17px;
 		color: #667085;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.build-check {
-		width: 32px;
-		height: 32px;
-		border-radius: 16px;
-		background-color: #e9edf5;
-		display: flex;
+	.build-item-side {
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
 	}
 
-	.build-check-active {
+	.plus-circle-button {
+		width: 34px;
+		height: 34px;
+		border-radius: 17px;
+		background-color: #e9edf5;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.plus-circle-button-selected {
 		background-color: #111827;
 	}
 
-	.build-check-text {
+	.plus-circle-text {
 		font-size: 18px;
 		line-height: 24px;
 		font-weight: 900;
 		color: #667085;
 	}
 
-	.build-check-text-active {
+	.plus-circle-text-selected {
 		color: #ffffff;
 	}
 
@@ -1440,6 +1861,266 @@
 		line-height: 20px;
 		color: #667085;
 		text-align: center;
+	}
+
+	.build-preview-loading {
+		height: 220px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-preview-loading-text {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 800;
+		color: #667085;
+	}
+
+	.build-preview-scroll {
+		max-height: 66vh;
+	}
+
+	.build-preview-card,
+	.build-preview-section {
+		border-radius: 22px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		padding: 14px;
+		margin-bottom: 12px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.build-preview-title-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		min-width: 0;
+	}
+
+	.build-preview-title {
+		flex: 1;
+		min-width: 0;
+		font-size: 18px;
+		line-height: 25px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-preview-serial {
+		margin-left: 8px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #98a2b3;
+		flex-shrink: 0;
+	}
+
+	.build-preview-metrics {
+		margin-top: 12px;
+		display: flex;
+		flex-direction: row;
+	}
+
+	.build-preview-metric {
+		flex: 1;
+		min-width: 0;
+		border-radius: 18px;
+		background-color: #f6f7fb;
+		padding: 12px;
+		margin-right: 10px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.build-preview-metric:last-child {
+		margin-right: 0;
+	}
+
+	.build-preview-label {
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #98a2b3;
+	}
+
+	.build-preview-value {
+		margin-top: 4px;
+		font-size: 17px;
+		line-height: 23px;
+		font-weight: 900;
+		color: #111827;
+	}
+
+	.build-preview-section-title {
+		font-size: 15px;
+		line-height: 21px;
+		font-weight: 900;
+		color: #111827;
+		margin-bottom: 10px;
+	}
+
+	.build-preview-section-head {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+
+	.build-preview-section-title-inline {
+		margin-bottom: 0;
+	}
+
+	.build-preview-ai-button {
+		min-width: 70px;
+		height: 32px;
+		border-radius: 16px;
+		background-color: #111827;
+		padding-left: 14px;
+		padding-right: 14px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-preview-ai-button-disabled {
+		opacity: 0.58;
+	}
+
+	.build-preview-ai-button-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.build-preview-ai-text {
+		font-size: 14px;
+		line-height: 22px;
+		color: #344054;
+	}
+
+	.build-preview-ai-time,
+	.build-preview-ai-empty {
+		margin-top: 8px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #98a2b3;
+	}
+
+	.build-preview-part-row {
+		min-height: 72px;
+		border-radius: 18px;
+		background-color: #f7f9fc;
+		padding: 10px;
+		margin-bottom: 8px;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-preview-part-image {
+		width: 50px;
+		height: 50px;
+		border-radius: 15px;
+		background-color: #eef2f8;
+		margin-right: 10px;
+		flex-shrink: 0;
+	}
+
+	.build-preview-part-fallback {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.build-preview-part-fallback-text {
+		font-size: 11px;
+		line-height: 15px;
+		font-weight: 900;
+		color: #667085;
+	}
+
+	.build-preview-part-main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.build-preview-part-title {
+		width: 100%;
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-preview-part-meta-row {
+		margin-top: 2px;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.build-preview-part-meta {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		line-height: 17px;
+		color: #667085;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-preview-part-price {
+		margin-left: 6px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 900;
+		color: #111827;
+		flex-shrink: 0;
+	}
+
+	.build-preview-part-spec {
+		width: 100%;
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 17px;
+		color: #98a2b3;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.build-preview-compat-list {
+		border-radius: 18px;
+		background-color: #f7f9fc;
+		padding: 12px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.build-preview-compat-message {
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+		margin-bottom: 4px;
+	}
+
+	.build-preview-compat-good {
+		color: #157f3b;
 	}
 
 	.bottom-space {

@@ -130,6 +130,21 @@ type AdminSystemNotificationResponse = {
   createdAt: string
 }
 
+type FeedbackStatus = 'SUBMITTED' | 'RECEIVED' | 'RESOLVED'
+
+type FeedbackItem = {
+  id: number
+  author: AuthorItem
+  content: string
+  imageUrls: string[]
+  status: FeedbackStatus
+  statusLabel: string
+  createdAt: string
+  updatedAt: string
+  receivedAt: string | null
+  resolvedAt: string | null
+}
+
 type AiBuildTriggerMode = 'CONSERVATIVE' | 'BALANCED' | 'SENSITIVE'
 type AiColorMatchMode = 'STRICT' | 'PREFER' | 'FLEXIBLE'
 
@@ -158,6 +173,7 @@ const menuItems = [
   { key: 'components', label: '标准型号库', icon: '▦' },
   { key: 'news', label: '新闻热点', icon: '≡' },
   { key: 'community', label: '社区内容', icon: '✦' },
+  { key: 'feedback', label: '用户反馈', icon: '!' },
   { key: 'notifications', label: '系统通知', icon: '●' },
   { key: 'ai', label: 'AI 设置', icon: 'AI' },
   { key: 'settings', label: '系统设置', icon: '⚙' },
@@ -176,6 +192,7 @@ const savingHardware = ref(false)
 const sendingSystemNotification = ref(false)
 const savingAiSettings = ref(false)
 const aiSettingsLoaded = ref(false)
+const updatingFeedbackId = ref<number | null>(null)
 const errorMessage = ref('')
 const username = ref('')
 const password = ref('')
@@ -210,6 +227,7 @@ const hardwarePage = ref(1)
 const hardwarePageSize = ref(12)
 const communityPosts = ref<CommunityPostItem[]>([])
 const communityComments = ref<CommunityCommentItem[]>([])
+const feedbackList = ref<FeedbackItem[]>([])
 const selectedCommunityPostId = ref<number | null>(null)
 const editingNewsId = ref<number | null>(null)
 const pendingNewsImages = ref<PendingNewsImage[]>([])
@@ -339,7 +357,15 @@ const activityBars = computed(() => [
   { label: '帖子', value: communityPosts.value.length },
   { label: '评论', value: communityPosts.value.reduce((sum, item) => sum + item.commentCount, 0) },
   { label: '收藏', value: communityPosts.value.reduce((sum, item) => sum + item.favoriteCount, 0) },
+  { label: '反馈', value: feedbackList.value.length },
   { label: '新闻', value: newsList.value.length },
+])
+
+const feedbackStats = computed(() => [
+  { label: '全部反馈', value: feedbackList.value.length },
+  { label: '待收到', value: feedbackList.value.filter((item) => item.status === 'SUBMITTED').length },
+  { label: '处理中', value: feedbackList.value.filter((item) => item.status === 'RECEIVED').length },
+  { label: '已解决', value: feedbackList.value.filter((item) => item.status === 'RESOLVED').length },
 ])
 
 const maxActivityValue = computed(() => {
@@ -490,7 +516,7 @@ async function enterAdminSession(nextToken: string, nextUsername: string, role: 
   localStorage.setItem('admin_token', nextToken)
   localStorage.setItem('admin_user', nextUsername)
   loggedIn.value = true
-  await Promise.all([loadUsers(), loadNews(), loadHardware(), loadCommunityPosts()])
+  await Promise.all([loadUsers(), loadNews(), loadHardware(), loadCommunityPosts(), loadFeedback()])
 }
 
 function logout() {
@@ -762,6 +788,53 @@ async function loadCommunityPosts() {
       selectedCommunityPostId.value = null
       communityComments.value = []
     }
+  }
+}
+
+async function loadFeedback() {
+  if (!token.value) {
+    return
+  }
+  feedbackList.value = await request<FeedbackItem[]>('/api/admin/feedback', {
+    headers: authHeaders(),
+  })
+}
+
+async function markFeedbackReceived(item: FeedbackItem) {
+  if (updatingFeedbackId.value || item.status === 'RECEIVED' || item.status === 'RESOLVED') {
+    return
+  }
+  updatingFeedbackId.value = item.id
+  errorMessage.value = ''
+  try {
+    const next = await request<FeedbackItem>(`/api/admin/feedback/${item.id}/received`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    feedbackList.value = feedbackList.value.map((current) => (current.id === next.id ? next : current))
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '操作失败'
+  } finally {
+    updatingFeedbackId.value = null
+  }
+}
+
+async function markFeedbackResolved(item: FeedbackItem) {
+  if (updatingFeedbackId.value || item.status === 'RESOLVED') {
+    return
+  }
+  updatingFeedbackId.value = item.id
+  errorMessage.value = ''
+  try {
+    const next = await request<FeedbackItem>(`/api/admin/feedback/${item.id}/resolved`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    feedbackList.value = feedbackList.value.map((current) => (current.id === next.id ? next : current))
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '操作失败'
+  } finally {
+    updatingFeedbackId.value = null
   }
 }
 
@@ -1380,6 +1453,9 @@ function switchMenu(key: string) {
   if (key === 'community') {
     loadCommunityPosts()
   }
+  if (key === 'feedback') {
+    loadFeedback()
+  }
   if (key === 'ai') {
     loadAiSettings()
   }
@@ -1941,6 +2017,67 @@ onBeforeUnmount(() => {
             <button class="danger-link" type="button" @click="deleteCommunityComment(comment.id)">删除</button>
           </article>
           <div v-if="selectedCommunityPostId && communityComments.length === 0" class="empty-box">暂无评论</div>
+        </div>
+      </section>
+
+      <section v-else-if="activeMenu === 'feedback'" class="content-area feedback-workbench">
+        <div class="stats-grid feedback-stats">
+          <article v-for="item in feedbackStats" :key="item.label" class="stat-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </article>
+        </div>
+
+        <div class="list-card feedback-list-card">
+          <div class="section-head">
+            <div>
+              <h3>用户反馈</h3>
+              <p class="section-subtitle">查看用户提交的问题、截图和处理状态</p>
+            </div>
+            <button class="ghost-button" type="button" @click="loadFeedback">刷新</button>
+          </div>
+
+          <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+
+          <article v-for="item in feedbackList" :key="item.id" class="feedback-row">
+            <div class="feedback-row-main">
+              <div class="community-meta">
+                <strong>{{ item.author.nickname || item.author.username }}</strong>
+                <span>{{ formatTime(item.createdAt) }}</span>
+              </div>
+              <p>{{ item.content }}</p>
+              <div v-if="item.imageUrls.length" class="admin-image-strip feedback-image-strip">
+                <a v-for="image in item.imageUrls" :key="image" :href="image" target="_blank" rel="noreferrer">
+                  <img :src="image" alt="" />
+                </a>
+              </div>
+              <div class="community-counts">
+                <span>{{ item.statusLabel }}</span>
+                <span v-if="item.receivedAt">收到 {{ formatTime(item.receivedAt) }}</span>
+                <span v-if="item.resolvedAt">解决 {{ formatTime(item.resolvedAt) }}</span>
+              </div>
+            </div>
+            <div class="feedback-actions">
+              <span :class="item.status === 'RESOLVED' ? 'status-chip published' : 'status-chip'">{{ item.statusLabel }}</span>
+              <button
+                type="button"
+                :disabled="updatingFeedbackId === item.id || item.status !== 'SUBMITTED'"
+                @click="markFeedbackReceived(item)"
+              >
+                收到
+              </button>
+              <button
+                class="resolve-button"
+                type="button"
+                :disabled="updatingFeedbackId === item.id || item.status === 'RESOLVED'"
+                @click="markFeedbackResolved(item)"
+              >
+                已解决
+              </button>
+            </div>
+          </article>
+
+          <div v-if="feedbackList.length === 0" class="empty-box">暂无用户反馈</div>
         </div>
       </section>
 
@@ -3896,7 +4033,8 @@ textarea {
 }
 
 .community-row,
-.comment-row {
+.comment-row,
+.feedback-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -3914,7 +4052,8 @@ textarea {
 }
 
 .community-row-main,
-.comment-row-main {
+.comment-row-main,
+.feedback-row-main {
   min-width: 0;
   flex: 1;
   cursor: pointer;
@@ -3934,7 +4073,8 @@ textarea {
 }
 
 .community-row p,
-.comment-row p {
+.comment-row p,
+.feedback-row p {
   margin: 8px 0 0;
   color: var(--text);
   line-height: 1.7;
@@ -3964,6 +4104,54 @@ textarea {
   object-fit: cover;
   border-radius: 16px;
   border: 1px solid var(--line);
+}
+
+.feedback-workbench {
+  display: flex;
+  flex-direction: column;
+}
+
+.feedback-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.feedback-list-card {
+  margin-top: 18px;
+}
+
+.feedback-row-main {
+  cursor: default;
+}
+
+.feedback-image-strip a {
+  display: inline-flex;
+}
+
+.feedback-actions {
+  min-width: 118px;
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-actions button {
+  height: 38px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 14px;
+  color: #0f2f66;
+  font-weight: 900;
+  background: #edf4ff;
+}
+
+.feedback-actions .resolve-button {
+  color: #fff;
+  background: #0f172a;
+}
+
+.feedback-actions button:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+  background: #f3f6fb;
 }
 
 .community-counts {
@@ -4033,6 +4221,7 @@ textarea {
 
   .stats-grid,
   .user-summary-grid,
+  .feedback-stats,
   .two-column,
   .dashboard-charts,
   .hardware-toolbar,

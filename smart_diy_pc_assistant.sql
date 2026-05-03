@@ -305,6 +305,8 @@ CREATE TABLE `pc_build_config`  (
   `performance_score` int NULL DEFAULT NULL,
   `total_price` int NULL DEFAULT NULL,
   `part_selections` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  `ai_review` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  `ai_review_updated_at` datetime(6) NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_build_config_serial_number` (`serial_number`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
@@ -322,6 +324,23 @@ CREATE TABLE `pc_build_config_favorite`  (
   UNIQUE KEY `uk_build_config_favorite_user_build` (`user_id`, `build_config_id`) USING BTREE,
   KEY `idx_build_config_favorite_user` (`user_id`) USING BTREE,
   KEY `idx_build_config_favorite_build` (`build_config_id`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for pc_build_config_ai_review
+-- ----------------------------
+DROP TABLE IF EXISTS `pc_build_config_ai_review`;
+CREATE TABLE `pc_build_config_ai_review`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `build_config_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `review_content` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  `updated_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_build_ai_review_build_user` (`build_config_id`, `user_id`) USING BTREE,
+  KEY `idx_build_ai_review_user` (`user_id`, `updated_at`) USING BTREE,
+  KEY `idx_build_ai_review_build` (`build_config_id`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -369,10 +388,29 @@ CREATE TABLE `user_notification`  (
   `related_news_id` bigint NULL DEFAULT NULL,
   `related_post_id` bigint NULL DEFAULT NULL,
   `title` varchar(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `type` enum('SYSTEM','FOLLOW','COMMUNITY_POST_REPLY','COMMUNITY_COMMENT_REPLY','COMMUNITY_POST_MENTION','COMMUNITY_COMMENT_MENTION','NEWS_COMMENT_MENTION','NEWS_COMMENT_REPLY') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `type` enum('SYSTEM','FOLLOW','COMMUNITY_POST_REPLY','COMMUNITY_COMMENT_REPLY','COMMUNITY_POST_MENTION','COMMUNITY_COMMENT_MENTION','NEWS_COMMENT_MENTION','NEWS_COMMENT_REPLY','FEEDBACK_RESOLVED') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_user_notification_recipient_created`(`recipient_id` ASC, `created_at` DESC) USING BTREE,
   INDEX `idx_user_notification_unread`(`recipient_id` ASC, `read_at` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for user_feedback
+-- ----------------------------
+DROP TABLE IF EXISTS `user_feedback`;
+CREATE TABLE `user_feedback`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `image_keys` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `status` enum('SUBMITTED','RECEIVED','RESOLVED') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  `updated_at` datetime(6) NOT NULL,
+  `received_at` datetime(6) NULL DEFAULT NULL,
+  `resolved_at` datetime(6) NULL DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_user_feedback_user_created` (`user_id`, `created_at`) USING BTREE,
+  KEY `idx_user_feedback_status` (`status`, `created_at`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

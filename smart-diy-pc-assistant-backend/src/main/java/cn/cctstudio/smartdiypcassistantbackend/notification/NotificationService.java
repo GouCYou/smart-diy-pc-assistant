@@ -214,6 +214,23 @@ public class NotificationService {
         );
     }
 
+    @Transactional
+    public void notifyFeedbackResolved(Long recipientId, Long feedbackId) {
+        if (recipientId == null || !userRepository.existsById(recipientId)) {
+            return;
+        }
+        saveUserNotification(
+                recipientId,
+                null,
+                NotificationType.FEEDBACK_RESOLVED,
+                "你的反馈已解决",
+                "反馈 #" + feedbackId + " 已由管理员标记为已解决，感谢你帮我们改进产品。",
+                null,
+                null,
+                null
+        );
+    }
+
     private void saveUserNotification(
             Long recipientId,
             Long actorId,

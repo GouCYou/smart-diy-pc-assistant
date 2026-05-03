@@ -190,18 +190,39 @@
 					</view>
 				</view>
 				<scroll-view class="detail-scroll" scroll-y="true">
-					<view v-for="part in selectedBuild.parts" :key="part.id" class="detail-part-row">
+					<view v-for="(part, index) in getVisibleBuildParts(selectedBuild.parts)" :key="part.id + '-' + index" class="detail-part-row">
 						<image v-if="part.productImage.length > 0" class="detail-part-image" :src="part.productImage" mode="aspectFill"></image>
 						<view v-else class="detail-part-image detail-part-fallback">
 							<text class="detail-part-fallback-text">{{ getHardwareTypeShortLabel(part.type) }}</text>
 						</view>
 						<view class="detail-part-main">
 							<text class="detail-part-title">{{ getCompactPartTitle(part, 46) }}</text>
-							<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ part.matchedModel.length > 0 ? part.matchedModel : part.model }} · {{ getPartPriceLabel(part) }}</text>
+							<text class="detail-part-meta">{{ getHardwareTypeLabel(part.type) }} · {{ getPartMetaModelLabel(part) }} · {{ getPartPriceLabel(part) }}</text>
 							<text class="detail-part-product">{{ getPartSpecText(part) }}</text>
 						</view>
 					</view>
-					<text v-if="selectedBuild.note.length > 0" class="detail-note">备注：{{ selectedBuild.note }}</text>
+					<view class="detail-section">
+						<text class="detail-section-title">兼容性检查</text>
+						<view class="detail-compat-list">
+							<text v-if="selectedBuild.compatibilityMessages.length == 0" class="detail-compat-message detail-compat-good">当前配置未发现明显兼容性问题。</text>
+							<text v-for="message in selectedBuild.compatibilityMessages" :key="message" class="detail-compat-message">{{ message }}</text>
+						</view>
+					</view>
+					<view class="detail-section">
+						<view class="detail-section-head">
+							<text class="detail-section-title detail-section-title-inline">AI评价</text>
+							<view v-if="token.length > 0" :class="buildReviewLoading ? 'detail-ai-button detail-ai-button-disabled' : 'detail-ai-button'" @click="generateBuildAiReview">
+								<text class="detail-ai-button-text">{{ buildReviewLoading ? '生成中' : (selectedBuild.aiReview.length > 0 ? '重新生成' : '生成') }}</text>
+							</view>
+						</view>
+						<text v-if="selectedBuild.aiReview.length > 0" class="detail-ai-text">{{ selectedBuild.aiReview }}</text>
+						<text v-if="selectedBuild.aiReview.length > 0 && selectedBuild.aiReviewUpdatedAt.length > 0" class="detail-ai-time">生成于 {{ formatFullTime(selectedBuild.aiReviewUpdatedAt) }}</text>
+						<text v-if="selectedBuild.aiReview.length == 0" class="detail-ai-empty">{{ token.length > 0 ? '暂无AI评价' : '登录后可生成AI评价' }}</text>
+					</view>
+					<view v-if="selectedBuild.note.length > 0" class="detail-note-card">
+						<text class="detail-note">备注：{{ selectedBuild.note }}</text>
+					</view>
+					<view class="detail-bottom-spacer"></view>
 				</scroll-view>
 			</view>
 		</view>
@@ -277,7 +298,11 @@
 		note : string
 		totalPrice : number
 		performanceScore : number
+		compatibilityStatus : string
+		compatibilityMessages : string[]
 		parts : HardwarePartItem[]
+		aiReview : string
+		aiReviewUpdatedAt : string
 		updatedAt : string
 	}
 
@@ -352,6 +377,7 @@
 	const uploadingBackground = ref(false)
 	const backgroundPreviewVisible = ref(false)
 	const buildDetailVisible = ref(false)
+	const buildReviewLoading = ref(false)
 	const selectedBuild = ref(createEmptyBuildConfig())
 	const imagePreviewVisible = ref(false)
 	const imagePreviewUrls = ref([] as string[])
@@ -412,7 +438,11 @@
 			note: '',
 			totalPrice: 0,
 			performanceScore: 0,
+			compatibilityStatus: '',
+			compatibilityMessages: [] as string[],
 			parts: [] as HardwarePartItem[],
+			aiReview: '',
+			aiReviewUpdatedAt: '',
 			updatedAt: ''
 		} as BuildConfigItem
 	}
@@ -490,6 +520,10 @@
 		build.parts = build.parts == null ? [] as HardwarePartItem[] : build.parts
 		build.serialNumber = (build as any).serialNumber == null ? '' : (build as any).serialNumber as string
 		build.note = build.note == null ? '' : build.note
+		build.compatibilityStatus = (build as any).compatibilityStatus == null ? '' : (build as any).compatibilityStatus as string
+		build.compatibilityMessages = Array.isArray((build as any).compatibilityMessages) ? (build as any).compatibilityMessages as string[] : [] as string[]
+		build.aiReview = (build as any).aiReview == null ? '' : (build as any).aiReview as string
+		build.aiReviewUpdatedAt = (build as any).aiReviewUpdatedAt == null ? '' : (build as any).aiReviewUpdatedAt as string
 		build.updatedAt = build.updatedAt == null ? '' : build.updatedAt
 		for (let i = 0; i < build.parts.length; i++) {
 			build.parts[i] = normalizeBuildPart(build.parts[i])
@@ -697,6 +731,45 @@
 
 	function closeBuildDetail() {
 		buildDetailVisible.value = false
+		buildReviewLoading.value = false
+	}
+
+	function generateBuildAiReview() {
+		if (buildReviewLoading.value || selectedBuild.value.id <= 0) {
+			return
+		}
+		if (token.value.length == 0) {
+			uni.navigateTo({ url: '/pages/auth/auth' })
+			return
+		}
+		buildReviewLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/build-configs/' + selectedBuild.value.id + '/ai-review',
+			method: 'POST',
+			header: getAuthHeader(),
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					const next = normalizeBuild(body.data as BuildConfigItem)
+					selectedBuild.value = next
+					space.value.favoriteBuilds = space.value.favoriteBuilds.map((item : BuildConfigItem) : BuildConfigItem => item.id == next.id ? next : item)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					closeBuildDetail()
+					uni.navigateTo({ url: '/pages/auth/auth' })
+					return
+				}
+				uni.showToast({ title: body != null && body.message != null ? body.message as string : 'AI评价生成失败', icon: 'none' })
+			},
+			fail: () => {
+				uni.showToast({ title: 'AI评价生成失败', icon: 'none' })
+			},
+			complete: () => {
+				buildReviewLoading.value = false
+			}
+		})
 	}
 
 	function uploadBackground(localPath : string) {
@@ -967,6 +1040,16 @@
 		return price > 0 ? '¥' + price : '暂无价格'
 	}
 
+	function getPartMetaModelLabel(part : HardwarePartItem) : string {
+		if (part.matchedModel != null && part.matchedModel.length > 0) {
+			return part.matchedModel
+		}
+		if (part.model != null && part.model.length > 0) {
+			return part.model
+		}
+		return part.brand == null ? '' : part.brand
+	}
+
 	function getBuildCardDesc(build : BuildConfigItem) : string {
 		const serial = build.serialNumber.length > 0 ? build.serialNumber + ' · ' : ''
 		return serial + '¥' + build.totalPrice + ' · 性能 ' + build.performanceScore + ' 分'
@@ -989,6 +1072,21 @@
 		return text.length == 0 ? '暂无规格' : text
 	}
 
+	function isBundledMotherboardDisplayPart(part : HardwarePartItem) : boolean {
+		if (part == null || part.type != 'MOTHERBOARD') {
+			return false
+		}
+		const title = part.productTitle == null ? '' : part.productTitle
+		return title.indexOf('已包含在 CPU 板U套装中') >= 0 || title.indexOf('板U套装 主板部分') >= 0
+	}
+
+	function getVisibleBuildParts(parts : HardwarePartItem[]) : HardwarePartItem[] {
+		if (parts == null || parts.length == 0) {
+			return [] as HardwarePartItem[]
+		}
+		return parts.filter((part : HardwarePartItem) : boolean => !isBundledMotherboardDisplayPart(part))
+	}
+
 	function formatTime(value : string) : string {
 		if (value == null) {
 			return ''
@@ -997,6 +1095,13 @@
 			return value.substring(5, 16).replace('T', ' ')
 		}
 		return value
+	}
+
+	function formatFullTime(value : string) : string {
+		if (value == null || value.length == 0) {
+			return ''
+		}
+		return value.replace('T', ' ').slice(0, 16)
 	}
 </script>
 
@@ -1906,7 +2011,7 @@
 		border-top-right-radius: 28px;
 		padding: 18px;
 		padding-bottom: calc(20px + env(safe-area-inset-bottom));
-		max-height: 78vh;
+		max-height: 84vh;
 		animation-name: sheetUp;
 		animation-duration: 240ms;
 		animation-timing-function: ease-out;
@@ -2008,13 +2113,13 @@
 	}
 
 	.detail-scroll {
-		max-height: 430px;
+		max-height: 58vh;
+		min-height: 0;
 	}
 
 	.detail-part-row {
 		flex-direction: row;
 		align-items: center;
-		gap: 10px;
 		border-radius: 18px;
 		background-color: #f8fafc;
 		padding: 12px;
@@ -2026,6 +2131,8 @@
 		height: 54px;
 		border-radius: 16px;
 		background-color: #eef2f7;
+		margin-right: 10px;
+		flex-shrink: 0;
 	}
 
 	.detail-part-fallback {
@@ -2049,19 +2156,117 @@
 		line-height: 20px;
 		font-weight: 900;
 		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.detail-part-meta,
-	.detail-part-product,
-	.detail-note {
+	.detail-part-product {
 		font-size: 12px;
 		line-height: 18px;
 		color: #667085;
 		margin-top: 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.detail-part-product {
 		color: #98a2b3;
+	}
+
+	.detail-section,
+	.detail-note-card {
+		border-radius: 18px;
+		background-color: #f8fafc;
+		padding: 12px;
+		margin-top: 10px;
+	}
+
+	.detail-section-head {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+
+	.detail-section-title {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 900;
+		color: #111827;
+		margin-bottom: 10px;
+	}
+
+	.detail-section-title-inline {
+		margin-bottom: 0;
+	}
+
+	.detail-compat-list {
+		border-radius: 16px;
+		background-color: #ffffff;
+		padding: 10px;
+	}
+
+	.detail-compat-message {
+		font-size: 12px;
+		line-height: 18px;
+		color: #667085;
+		margin-bottom: 4px;
+	}
+
+	.detail-compat-good {
+		color: #157f3b;
+	}
+
+	.detail-ai-button {
+		min-width: 70px;
+		height: 32px;
+		border-radius: 16px;
+		background-color: #111827;
+		padding-left: 14px;
+		padding-right: 14px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.detail-ai-button-disabled {
+		opacity: 0.58;
+	}
+
+	.detail-ai-button-text {
+		font-size: 13px;
+		line-height: 18px;
+		font-weight: 900;
+		color: #ffffff;
+	}
+
+	.detail-ai-text {
+		font-size: 13px;
+		line-height: 21px;
+		color: #344054;
+	}
+
+	.detail-ai-time,
+	.detail-ai-empty {
+		margin-top: 8px;
+		font-size: 12px;
+		line-height: 17px;
+		font-weight: 800;
+		color: #98a2b3;
+	}
+
+	.detail-note {
+		font-size: 13px;
+		line-height: 21px;
+		color: #667085;
+	}
+
+	.detail-bottom-spacer {
+		height: 34px;
+		height: calc(34px + env(safe-area-inset-bottom));
+		flex-shrink: 0;
 	}
 
 	.inline-image-preview {

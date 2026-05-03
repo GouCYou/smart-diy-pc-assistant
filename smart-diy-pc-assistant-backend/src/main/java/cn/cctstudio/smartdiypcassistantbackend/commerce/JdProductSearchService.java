@@ -38,6 +38,8 @@ public class JdProductSearchService {
     private static final Pattern CPU_VARIANT_PATTERN = Pattern.compile("\\b(?:I[3579]|U[579]|ULTRA\\s*[579])[-\\s]?\\d{4,5}[A-Z]{0,3}\\b|\\b\\d{4,5}(?:X3D2|X3D|XT|X|F|G)?\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern WATTAGE_PATTERN = Pattern.compile("\\b(\\d{3,4})\\s*W\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern MEMORY_CAPACITY_PATTERN = Pattern.compile("\\b(\\d{1,3})\\s*G(?:B)?\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MEMORY_PAIR_PATTERN = Pattern.compile("(\\d{1,3})\\s*G(?:B)?\\s*[xX×*]\\s*2", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MEMORY_REVERSE_PAIR_PATTERN = Pattern.compile("2\\s*[xX×*]\\s*(\\d{1,3})\\s*G(?:B)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern MEMORY_SPEED_PATTERN = Pattern.compile("\\b(3200|3600|4800|5200|5600|6000|6200|6400|6800|7200|7600|8000|8400)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern STORAGE_CAPACITY_PATTERN = Pattern.compile("\\b(\\d+(?:\\.\\d+)?)\\s*(TB|T|GB|G)\\b", Pattern.CASE_INSENSITIVE);
 
@@ -89,11 +91,25 @@ public class JdProductSearchService {
             String preferredCaseStyle,
             String preferredCoolerType
     ) {
+        return availableProductsForPart(part, preferredColor, allowCpuBundleFallback, preferredCaseStyle, preferredCoolerType)
+                .stream()
+                .findFirst();
+    }
+
+    public List<JdProduct> availableProductsForPart(
+            HardwarePart part,
+            String preferredColor,
+            boolean allowCpuBundleFallback,
+            String preferredCaseStyle,
+            String preferredCoolerType
+    ) {
         String keyword = part.getModel() + " " + typeKeyword(part.getType());
         return searchProductsForPart(keyword, part, allowCpuBundleFallback).stream()
                 .filter(product -> part.getId().equals(product.hardwarePartId()))
                 .filter(this::isAvailableProduct)
-                .max(Comparator.comparingInt(product -> productRank(part, product, preferredColor, preferredCaseStyle, preferredCoolerType)));
+                .filter(product -> hasPlausibleProductPrice(part, product))
+                .sorted(Comparator.comparingInt((JdProduct product) -> productRank(part, product, preferredColor, preferredCaseStyle, preferredCoolerType)).reversed())
+                .toList();
     }
 
     public List<JdProduct> searchProductsForPart(String keyword, HardwarePart part) {
@@ -581,9 +597,9 @@ public class JdProductSearchService {
         int referencePrice = referencePrice(part);
         int productPrice = product.price() == null ? 0 : product.price();
         if (productPrice > 0) {
-            score -= Math.min(90, Math.abs(productPrice - referencePrice) / 30);
+            score -= Math.min(140, Math.abs(productPrice - referencePrice) / 18);
             if (productPrice > referencePrice * 1.25) {
-                score -= Math.min(90, (productPrice - Math.round(referencePrice * 1.25f)) / 20);
+                score -= Math.min(180, (productPrice - Math.round(referencePrice * 1.25f)) / 10);
             }
             if (productPrice <= referencePrice * 1.18) {
                 score += 18;
@@ -600,6 +616,24 @@ public class JdProductSearchService {
         score += caseStyleProductScore(part, product.title(), preferredCaseStyle);
         score += coolerProductScore(part, product.title(), preferredCoolerType);
         return score;
+    }
+
+    private boolean hasPlausibleProductPrice(HardwarePart part, JdProduct product) {
+        int price = product.price() == null ? 0 : product.price();
+        if (price <= 0) {
+            return false;
+        }
+        int reference = Math.max(100, referencePrice(part));
+        int maxPrice = switch (part.getType()) {
+            case CPU -> isCpuMotherboardBundleTitle(product.title())
+                    ? Math.round(reference * 2.0f) + 1200
+                    : Math.round(reference * 1.7f) + 500;
+            case GPU -> Math.round(reference * 1.55f) + 900;
+            case MEMORY -> Math.round(reference * 3.2f) + 600;
+            case STORAGE -> Math.round(reference * 2.0f) + 400;
+            case MOTHERBOARD, PSU, CASE, COOLER -> Math.round(reference * 1.8f) + 500;
+        };
+        return price <= maxPrice;
     }
 
     private int caseStyleProductScore(HardwarePart part, String title, String preferredCaseStyle) {
@@ -707,8 +741,6 @@ public class JdProductSearchService {
         if (model.contains("RX 9060 XT")) return 2600;
         if (model.contains("RX 7800 XT")) return 3500;
         if (model.contains("RX 7700 XT")) return 2900;
-        if (model.contains("ARC B580")) return 1600;
-        if (model.contains("ARC B570")) return 1300;
         return 2500;
     }
 
@@ -872,7 +904,7 @@ public class JdProductSearchService {
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .header("Cache-Control", "no-cache")
-                .timeout(10_000)
+                .timeout(6_000)
                 .ignoreHttpErrors(true);
     }
 
@@ -947,7 +979,8 @@ public class JdProductSearchService {
                     && !title.contains("套装");
             case GPU -> (title.contains("显卡") || normalizedTitle.contains("RTX") || normalizedTitle.contains("GTX") || normalizedTitle.contains("RX"))
                     && !title.contains("整机")
-                    && !title.contains("主机");
+                    && !title.contains("主机")
+                    && !isNotebookComputerTitle(title);
             case MEMORY -> (title.contains("内存") || normalizedTitle.contains("DDR"))
                     && !isForbiddenMemoryTitle(title);
             case STORAGE -> title.contains("固态") || title.contains("硬盘") || normalizedTitle.contains("SSD") || normalizedTitle.contains("NVME");
@@ -964,6 +997,21 @@ public class JdProductSearchService {
                     && !title.contains("机箱风扇")
                     && !title.contains("风扇套装");
         };
+    }
+
+    private boolean isNotebookComputerTitle(String title) {
+        if (!StringUtils.hasText(title)) {
+            return false;
+        }
+        String normalized = title.toUpperCase(Locale.ROOT);
+        return title.contains("笔记本")
+                || title.contains("游戏本")
+                || title.contains("全能本")
+                || title.contains("轻薄本")
+                || normalized.contains("THINKBOOK")
+                || normalized.contains("THINKPAD")
+                || normalized.contains("Y7000")
+                || normalized.contains("Y9000");
     }
 
     private boolean matchesCoolerIntent(String title, HardwarePart part) {
@@ -1087,7 +1135,7 @@ public class JdProductSearchService {
                 || containsAnyCompact(title, stickCapacity + "GDDR", stickCapacity + "GBDDR")) {
             return false;
         }
-        return true;
+        return false;
     }
 
     private boolean titleMentionsMemoryPair(String title, int stickCapacity) {
@@ -1386,6 +1434,18 @@ public class JdProductSearchService {
     }
 
     private boolean titleContainsMemoryCapacity(String title, int capacityGb) {
+        int selectedCapacity = selectedMemoryCapacityGb(title);
+        if (selectedCapacity > 0) {
+            return selectedCapacity == capacityGb;
+        }
+        String selectedVariant = selectedMemoryVariantText(title);
+        if (StringUtils.hasText(selectedVariant) && MEMORY_CAPACITY_PATTERN.matcher(selectedVariant).find()) {
+            return titleContainsMemoryCapacityToken(selectedVariant, capacityGb);
+        }
+        return titleContainsMemoryCapacityToken(title, capacityGb);
+    }
+
+    private boolean titleContainsMemoryCapacityToken(String title, int capacityGb) {
         String normalized = title.toUpperCase(Locale.ROOT)
                 .replace("×", "X")
                 .replace("*", "X")
@@ -1401,6 +1461,68 @@ public class JdProductSearchService {
                 || normalized.contains(half + "GX2")
                 || normalized.contains("2X" + half + "GB")
                 || normalized.contains("2X" + half + "G");
+    }
+
+    private String selectedMemoryVariantText(String title) {
+        if (!StringUtils.hasText(title)) {
+            return "";
+        }
+        int bracket = Math.max(title.lastIndexOf('】'), title.lastIndexOf(']'));
+        if (bracket >= 0 && bracket + 1 < title.length()) {
+            return title.substring(bracket + 1);
+        }
+        return "";
+    }
+
+    private boolean titleMentionsDifferentMemoryCapacity(String title, int capacityGb) {
+        int selectedCapacity = selectedMemoryCapacityGb(title);
+        if (selectedCapacity > 0) {
+            return selectedCapacity != capacityGb;
+        }
+        Matcher matcher = MEMORY_CAPACITY_PATTERN.matcher(title == null ? "" : title);
+        while (matcher.find()) {
+            int value = parseNumber(matcher.group(1));
+            if (value > 0 && value != capacityGb && value * 2 != capacityGb) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int selectedMemoryCapacityGb(String title) {
+        if (!StringUtils.hasText(title)) {
+            return 0;
+        }
+        int selectedPairCapacity = 0;
+        int selectedPairPosition = -1;
+        Matcher pairMatcher = MEMORY_PAIR_PATTERN.matcher(title);
+        while (pairMatcher.find()) {
+            int stickCapacity = parseNumber(pairMatcher.group(1));
+            if (stickCapacity > 0 && pairMatcher.start() >= selectedPairPosition) {
+                selectedPairCapacity = stickCapacity * 2;
+                selectedPairPosition = pairMatcher.start();
+            }
+        }
+        Matcher reversePairMatcher = MEMORY_REVERSE_PAIR_PATTERN.matcher(title);
+        while (reversePairMatcher.find()) {
+            int stickCapacity = parseNumber(reversePairMatcher.group(1));
+            if (stickCapacity > 0 && reversePairMatcher.start() >= selectedPairPosition) {
+                selectedPairCapacity = stickCapacity * 2;
+                selectedPairPosition = reversePairMatcher.start();
+            }
+        }
+        if (selectedPairCapacity > 0) {
+            return selectedPairCapacity;
+        }
+        int selectedSingleCapacity = 0;
+        Matcher singleMatcher = MEMORY_CAPACITY_PATTERN.matcher(title);
+        while (singleMatcher.find()) {
+            int capacity = parseNumber(singleMatcher.group(1));
+            if (capacity > 0) {
+                selectedSingleCapacity = capacity;
+            }
+        }
+        return selectedSingleCapacity;
     }
 
     private String extractStorageCapacityToken(String text) {

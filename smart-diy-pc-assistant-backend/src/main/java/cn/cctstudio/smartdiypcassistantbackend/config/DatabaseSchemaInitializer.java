@@ -55,11 +55,14 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     'COMMUNITY_POST_MENTION',
                     'COMMUNITY_COMMENT_MENTION',
                     'NEWS_COMMENT_MENTION',
-                    'NEWS_COMMENT_REPLY'
+                    'NEWS_COMMENT_REPLY',
+                    'FEEDBACK_RESOLVED'
                 ) NOT NULL
                 """);
         ensureUserMemorySchema();
         ensureBuildConfigSchema();
+        ensureBuildConfigAiReviewSchema();
+        ensureFeedbackSchema();
         cleanLegacyUserData();
     }
 
@@ -115,6 +118,8 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
     private void ensureBuildConfigSchema() {
         executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN serial_number varchar(9) DEFAULT NULL AFTER user_id");
         executeIgnoring("ALTER TABLE pc_build_config ADD UNIQUE KEY uk_build_config_serial_number (serial_number)");
+        executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN ai_review LONGTEXT NULL AFTER part_selections");
+        executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN ai_review_updated_at datetime(6) NULL AFTER ai_review");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS pc_build_config_favorite (
                     id bigint NOT NULL AUTO_INCREMENT,
@@ -134,6 +139,51 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                 WHERE favorite = b'1'
                 """);
         backfillBuildConfigSerialNumbers();
+    }
+
+    private void ensureBuildConfigAiReviewSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS pc_build_config_ai_review (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    build_config_id bigint NOT NULL,
+                    user_id bigint NOT NULL,
+                    review_content LONGTEXT NOT NULL,
+                    created_at datetime(6) NOT NULL,
+                    updated_at datetime(6) NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_build_ai_review_build_user (build_config_id, user_id),
+                    KEY idx_build_ai_review_user (user_id, updated_at),
+                    KEY idx_build_ai_review_build (build_config_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
+        executeIgnoring("""
+                INSERT IGNORE INTO pc_build_config_ai_review
+                    (build_config_id, user_id, review_content, created_at, updated_at)
+                SELECT id, user_id, ai_review,
+                       COALESCE(ai_review_updated_at, updated_at, NOW(6)),
+                       COALESCE(ai_review_updated_at, updated_at, NOW(6))
+                FROM pc_build_config
+                WHERE ai_review IS NOT NULL AND TRIM(ai_review) <> ''
+                """);
+    }
+
+    private void ensureFeedbackSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_feedback (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    user_id bigint NOT NULL,
+                    content TEXT NOT NULL,
+                    image_keys TEXT NOT NULL,
+                    status enum('SUBMITTED','RECEIVED','RESOLVED') NOT NULL,
+                    created_at datetime(6) NOT NULL,
+                    updated_at datetime(6) NOT NULL,
+                    received_at datetime(6) NULL,
+                    resolved_at datetime(6) NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_user_feedback_user_created (user_id, created_at),
+                    KEY idx_user_feedback_status (status, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
     }
 
     private void backfillBuildConfigSerialNumbers() {

@@ -36,6 +36,7 @@ public class BuildConfigService {
 
     private final BuildConfigRepository buildConfigRepository;
     private final BuildConfigFavoriteRepository buildConfigFavoriteRepository;
+    private final BuildConfigAiReviewRepository buildConfigAiReviewRepository;
     private final HardwarePartRepository hardwarePartRepository;
     private final UserAccessService userAccessService;
     private final JdProductSearchService jdProductSearchService;
@@ -44,6 +45,7 @@ public class BuildConfigService {
     public BuildConfigService(
             BuildConfigRepository buildConfigRepository,
             BuildConfigFavoriteRepository buildConfigFavoriteRepository,
+            BuildConfigAiReviewRepository buildConfigAiReviewRepository,
             HardwarePartRepository hardwarePartRepository,
             UserAccessService userAccessService,
             JdProductSearchService jdProductSearchService,
@@ -51,6 +53,7 @@ public class BuildConfigService {
     ) {
         this.buildConfigRepository = buildConfigRepository;
         this.buildConfigFavoriteRepository = buildConfigFavoriteRepository;
+        this.buildConfigAiReviewRepository = buildConfigAiReviewRepository;
         this.hardwarePartRepository = hardwarePartRepository;
         this.userAccessService = userAccessService;
         this.jdProductSearchService = jdProductSearchService;
@@ -72,7 +75,12 @@ public class BuildConfigService {
 
     @Transactional(readOnly = true)
     public List<BuildConfigResponse> listFavoriteByUser(Long userId) {
-        List<BuildConfigFavorite> favorites = buildConfigFavoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return listFavoriteByUser(userId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BuildConfigResponse> listFavoriteByUser(Long favoriteOwnerUserId, Long viewerUserId) {
+        List<BuildConfigFavorite> favorites = buildConfigFavoriteRepository.findByUserIdOrderByCreatedAtDesc(favoriteOwnerUserId);
         List<Long> favoriteIds = favorites.stream()
                 .map(BuildConfigFavorite::getBuildConfigId)
                 .filter(Objects::nonNull)
@@ -86,12 +94,12 @@ public class BuildConfigService {
         for (Long id : favoriteIds) {
             BuildConfig config = configMap.get(id);
             if (config != null) {
-                result.add(toResponse(config, userId));
+                result.add(toResponse(config, viewerUserId));
             }
         }
-        for (BuildConfig config : buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(userId)) {
+        for (BuildConfig config : buildConfigRepository.findByUserIdAndFavoriteTrueOrderByUpdatedAtDesc(favoriteOwnerUserId)) {
             if (!favoriteIds.contains(config.getId())) {
-                result.add(toResponse(config, userId));
+                result.add(toResponse(config, viewerUserId));
             }
         }
         return result;
@@ -130,6 +138,7 @@ public class BuildConfigService {
         userAccessService.requireAvailable(userId);
         BuildConfig config = findOwned(id, userId);
         applyConfig(config, request);
+        buildConfigAiReviewRepository.deleteByBuildConfigId(id);
         return toResponse(config, userId);
     }
 
@@ -184,6 +193,7 @@ public class BuildConfigService {
     public void delete(Long userId, Long id) {
         BuildConfig config = findOwned(id, userId);
         buildConfigFavoriteRepository.deleteByBuildConfigId(id);
+        buildConfigAiReviewRepository.deleteByBuildConfigId(id);
         buildConfigRepository.delete(config);
     }
 
@@ -199,11 +209,16 @@ public class BuildConfigService {
             favorite = buildConfigFavoriteRepository.existsByUserIdAndBuildConfigId(viewerUserId, config.getId())
                     || (Objects.equals(config.getUserId(), viewerUserId) && config.isFavorite());
         }
+        Optional<BuildConfigAiReview> aiReview = viewerUserId == null
+                ? Optional.empty()
+                : buildConfigAiReviewRepository.findByBuildConfigIdAndUserId(config.getId(), viewerUserId);
         return BuildConfigResponse.from(
                 config,
                 parts,
                 selections,
-                favorite
+                favorite,
+                aiReview.map(BuildConfigAiReview::getReviewContent).orElse(""),
+                aiReview.map(BuildConfigAiReview::getUpdatedAt).orElse(null)
         );
     }
 
@@ -282,6 +297,10 @@ public class BuildConfigService {
         List<BuildPartSelection> filled = new ArrayList<>();
         for (HardwarePart part : parts) {
             BuildPartSelection current = selectionMap.get(part.getId());
+            if (isIncludedInCpuBundle(current)) {
+                filled.add(current);
+                continue;
+            }
             if (hasCompleteProductSnapshot(current)) {
                 filled.add(current);
                 continue;
@@ -302,6 +321,14 @@ public class BuildConfigService {
             ));
         }
         return filled;
+    }
+
+    private boolean isIncludedInCpuBundle(BuildPartSelection selection) {
+        return selection != null
+                && selection.price() != null
+                && selection.price() == 0
+                && StringUtils.hasText(selection.title())
+                && selection.title().contains("已包含在 CPU 板U套装中");
     }
 
     private boolean hasCompleteProductSnapshot(BuildPartSelection selection) {
@@ -458,6 +485,7 @@ public class BuildConfigService {
         for (HardwarePart part : parts) {
             BuildPartSelection selection = selectionMap.get(part.getId());
             int price = selection != null && selection.price() != null && selection.price() > 0 ? selection.price() : 0;
+            boolean includedInCpuBundle = isIncludedInCpuBundle(selection);
             String productTitle = selection != null && StringUtils.hasText(selection.title()) ? selection.title() : part.getModel();
             builder.append(typeLabel(part.getType()))
                     .append("：")
@@ -467,6 +495,8 @@ public class BuildConfigService {
             }
             if (price > 0) {
                 builder.append("，¥").append(price);
+            } else if (includedInCpuBundle) {
+                builder.append("，已包含在板U套装价格中");
             } else {
                 builder.append("，暂无京东价格");
             }

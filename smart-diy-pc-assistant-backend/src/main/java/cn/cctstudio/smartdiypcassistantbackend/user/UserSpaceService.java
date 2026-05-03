@@ -73,7 +73,7 @@ public class UserSpaceService {
                 publicSpace ? followRepository.countByFollowerId(profileUserId) : 0,
                 publicSpace ? followRepository.countByFollowingId(profileUserId) : 0,
                 publicSpace ? communityService.listByAuthor(viewerId, profileUserId) : List.of(),
-                publicSpace ? buildConfigService.listFavoriteByUser(profileUserId) : List.of(),
+                publicSpace ? buildConfigService.listFavoriteByUser(profileUserId, viewerId) : List.of(),
                 publicSpace ? communityService.listFavorites(viewerId, profileUserId) : List.of(),
                 publicSpace ? newsService.listFavorites(viewerId, profileUserId) : List.of()
         );
