@@ -7282,17 +7282,21 @@
 	}
 
 	.history-row {
-		position: relative;
 		flex-direction: row;
 		align-items: center;
+		height: 72px;
 		margin-bottom: 10px;
 	}
 
 	.history-item {
 		flex: 1;
+		min-width: 0;
+		height: 72px;
 		border-radius: 18px;
 		background-color: #f6f7fb;
 		padding: 14px;
+		box-sizing: border-box;
+		overflow: hidden;
 		border-width: 1px;
 		border-color: #edf0f5;
 		transition-property: transform, background-color, border-color;
@@ -7311,10 +7315,7 @@
 	}
 
 	.history-delete-action {
-		position: absolute;
-		top: 50%;
-		right: 0;
-		z-index: 2;
+		flex-shrink: 0;
 		width: 0;
 		height: 58px;
 		border-radius: 29px;
@@ -7324,19 +7325,20 @@
 		opacity: 0;
 		overflow: hidden;
 		margin-left: 0;
-		transform: translateY(-50%) scale(0.88);
+		transform: scale(0.88);
 		border-width: 1px;
 		border-color: #edf0f5;
 		box-shadow: none;
 		pointer-events: none;
-		transition-property: width, opacity, transform;
+		transition-property: width, opacity, margin-left, transform;
 		transition-duration: 180ms;
 	}
 
 	.history-delete-action-show {
 		width: 58px;
 		opacity: 1;
-		transform: translateY(-50%) scale(1);
+		margin-left: 8px;
+		transform: scale(1);
 		pointer-events: auto;
 	}
 
@@ -7361,10 +7363,14 @@
 	}
 
 	.history-item-time {
+		width: 100%;
 		margin-top: 5px;
 		font-size: 12px;
 		line-height: 17px;
 		color: #98a2b3;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 
 	.history-title {
