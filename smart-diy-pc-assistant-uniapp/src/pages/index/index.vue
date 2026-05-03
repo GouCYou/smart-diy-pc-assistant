@@ -1518,7 +1518,7 @@
 	const requirementBudget = ref(6000)
 	const requirementBudgetDraft = ref('6000')
 	const requirementScene = ref('game')
-	const requirementColor = ref('white')
+	const requirementColor = ref('any')
 	const requirementBrand = ref('any')
 	const requirementCpu = ref('any')
 	const requirementGpu = ref('any')
@@ -1641,6 +1641,7 @@
 	] as RequirementOption[]
 
 	const requirementColorOptions = [
+		{ key: 'any', label: '默认' },
 		{ key: 'white', label: '白色' },
 		{ key: 'black', label: '黑色' }
 	] as RequirementOption[]
@@ -2361,13 +2362,14 @@
 		const caseStyle = getRequirementOptionLabel(requirementCaseStyleOptions, requirementCaseStyle.value)
 		const cooler = getRequirementOptionLabel(requirementCoolerOptions, requirementCooler.value)
 		const sceneText = scene == 'AI' ? 'AI 本地推理和生产力' : (scene == '其他' ? '综合用途' : scene)
+		const colorText = requirementColor.value == 'any' ? '机箱主色不强制' : '希望机箱主色是' + color
 		const brandText = requirementBrand.value == 'any' || requirementBrand.value == 'other' ? '品牌不强制，优先性价比和稳定性' : '更倾向 ' + brand + ' 生态'
 		const cpuText = requirementCpu.value == 'any' ? 'CPU 平台不强制' : 'CPU 更倾向 ' + cpuPreference
 		const gpuText = requirementGpu.value == 'any' ? '显卡平台不强制' : '显卡更倾向 ' + gpuPreference
 		const caseSizeText = requirementCaseSize.value == 'any' ? '机箱尺寸不强制' : '机箱尺寸更倾向 ' + caseSize
 		const caseStyleText = requirementCaseStyle.value == 'any' ? '机箱风格不强制' : '机箱风格更倾向 ' + caseStyle
 		const coolerText = requirementCooler.value == 'auto' ? '散热方案由配置功耗决定' : '散热更倾向 ' + cooler
-		draft.value = '预算 ' + requirementBudget.value + ' 元，主要用于' + sceneText + '，希望机箱主色是' + color + '，' + brandText + '，' + cpuText + '，' + gpuText + '，' + caseSizeText + '，' + caseStyleText + '，' + coolerText + '。请帮我生成一套兼顾兼容性、散热、电源余量、京东可购买和后续升级空间的配置单。'
+		draft.value = '预算 ' + requirementBudget.value + ' 元，主要用于' + sceneText + '，' + colorText + '，' + brandText + '，' + cpuText + '，' + gpuText + '，' + caseSizeText + '，' + caseStyleText + '，' + coolerText + '。请帮我生成一套兼顾兼容性、散热、电源余量、京东可购买和后续升级空间的配置单。'
 		closeRequirementDrawer()
 		submitMessage()
 	}
@@ -2407,9 +2409,9 @@
 		chatMessages.value.push({
 			role: finalMessage.role,
 			content: '',
-			buildConfigId: 0,
-			buildConfigTitle: '',
-			buildConfigSerialNumber: '',
+			buildConfigId: finalMessage.buildConfigId,
+			buildConfigTitle: finalMessage.buildConfigTitle,
+			buildConfigSerialNumber: finalMessage.buildConfigSerialNumber,
 			newsReferences: [] as ChatNewsReference[],
 			localId,
 			typing: true
@@ -5617,7 +5619,7 @@
 		}
 		removeBuildTask(task.id)
 		if (task.conversationId > 0 && task.conversationId == currentConversationId.value) {
-			reloadConversationMessages(task.conversationId)
+			reloadConversationMessages(task.conversationId, task.status == 'SUCCEEDED')
 		}
 		if (task.status == 'SUCCEEDED') {
 			loadBuildConfigs()
@@ -5625,7 +5627,7 @@
 		loadConversations()
 	}
 
-	function reloadConversationMessages(conversationId : number) {
+	function reloadConversationMessages(conversationId : number, animateLatestAssistant : boolean = false) {
 		if (conversationId <= 0 || token.value.length == 0) {
 			return
 		}
@@ -5639,11 +5641,30 @@
 				const body = res.data as any
 				if (body != null && body.code == 0 && body.data != null) {
 					stopAssistantTyping(false)
-					chatMessages.value = normalizeChatMessages(body.data as ChatMessage[])
+					const nextMessages = normalizeChatMessages(body.data as ChatMessage[])
+					if (animateLatestAssistant && nextMessages.length > 0) {
+						const latestIndex = findLatestAssistantMessageIndex(nextMessages)
+						if (latestIndex == nextMessages.length - 1) {
+							const latestMessage = nextMessages[latestIndex]
+							chatMessages.value = nextMessages.slice(0, latestIndex)
+							appendAssistantMessage(latestMessage, true)
+							return
+						}
+					}
+					chatMessages.value = nextMessages
 					scrollChatToBottom()
 				}
 			}
 		})
+	}
+
+	function findLatestAssistantMessageIndex(messages : ChatMessage[]) : number {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role == 'assistant') {
+				return i
+			}
+		}
+		return -1
 	}
 
 	function normalizeChatNewsReferences(items : any) : ChatNewsReference[] {
@@ -6465,7 +6486,6 @@
 
 	.message-row-build-task {
 		align-items: flex-start;
-		margin-top: -8px;
 	}
 
 	.message-bubble {
@@ -7262,6 +7282,7 @@
 	}
 
 	.history-row {
+		position: relative;
 		flex-direction: row;
 		align-items: center;
 		margin-bottom: 10px;
@@ -7290,6 +7311,10 @@
 	}
 
 	.history-delete-action {
+		position: absolute;
+		top: 50%;
+		right: 0;
+		z-index: 2;
 		width: 0;
 		height: 58px;
 		border-radius: 29px;
@@ -7299,19 +7324,20 @@
 		opacity: 0;
 		overflow: hidden;
 		margin-left: 0;
-		transform: scale(0.88);
+		transform: translateY(-50%) scale(0.88);
 		border-width: 1px;
 		border-color: #edf0f5;
 		box-shadow: none;
-		transition-property: width, opacity, margin-left, transform;
+		pointer-events: none;
+		transition-property: width, opacity, transform;
 		transition-duration: 180ms;
 	}
 
 	.history-delete-action-show {
 		width: 58px;
 		opacity: 1;
-		margin-left: 8px;
-		transform: scale(1);
+		transform: translateY(-50%) scale(1);
+		pointer-events: auto;
 	}
 
 	.history-delete-icon {
@@ -7324,6 +7350,10 @@
 		line-height: 20px;
 		font-weight: 800;
 		color: #111827;
+		width: 100%;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 
 	.history-item-title-active {
@@ -7778,6 +7808,10 @@
 
 	.requirement-swatch-white {
 		background-color: #ffffff;
+	}
+
+	.requirement-swatch-any {
+		background-color: #e6eaf2;
 	}
 
 	.requirement-swatch-black {

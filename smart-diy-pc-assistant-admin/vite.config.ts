@@ -9,6 +9,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [vue()],
     server: {
+      host: true,
+      allowedHosts: ['6.cctstudio.cn'],
       proxy: {
         '/api': {
           target: backendOrigin,

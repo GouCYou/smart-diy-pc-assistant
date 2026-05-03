@@ -98,8 +98,12 @@
             "splashscreen" : {
                 "androidStyle" : "default",
                 "iosStyle" : "common"
+            },
+            "sdkConfigs" : {
+                "share" : {}
             }
-        }
+        },
+        "modules" : {}
     },
     "locale" : "zh-Hans",
     "fallbackLocale" : "en"
