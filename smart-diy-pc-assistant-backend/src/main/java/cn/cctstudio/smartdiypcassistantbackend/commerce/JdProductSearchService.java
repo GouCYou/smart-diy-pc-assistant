@@ -626,12 +626,12 @@ public class JdProductSearchService {
         int reference = Math.max(100, referencePrice(part));
         int maxPrice = switch (part.getType()) {
             case CPU -> isCpuMotherboardBundleTitle(product.title())
-                    ? Math.round(reference * 2.0f) + 1200
-                    : Math.round(reference * 1.7f) + 500;
-            case GPU -> Math.round(reference * 1.55f) + 900;
-            case MEMORY -> Math.round(reference * 3.2f) + 600;
-            case STORAGE -> Math.round(reference * 2.0f) + 400;
-            case MOTHERBOARD, PSU, CASE, COOLER -> Math.round(reference * 1.8f) + 500;
+                    ? Math.round(reference * 2.25f) + 1500
+                    : Math.round(reference * 1.9f) + 700;
+            case GPU -> Math.round(reference * 1.85f) + 1500;
+            case MEMORY -> Math.round(reference * 2.4f) + 1000;
+            case STORAGE -> Math.round(reference * 1.9f) + 1000;
+            case MOTHERBOARD, PSU, CASE, COOLER -> Math.round(reference * 2.1f) + 700;
         };
         return price <= maxPrice;
     }
@@ -725,10 +725,10 @@ public class JdProductSearchService {
     }
 
     private int estimatedGpuPrice(String model) {
-        if (model.contains("RTX 5090")) return 18000;
-        if (model.contains("RTX 5080")) return 8000;
-        if (model.contains("RTX 5070 TI")) return 5600;
-        if (model.contains("RTX 5070")) return 4200;
+        if (model.contains("RTX 5090")) return 22000;
+        if (model.contains("RTX 5080")) return 9000;
+        if (model.contains("RTX 5070 TI")) return 6200;
+        if (model.contains("RTX 5070")) return 4800;
         if (model.contains("RTX 5060 TI")) return 3000;
         if (model.contains("RTX 5060")) return 2300;
         if (model.contains("RTX 5050")) return 1600;
@@ -736,8 +736,8 @@ public class JdProductSearchService {
         if (model.contains("RTX 4070")) return 3400;
         if (model.contains("RTX 4060 TI")) return 2600;
         if (model.contains("RTX 4060")) return 2100;
-        if (model.contains("RX 9070 XT")) return 4500;
-        if (model.contains("RX 9070")) return 3800;
+        if (model.contains("RX 9070 XT")) return 5200;
+        if (model.contains("RX 9070")) return 4300;
         if (model.contains("RX 9060 XT")) return 2600;
         if (model.contains("RX 7800 XT")) return 3500;
         if (model.contains("RX 7700 XT")) return 2900;
@@ -765,22 +765,24 @@ public class JdProductSearchService {
     }
 
     private int estimatedMemoryPrice(String model) {
-        if (model.contains("64GB")) return 1100;
-        if (model.contains("32GB") && model.contains("DDR5") && (model.contains("7200") || model.contains("6400"))) return 750;
-        if (model.contains("32GB") && model.contains("DDR5")) return 600;
-        if (model.contains("16GB") && model.contains("DDR5")) return 320;
-        if (model.contains("32GB") && model.contains("DDR4")) return 420;
-        if (model.contains("16GB") && model.contains("DDR4")) return 240;
-        return 500;
+        if (model.contains("64GB") && model.contains("DDR5")) return 1800;
+        if (model.contains("64GB")) return 1500;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("7200")) return 1300;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("6400")) return 1100;
+        if (model.contains("32GB") && model.contains("DDR5")) return 950;
+        if (model.contains("16GB") && model.contains("DDR5")) return 520;
+        if (model.contains("32GB") && model.contains("DDR4")) return 650;
+        if (model.contains("16GB") && model.contains("DDR4")) return 380;
+        return 800;
     }
 
     private int estimatedStoragePrice(String model) {
-        if (model.contains("PCIE 5.0") && model.contains("2TB")) return 1400;
-        if (model.contains("PCIE 5.0") && model.contains("1TB")) return 800;
-        if (model.contains("4TB")) return 1700;
-        if (model.contains("2TB")) return 850;
-        if (model.contains("1TB")) return 450;
-        return 600;
+        if (model.contains("PCIE 5.0") && model.contains("2TB")) return 2200;
+        if (model.contains("PCIE 5.0") && model.contains("1TB")) return 1050;
+        if (model.contains("4TB")) return 3000;
+        if (model.contains("2TB")) return 1350;
+        if (model.contains("1TB")) return 700;
+        return 900;
     }
 
     private int estimatedPsuPrice(String model) {

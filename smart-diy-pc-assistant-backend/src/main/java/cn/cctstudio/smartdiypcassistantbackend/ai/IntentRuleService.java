@@ -10,6 +10,12 @@ public class IntentRuleService {
 
     public Optional<IntentMatch> match(String message) {
         String text = normalize(message);
+        if (containsAny(text, List.of("山寨电源", "杂牌电源", "三无电源", "劣质电源", "假电源"))) {
+            return Optional.of(new IntentMatch(
+                    "risk_explain",
+                    "不建议用山寨或三无电源装机。电源不是单纯“能点亮就行”的配件，劣质电源可能虚标功率、纹波过大、保护电路缺失，轻则蓝屏重启，重则烧主板、显卡甚至有安全风险。预算紧也优先选正规品牌、额定功率清楚、带完整保护和售后的型号；如果你把 CPU、显卡和预算发我，我可以按功耗帮你估一个合适瓦数。"
+            ));
+        }
         if (text.length() > 18) {
             return Optional.empty();
         }
