@@ -7284,14 +7284,19 @@
 	.history-row {
 		flex-direction: row;
 		align-items: center;
-		height: 72px;
+		height: 90px;
+		min-height: 90px;
+		max-height: 90px;
+		overflow: hidden;
 		margin-bottom: 10px;
 	}
 
 	.history-item {
 		flex: 1;
 		min-width: 0;
-		height: 72px;
+		height: 90px;
+		min-height: 90px;
+		max-height: 90px;
 		border-radius: 18px;
 		background-color: #f6f7fb;
 		padding: 14px;
@@ -7348,14 +7353,20 @@
 	}
 
 	.history-item-title {
+		display: -webkit-box;
 		font-size: 14px;
 		line-height: 20px;
 		font-weight: 800;
 		color: #111827;
 		width: 100%;
+		max-height: 40px;
 		overflow: hidden;
-		white-space: nowrap;
 		text-overflow: ellipsis;
+		white-space: normal;
+		word-break: break-all;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		lines: 2;
 	}
 
 	.history-item-title-active {
