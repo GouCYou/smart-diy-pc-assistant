@@ -7302,6 +7302,7 @@
 		padding: 14px;
 		box-sizing: border-box;
 		overflow: hidden;
+		justify-content: space-between;
 		border-width: 1px;
 		border-color: #edf0f5;
 		transition-property: transform, background-color, border-color;
@@ -7375,7 +7376,7 @@
 
 	.history-item-time {
 		width: 100%;
-		margin-top: 5px;
+		margin-top: 0;
 		font-size: 12px;
 		line-height: 17px;
 		color: #98a2b3;
