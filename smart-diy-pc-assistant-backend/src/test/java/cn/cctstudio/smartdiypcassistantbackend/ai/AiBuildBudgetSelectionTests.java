@@ -174,6 +174,40 @@ class AiBuildBudgetSelectionTests {
     }
 
     @Test
+    void highBudgetPurchasableSearchStopsBeforeLowTierFallbacks() {
+        List<HardwarePart> parts = seededHardware();
+        List<String> searchedModels = new ArrayList<>();
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> {
+            HardwarePart part = invocation.getArgument(0);
+            searchedModels.add(part.getModel());
+            return List.of(productFor(part));
+        });
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                30000,
+                "预算 30000 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        int total = intRecordValue(plan, "totalPrice");
+        assertTrue(total >= 25500, () -> "三万预算应先锁定高端预算目标，实际总价 " + total);
+        assertFalse(searchedModels.stream().anyMatch(this::isLowTierSearchModel),
+                () -> "高预算已找到可购买方案后不应继续检索低预算候选，实际检索：" + searchedModels);
+        assertTrue(searchedModels.size() <= 40,
+                () -> "高预算可购买方案不应全量深搜候选池，实际检索次数 " + searchedModels.size());
+    }
+
+    @Test
     void waterCoolingPreferenceUses360AioWhenCaseCanFitIt() {
         List<HardwarePart> parts = seededHardware();
         when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
@@ -462,6 +496,14 @@ class AiBuildBudgetSelectionTests {
                 .filter(part -> part.getType() == type && part.getModel().equals(model))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private boolean isLowTierSearchModel(String model) {
+        String normalized = model.toUpperCase();
+        return normalized.contains("RYZEN 5 5600")
+                || normalized.contains("RTX 5060")
+                || normalized.contains("RTX 5050")
+                || normalized.contains("DDR4");
     }
 
     private HardwarePart cpu(long id, String model, int score, String socket, int wattage) {

@@ -1196,8 +1196,15 @@ public class AiService {
                 if (isBudgetTargetPlan(plan, budget, minTargetTotal) && isBetterBudgetTargetPlan(plan, purchasableBudgetTarget, budget, preferences, settings)) {
                     purchasableBudgetTarget = plan;
                 }
+                BuildPlan earlyStopPlan = purchasableBudgetTarget != null ? purchasableBudgetTarget : purchasableBest;
+                if (shouldStopPurchasableSearch(earlyStopPlan, index, budget, minTargetTotal, preferences)) {
+                    break;
+                }
             }
             if (purchasableBudgetTarget != null) {
+                if (progressReporter != null) {
+                    progressReporter.update(88, "生成配置单", "已找到匹配预算的可购买方案，正在保存");
+                }
                 return purchasableBudgetTarget;
             }
             if (purchasableBest != null) {
@@ -1636,15 +1643,19 @@ public class AiService {
                 .toList();
         List<BuildPlan> retained = new ArrayList<>();
         int minTargetTotal = minimumTargetTotal(budget, preferences);
+        boolean highBudget = budget >= 25000 && minTargetTotal > 0;
         ranked.stream()
                 .filter(plan -> isBudgetTargetPlan(plan, budget, minTargetTotal))
                 .sorted((left, right) -> compareBudgetTargetPlans(left, right, budget, preferences, settings))
-                .limit(Math.max(18, targetSize / 2))
+                .limit(highBudget ? Math.max(10, targetSize / 3) : Math.max(18, targetSize / 2))
                 .forEach(plan -> addUniquePlan(retained, plan, targetSize));
 
         Map<String, Integer> cpuCounts = new LinkedHashMap<>();
         Map<String, Integer> gpuCounts = new LinkedHashMap<>();
         for (BuildPlan plan : ranked) {
+            if (highBudget && !isRetainableHighBudgetPlan(plan, budget, minTargetTotal, preferences)) {
+                continue;
+            }
             String cpuKey = partModelKey(plan, HardwarePartType.CPU);
             String gpuKey = partModelKey(plan, HardwarePartType.GPU);
             if (cpuCounts.getOrDefault(cpuKey, 0) >= 4 || gpuCounts.getOrDefault(gpuKey, 0) >= 6) {
@@ -1659,6 +1670,7 @@ public class AiService {
         }
 
         ranked.stream()
+                .filter(plan -> !highBudget || isRetainableHighBudgetPlan(plan, budget, minTargetTotal, preferences))
                 .sorted(Comparator.comparingInt(BuildPlan::performanceScore).reversed()
                         .thenComparing((left, right) -> Integer.compare(
                                 buildPlanRank(right, budget, preferences, settings),
@@ -1667,15 +1679,20 @@ public class AiService {
                 .limit(Math.max(10, targetSize / 5))
                 .forEach(plan -> addUniquePlan(retained, plan, targetSize));
 
-        candidates.stream()
-                .sorted(Comparator.comparingInt(BuildPlan::totalPrice)
-                        .thenComparing(Comparator.comparingInt(BuildPlan::performanceScore).reversed()))
-                .limit(Math.max(8, targetSize / 8))
-                .forEach(plan -> addUniquePlan(retained, plan, targetSize));
+        if (budget < 12000) {
+            candidates.stream()
+                    .sorted(Comparator.comparingInt(BuildPlan::totalPrice)
+                            .thenComparing(Comparator.comparingInt(BuildPlan::performanceScore).reversed()))
+                    .limit(Math.max(8, targetSize / 8))
+                    .forEach(plan -> addUniquePlan(retained, plan, targetSize));
+        }
 
         for (BuildPlan plan : ranked) {
             if (retained.size() >= targetSize) {
                 break;
+            }
+            if (highBudget && !isRetainableHighBudgetPlan(plan, budget, minTargetTotal, preferences)) {
+                continue;
             }
             addUniquePlan(retained, plan, targetSize);
         }
@@ -1684,8 +1701,11 @@ public class AiService {
     }
 
     private int localCandidatePoolSize(int budget) {
+        if (budget >= 25000) {
+            return 32;
+        }
         if (budget >= 12000) {
-            return 64;
+            return 48;
         }
         if (budget >= 9000) {
             return 56;
@@ -1722,6 +1742,68 @@ public class AiService {
         if (plans.size() < targetSize && !plans.contains(plan)) {
             plans.add(plan);
         }
+    }
+
+    private boolean isRetainableHighBudgetPlan(
+            BuildPlan plan,
+            int budget,
+            int minTargetTotal,
+            BuildPreferences preferences
+    ) {
+        return !isClearlyUnderTargetBudget(plan, minTargetTotal)
+                || isPremiumCeilingBuild(plan, budget, preferences);
+    }
+
+    private boolean shouldStopPurchasableSearch(
+            BuildPlan plan,
+            int inspectedCandidates,
+            int budget,
+            int minTargetTotal,
+            BuildPreferences preferences
+    ) {
+        if (plan == null || inspectedCandidates < minimumPurchasableProbeCount(budget)) {
+            return false;
+        }
+        if (isPremiumCeilingBuild(plan, budget, preferences)) {
+            return true;
+        }
+        if (budget >= 25000 && !hasCurrentHighBudgetGamingCpu(plan, preferences)) {
+            return false;
+        }
+        if (!isBudgetTargetPlan(plan, budget, minTargetTotal)) {
+            return false;
+        }
+        if (budget >= 25000) {
+            return plan.totalPrice() >= Math.round(budget * 0.90f)
+                    || plan.performanceScore() >= 94;
+        }
+        if (budget >= 12000) {
+            return plan.totalPrice() >= Math.round(budget * 0.88f)
+                    || plan.performanceScore() >= 88;
+        }
+        return inspectedCandidates >= 14;
+    }
+
+    private int minimumPurchasableProbeCount(int budget) {
+        if (budget >= 25000) {
+            return 4;
+        }
+        if (budget >= 12000) {
+            return 6;
+        }
+        return 10;
+    }
+
+    private boolean hasCurrentHighBudgetGamingCpu(BuildPlan plan, BuildPreferences preferences) {
+        if (!preferences.gamingUse() || preferences.productivityUse() || preferences.preferIntelCpu()) {
+            return true;
+        }
+        String model = partModelKey(plan, HardwarePartType.CPU).toUpperCase(Locale.ROOT);
+        return model.contains("9950X3D2")
+                || model.contains("9950X3D")
+                || model.contains("9900X3D")
+                || model.contains("9850X3D")
+                || model.contains("9800X3D");
     }
 
     private String partModelKey(BuildPlan plan, HardwarePartType type) {
