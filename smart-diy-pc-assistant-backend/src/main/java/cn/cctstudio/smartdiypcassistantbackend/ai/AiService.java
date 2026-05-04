@@ -1090,7 +1090,7 @@ public class AiService {
         List<HardwarePart> storages = prioritizeCandidates(required(parts, HardwarePartType.STORAGE), 5);
         List<HardwarePart> psus = prioritizeCandidates(required(parts, HardwarePartType.PSU), 8);
         List<HardwarePart> cases = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.CASE), 7), required(parts, HardwarePartType.CASE), preferences, HardwarePartType.CASE, 9);
-        List<HardwarePart> coolers = includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.COOLER), 7), required(parts, HardwarePartType.COOLER), preferences, HardwarePartType.COOLER, 9);
+        List<HardwarePart> coolers = automaticCoolerCandidates(includePreferredCandidates(prioritizeCandidates(required(parts, HardwarePartType.COOLER), 7), required(parts, HardwarePartType.COOLER), preferences, HardwarePartType.COOLER, 9));
         BuildPlan best = null;
         BuildPlan fallback = null;
         BuildPlan budgetTarget = null;
@@ -1124,9 +1124,7 @@ public class AiService {
                     if (compatiblePsus.isEmpty()) {
                         continue;
                     }
-                    List<HardwarePart> compatibleCoolers = topSupportingCandidates(coolers.stream()
-                            .filter(cooler -> isCoolerAdequateForCpu(cpu, cooler))
-                            .toList(), supportingCandidateLimit(budget, 2, 3), Math.max(160, Math.round(budget * 0.05f)), preferences);
+                    List<HardwarePart> compatibleCoolers = compatibleCoolerCandidates(cpu, coolers, compatibleCases, budget, preferences);
                     if (compatibleCoolers.isEmpty()) {
                         continue;
                     }
@@ -1138,10 +1136,13 @@ public class AiService {
                         }
                         for (HardwarePart storage : selectedStorages) {
                             for (HardwarePart psu : compatiblePsus) {
-                                for (HardwarePart pcCase : compatibleCases) {
-                                    for (HardwarePart cooler : compatibleCoolers) {
-                                        List<HardwarePart> selected = List.of(cpu, motherboard, gpu, memory, storage, psu, pcCase, cooler);
-                                        List<BuildPartSelectionRequest> selections = selected.stream()
+                                    for (HardwarePart pcCase : compatibleCases) {
+                                        for (HardwarePart cooler : compatibleCoolers) {
+                                            if (!isCoolerChoiceAllowedForCase(pcCase, cooler, compatibleCoolers, cpu, preferences, budget)) {
+                                                continue;
+                                            }
+                                            List<HardwarePart> selected = List.of(cpu, motherboard, gpu, memory, storage, psu, pcCase, cooler);
+                                            List<BuildPartSelectionRequest> selections = selected.stream()
                                                 .map(part -> selectionForPart(part, localSelections))
                                                 .toList();
                                         BuildPlan plan = new BuildPlan(selected, selections, totalPrice(selected, selections), performanceScore(selected));
@@ -1200,7 +1201,8 @@ public class AiService {
                 return purchasableBudgetTarget;
             }
             if (purchasableBest != null) {
-                if (isClearlyUnderTargetBudget(purchasableBest, minTargetTotal)) {
+                if (isClearlyUnderTargetBudget(purchasableBest, minTargetTotal)
+                        && !isPremiumCeilingBuild(purchasableBest, budget, preferences)) {
                     throw underusedBudgetException(budget, purchasableBest.totalPrice(), minTargetTotal);
                 }
                 return purchasableBest;
@@ -1220,7 +1222,8 @@ public class AiService {
             return budgetTarget;
         }
         if (best != null) {
-            if (isClearlyUnderTargetBudget(best, minTargetTotal)) {
+            if (isClearlyUnderTargetBudget(best, minTargetTotal)
+                    && !isPremiumCeilingBuild(best, budget, preferences)) {
                 throw underusedBudgetException(budget, best.totalPrice(), minTargetTotal);
             }
             return best;
@@ -1308,6 +1311,47 @@ public class AiService {
         return topSupportingCandidates(candidates, supportingCandidateLimit(budget, 2, 4), Math.max(280, Math.round(budget * 0.08f)), preferences);
     }
 
+    private List<HardwarePart> automaticCoolerCandidates(List<HardwarePart> coolers) {
+        List<HardwarePart> mainstream = coolers.stream()
+                .filter(cooler -> !is280Aio(cooler))
+                .toList();
+        return mainstream.isEmpty() ? coolers : mainstream;
+    }
+
+    private List<HardwarePart> compatibleCoolerCandidates(
+            HardwarePart cpu,
+            List<HardwarePart> coolers,
+            List<HardwarePart> compatibleCases,
+            int budget,
+            BuildPreferences preferences
+    ) {
+        List<HardwarePart> compatible = coolers.stream()
+                .filter(cooler -> isCoolerAdequateForCpu(cpu, cooler))
+                .toList();
+        if (compatible.isEmpty()) {
+            return List.of();
+        }
+        boolean canUse360 = compatibleCases.stream().anyMatch(this::caseLikelySupports360Aio)
+                && compatible.stream().anyMatch(this::is360Aio);
+        if (canUse360) {
+            List<HardwarePart> preferred = compatible.stream()
+                    .filter(cooler -> !isAioCooler(cooler) || is360Aio(cooler))
+                    .toList();
+            if (!preferred.isEmpty()) {
+                compatible = preferred;
+            }
+            if (shouldPrefer360Aio(cpu, preferences, budget)) {
+                List<HardwarePart> only360 = compatible.stream()
+                        .filter(this::is360Aio)
+                        .toList();
+                if (!only360.isEmpty()) {
+                    compatible = only360;
+                }
+            }
+        }
+        return topSupportingCandidates(compatible, supportingCandidateLimit(budget, 2, 3), Math.max(220, Math.round(budget * 0.06f)), preferences);
+    }
+
     private int supportingCandidateLimit(int budget, int normalLimit, int highBudgetLimit) {
         if (budget >= 12000) {
             return highBudgetLimit;
@@ -1379,7 +1423,28 @@ public class AiService {
         }
         score += casePreferenceScore(part, preferences) * 80;
         score += coolerPreferenceScore(part, preferences) * 80;
+        score += coolerMainstreamScore(part);
         return score;
+    }
+
+    private int coolerMainstreamScore(HardwarePart part) {
+        if (part.getType() != HardwarePartType.COOLER) {
+            return 0;
+        }
+        if (is360Aio(part)) {
+            return 180;
+        }
+        if (is280Aio(part)) {
+            return -260;
+        }
+        if (is240Aio(part)) {
+            return -40;
+        }
+        String text = hardwarePartText(part);
+        if (containsAny(text, "DUAL TOWER", "双塔")) {
+            return 80;
+        }
+        return 0;
     }
 
     private int casePreferenceScore(HardwarePart part, BuildPreferences preferences) {
@@ -1419,7 +1484,16 @@ public class AiService {
         String text = hardwarePartText(part);
         String coolerType = preferences.preferredCoolerType();
         if ("AIO".equals(coolerType)) {
-            return containsAny(text, "AIO", "水冷", "240", "280", "360") ? 5 : -4;
+            if (is360Aio(part)) {
+                return 8;
+            }
+            if (is280Aio(part)) {
+                return -5;
+            }
+            if (is240Aio(part)) {
+                return 2;
+            }
+            return containsAny(text, "AIO", "水冷") ? 1 : -4;
         }
         if ("AIR".equals(coolerType)) {
             return containsAny(text, "风冷", "塔式", "双塔", "TOWER", "LOW PROFILE") ? 5 : text.contains("水冷") || text.contains("AIO") ? -5 : 0;
@@ -1472,6 +1546,9 @@ public class AiService {
     }
 
     private int budgetFlexRange(int budget) {
+        if (budget >= 25000) {
+            return Math.max(2500, Math.min(4000, Math.round(budget * 0.09f)));
+        }
         if (budget >= 12000) {
             return Math.max(1200, Math.min(1800, Math.round(budget * 0.11f)));
         }
@@ -1513,6 +1590,26 @@ public class AiService {
 
     private boolean isClearlyUnderTargetBudget(BuildPlan plan, int minTargetTotal) {
         return minTargetTotal > 0 && plan.totalPrice() < minTargetTotal;
+    }
+
+    private boolean isPremiumCeilingBuild(BuildPlan plan, int budget, BuildPreferences preferences) {
+        if (budget < 35000 || plan == null) {
+            return false;
+        }
+        boolean flagshipGpu = plan.parts().stream()
+                .filter(part -> part.getType() == HardwarePartType.GPU)
+                .map(part -> part.getModel().toUpperCase(Locale.ROOT))
+                .anyMatch(model -> model.contains("RTX 5090") || model.contains("RTX 5080") || model.contains("RX 9070 XT"));
+        boolean premiumCpu = plan.parts().stream()
+                .filter(part -> part.getType() == HardwarePartType.CPU)
+                .map(part -> part.getModel().toUpperCase(Locale.ROOT))
+                .anyMatch(model -> model.contains("9950X3D")
+                        || model.contains("9950X3D2")
+                        || model.contains("9900X3D")
+                        || model.contains("9850X3D")
+                        || model.contains("9800X3D")
+                        || model.contains("CORE ULTRA 9"));
+        return flagshipGpu && premiumCpu && plan.totalPrice() >= Math.round(budget * 0.72f);
     }
 
     private BusinessException underusedBudgetException(int budget, int bestTotal, int minTargetTotal) {
@@ -2118,9 +2215,8 @@ public class AiService {
 
     private boolean isCoolerAdequateForCpu(HardwarePart cpu, HardwarePart cooler) {
         CpuTier cpuTier = cpuTier(cpu);
-        String model = cooler.getModel().toUpperCase(Locale.ROOT);
-        boolean aio = model.contains("AIO") || model.contains("360") || model.contains("280") || model.contains("240");
-        boolean strongAir = model.contains("DUAL TOWER");
+        boolean aio = isAioCooler(cooler);
+        boolean strongAir = isStrongAirCooler(cooler);
         if (cpuTier == CpuTier.FLAGSHIP || cpu.getWattage() >= 170) {
             return aio;
         }
@@ -2128,6 +2224,70 @@ public class AiService {
             return aio || strongAir;
         }
         return true;
+    }
+
+    private boolean isCoolerChoiceAllowedForCase(
+            HardwarePart pcCase,
+            HardwarePart cooler,
+            List<HardwarePart> compatibleCoolers,
+            HardwarePart cpu,
+            BuildPreferences preferences,
+            int budget
+    ) {
+        if (is280Aio(cooler)) {
+            return false;
+        }
+        if (!caseLikelySupports360Aio(pcCase) || compatibleCoolers.stream().noneMatch(this::is360Aio)) {
+            return true;
+        }
+        if (isAioCooler(cooler) && !is360Aio(cooler)) {
+            return false;
+        }
+        return !shouldPrefer360Aio(cpu, preferences, budget) || is360Aio(cooler);
+    }
+
+    private boolean shouldPrefer360Aio(HardwarePart cpu, BuildPreferences preferences, int budget) {
+        if ("AIR".equals(preferences.preferredCoolerType())) {
+            return false;
+        }
+        return "AIO".equals(preferences.preferredCoolerType())
+                || cpuTier(cpu) == CpuTier.FLAGSHIP
+                || cpu.getWattage() >= 170
+                || (budget >= 12000 && cpuTier(cpu) == CpuTier.PERFORMANCE);
+    }
+
+    private boolean caseLikelySupports360Aio(HardwarePart pcCase) {
+        String text = ((pcCase.getModel() == null ? "" : pcCase.getModel()) + " "
+                + (pcCase.getSpecs() == null ? "" : pcCase.getSpecs())).toUpperCase(Locale.ROOT);
+        String formFactor = pcCase.getFormFactor() == null ? "" : pcCase.getFormFactor().toUpperCase(Locale.ROOT);
+        return containsAny(text, "360", "E-ATX", "EATX", "全塔", "大中塔", "大机箱")
+                || "E-ATX".equals(formFactor)
+                || "ATX".equals(formFactor);
+    }
+
+    private boolean isAioCooler(HardwarePart cooler) {
+        String text = hardwarePartText(cooler);
+        return containsAny(text, "AIO", "水冷", "一体水", "360", "280", "240");
+    }
+
+    private boolean is360Aio(HardwarePart cooler) {
+        String text = hardwarePartText(cooler);
+        return isAioCooler(cooler) && containsAny(text, "360");
+    }
+
+    private boolean is280Aio(HardwarePart cooler) {
+        String text = hardwarePartText(cooler);
+        return isAioCooler(cooler) && containsAny(text, "280");
+    }
+
+    private boolean is240Aio(HardwarePart cooler) {
+        String text = hardwarePartText(cooler);
+        return isAioCooler(cooler) && containsAny(text, "240");
+    }
+
+    private boolean isStrongAirCooler(HardwarePart cooler) {
+        String text = hardwarePartText(cooler);
+        return containsAny(text, "DUAL TOWER", "双塔");
     }
 
     private CpuTier cpuTier(HardwarePart cpu) {
@@ -2384,11 +2544,14 @@ public class AiService {
         if (model.contains("CORE ULTRA")) {
             return model.contains("PLUS") ? 2600 : 2500;
         }
-        if (model.contains("9950X3D2") || model.contains("9850X3D")) {
-            return -1000;
+        if (model.contains("9950X3D2")) {
+            return 2700;
+        }
+        if (model.contains("9850X3D")) {
+            return 2600;
         }
         if (model.contains("9950X3D") || model.contains("9900X3D") || model.contains("9800X3D")) {
-            return 2400;
+            return 2500;
         }
         if (model.contains("RYZEN 9 99") || model.contains("RYZEN 7 97") || model.contains("RYZEN 5 96")) {
             return 2300;
@@ -2580,13 +2743,19 @@ public class AiService {
             return 0;
         }
         String model = part.getModel().toUpperCase(Locale.ROOT);
-        if (model.contains("9800X3D")) {
-            return 4;
+        if (model.contains("9950X3D2")) {
+            return 8;
         }
-        if (model.contains("7800X3D") || model.contains("5700X3D")) {
-            return 3;
+        if (model.contains("9850X3D")) {
+            return 7;
         }
         if (model.contains("9950X3D") || model.contains("9900X3D")) {
+            return 6;
+        }
+        if (model.contains("9800X3D")) {
+            return 5;
+        }
+        if (model.contains("7800X3D") || model.contains("5700X3D")) {
             return 2;
         }
         if (model.contains("9700X")) {
@@ -2746,15 +2915,15 @@ public class AiService {
     }
 
     private int estimatedMemoryPrice(String model) {
-        if (model.contains("64GB") && model.contains("DDR5")) return 1800;
-        if (model.contains("64GB")) return 1500;
-        if (model.contains("32GB") && model.contains("DDR5") && model.contains("7200")) return 1300;
-        if (model.contains("32GB") && model.contains("DDR5") && model.contains("6400")) return 1100;
-        if (model.contains("32GB") && model.contains("DDR5")) return 950;
-        if (model.contains("16GB") && model.contains("DDR5")) return 520;
-        if (model.contains("32GB") && model.contains("DDR4")) return 650;
-        if (model.contains("16GB") && model.contains("DDR4")) return 380;
-        return 800;
+        if (model.contains("64GB") && model.contains("DDR5")) return 4200;
+        if (model.contains("64GB")) return 3200;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("7200")) return 2600;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("6400")) return 2300;
+        if (model.contains("32GB") && model.contains("DDR5")) return 2100;
+        if (model.contains("16GB") && model.contains("DDR5")) return 1100;
+        if (model.contains("32GB") && model.contains("DDR4")) return 1200;
+        if (model.contains("16GB") && model.contains("DDR4")) return 700;
+        return 1500;
     }
 
     private int estimatedStoragePrice(String model) {

@@ -765,15 +765,15 @@ public class JdProductSearchService {
     }
 
     private int estimatedMemoryPrice(String model) {
-        if (model.contains("64GB") && model.contains("DDR5")) return 1800;
-        if (model.contains("64GB")) return 1500;
-        if (model.contains("32GB") && model.contains("DDR5") && model.contains("7200")) return 1300;
-        if (model.contains("32GB") && model.contains("DDR5") && model.contains("6400")) return 1100;
-        if (model.contains("32GB") && model.contains("DDR5")) return 950;
-        if (model.contains("16GB") && model.contains("DDR5")) return 520;
-        if (model.contains("32GB") && model.contains("DDR4")) return 650;
-        if (model.contains("16GB") && model.contains("DDR4")) return 380;
-        return 800;
+        if (model.contains("64GB") && model.contains("DDR5")) return 4200;
+        if (model.contains("64GB")) return 3200;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("7200")) return 2600;
+        if (model.contains("32GB") && model.contains("DDR5") && model.contains("6400")) return 2300;
+        if (model.contains("32GB") && model.contains("DDR5")) return 2100;
+        if (model.contains("16GB") && model.contains("DDR5")) return 1100;
+        if (model.contains("32GB") && model.contains("DDR4")) return 1200;
+        if (model.contains("16GB") && model.contains("DDR4")) return 700;
+        return 1500;
     }
 
     private int estimatedStoragePrice(String model) {
@@ -1109,6 +1109,9 @@ public class JdProductSearchService {
         }
         int capacity = extractMemoryCapacityGb(text);
         if (capacity > 0 && !titleContainsMemoryCapacity(title, capacity)) {
+            return false;
+        }
+        if (capacity > 0 && titleMentionsDifferentMemoryCapacity(title, capacity)) {
             return false;
         }
         if (capacity > 0 && !matchesMemoryPackageIntent(title, text, capacity)) {
@@ -1462,7 +1465,9 @@ public class JdProductSearchService {
         return normalized.contains(half + "GBX2")
                 || normalized.contains(half + "GX2")
                 || normalized.contains("2X" + half + "GB")
-                || normalized.contains("2X" + half + "G");
+                || normalized.contains("2X" + half + "G")
+                || normalized.contains(half + "GB套条")
+                || normalized.contains(half + "G套条");
     }
 
     private String selectedMemoryVariantText(String title) {
@@ -1484,11 +1489,21 @@ public class JdProductSearchService {
         Matcher matcher = MEMORY_CAPACITY_PATTERN.matcher(title == null ? "" : title);
         while (matcher.find()) {
             int value = parseNumber(matcher.group(1));
-            if (value > 0 && value != capacityGb && value * 2 != capacityGb) {
+            if (value > 0
+                    && value != capacityGb
+                    && value * 2 != capacityGb
+                    && !isMemorySpeedValue(value)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private boolean isMemorySpeedValue(int value) {
+        return value == 3200 || value == 3600 || value == 4800 || value == 5200
+                || value == 5600 || value == 6000 || value == 6200 || value == 6400
+                || value == 6800 || value == 7200 || value == 7600 || value == 8000
+                || value == 8400;
     }
 
     private int selectedMemoryCapacityGb(String title) {

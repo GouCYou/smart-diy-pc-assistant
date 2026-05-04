@@ -60,6 +60,10 @@ public class HardwareModelMatcher {
             );
         }
         String normalizedTitle = normalize(title);
+        if (part.getType() == HardwarePartType.GPU) {
+            return (!model.isBlank() && normalizedTitle.contains(model))
+                    || (!modelKey.isBlank() && normalizedTitle.contains(modelKey));
+        }
         return (!model.isBlank() && normalizedTitle.contains(model))
                 || (!modelKey.isBlank() && normalizedTitle.contains(modelKey))
                 || matchesModelTokens(normalizedTitle, part.getModel());

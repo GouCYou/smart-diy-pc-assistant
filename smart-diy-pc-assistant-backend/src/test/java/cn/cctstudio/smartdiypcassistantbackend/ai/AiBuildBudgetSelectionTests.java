@@ -86,6 +86,35 @@ class AiBuildBudgetSelectionTests {
     }
 
     @Test
+    void ultraHighBudgetKeepsTheBestPremiumBuildEvenWhenItCannotSpendAllBudget() {
+        List<HardwarePart> parts = seededHardware();
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> List.of(productFor(invocation.getArgument(0))));
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                50000,
+                "预算 50000 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        int total = intRecordValue(plan, "totalPrice");
+        String cpu = partModel(plan, HardwarePartType.CPU).toUpperCase();
+        String gpu = partModel(plan, HardwarePartType.GPU).toUpperCase();
+        assertTrue(total >= 36000, () -> "五万预算应保存已能买到的顶配方案，而不是因花不满预算失败，实际总价 " + total);
+        assertTrue(cpu.contains("X3D"), () -> "高预算游戏配置仍应使用 X3D CPU，实际选择 " + cpu);
+        assertTrue(gpu.contains("RTX 5090") || gpu.contains("RTX 5080"), () -> "高预算 N 卡配置应优先旗舰显卡，实际选择 " + gpu);
+    }
+
+    @Test
     void gamingBuildPrefersX3dCpuAndNvidiaGpuWhenBudgetAllows() {
         List<HardwarePart> parts = seededHardware();
         when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
@@ -111,6 +140,64 @@ class AiBuildBudgetSelectionTests {
         assertTrue(cpu.contains("X3D"), () -> "游戏预算充足时应优先 X3D CPU，实际选择 " + cpu);
         assertFalse(cpu.contains("9900X") && !cpu.contains("X3D"), () -> "游戏配置不应默认选择非 X3D 的 9900X，实际选择 " + cpu);
         assertTrue(gpu.startsWith("RTX"), () -> "显卡平台未指定且预算充足时应默认偏向 NVIDIA，实际选择 " + gpu);
+    }
+
+    @Test
+    void highGamingBudgetPrefersCurrentX3dOver7800X3d() {
+        List<HardwarePart> parts = seededHardware();
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> List.of(productFor(invocation.getArgument(0))));
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                29500,
+                "预算 29500 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        String cpu = partModel(plan, HardwarePartType.CPU).toUpperCase();
+        assertTrue(cpu.contains("9950X3D2")
+                        || cpu.contains("9850X3D")
+                        || cpu.contains("9950X3D")
+                        || cpu.contains("9900X3D")
+                        || cpu.contains("9800X3D"),
+                () -> "三万游戏预算应优先新款 X3D，而不是旧款 7800X3D，实际选择 " + cpu);
+        assertFalse(cpu.contains("7800X3D"), () -> "三万游戏预算不应默认退回旧款 7800X3D，实际选择 " + cpu);
+    }
+
+    @Test
+    void waterCoolingPreferenceUses360AioWhenCaseCanFitIt() {
+        List<HardwarePart> parts = seededHardware();
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> List.of(productFor(invocation.getArgument(0))));
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                18000,
+                "预算 18000 元，主要用于游戏，机箱尺寸倾向 ATX，散热倾向水冷，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        String cooler = partModel(plan, HardwarePartType.COOLER).toUpperCase();
+        assertTrue(cooler.contains("360"), () -> "ATX/高预算水冷方案应优先 360 水冷，实际选择 " + cooler);
+        assertFalse(cooler.contains("280"), () -> "自动生成不应主动选择非主流 280 水冷，实际选择 " + cooler);
+        assertFalse(cooler.contains("240"), () -> "机箱能上 360 时不应退到 240 水冷，实际选择 " + cooler);
     }
 
     @Test
