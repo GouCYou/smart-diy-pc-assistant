@@ -24,7 +24,7 @@
 						<view class="ai-dot ai-dot-two"></view>
 						<view class="ai-dot ai-dot-three"></view>
 					</view>
-					<text class="chat-empty-title">有什么装机问题</text>
+					<text class="chat-empty-title">您好，别来无恙啊！</text>
 					<text class="chat-empty-desc">AI 也可能会犯错。请核查重要信息。</text>
 					<view class="prompt-grid">
 						<view v-for="item in promptChips" :key="item.label" :class="item.type == 'setup' ? 'prompt-card prompt-card-setup' : 'prompt-card'" @click="choosePrompt(item)">
