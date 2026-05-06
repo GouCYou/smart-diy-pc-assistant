@@ -1106,7 +1106,7 @@ public class AiService {
             }
             List<HardwarePart> compatibleMotherboards = compatibleMotherboardCandidates(cpu, motherboards, budget, preferences);
             for (HardwarePart motherboard : compatibleMotherboards) {
-                List<HardwarePart> compatibleMemories = compatibleMemoryCandidates(motherboard, memories, budget, preferences);
+                List<HardwarePart> compatibleMemories = compatibleMemoryCandidates(cpu, motherboard, memories, budget, preferences);
                 if (compatibleMemories.isEmpty()) {
                     continue;
                 }
@@ -1276,6 +1276,7 @@ public class AiService {
     }
 
     private List<HardwarePart> compatibleMemoryCandidates(
+            HardwarePart cpu,
             HardwarePart motherboard,
             List<HardwarePart> memories,
             int budget,
@@ -1299,7 +1300,22 @@ public class AiService {
                 compatible = valueCapacity;
             }
         }
-        return topSupportingCandidates(compatible, supportingCandidateLimit(budget, 3, 4), Math.max(260, Math.round(budget * 0.08f)), preferences);
+        if (shouldPreferAmdTunedMemory(cpu, motherboard, preferences)) {
+            List<HardwarePart> lowLatency = compatible.stream()
+                    .filter(this::isLowLatencyAmdDdr5Memory)
+                    .toList();
+            if (!lowLatency.isEmpty()) {
+                compatible = lowLatency;
+            } else {
+                List<HardwarePart> sweetSpot = compatible.stream()
+                        .filter(this::isAmdDdr5SweetSpotMemory)
+                        .toList();
+                if (!sweetSpot.isEmpty()) {
+                    compatible = sweetSpot;
+                }
+            }
+        }
+        return topMemoryCandidates(compatible, cpu, budget, preferences);
     }
 
     private List<HardwarePart> storageCandidates(List<HardwarePart> storages, int budget, BuildPreferences preferences) {
@@ -1314,8 +1330,33 @@ public class AiService {
             if (!valueStorages.isEmpty()) {
                 candidates = valueStorages;
             }
+        } else if (budget >= 16000) {
+            List<HardwarePart> pcie5Storages = storages.stream()
+                    .filter(this::isPcie5Storage)
+                    .toList();
+            if (!pcie5Storages.isEmpty()) {
+                candidates = pcie5Storages;
+            }
         }
         return topSupportingCandidates(candidates, supportingCandidateLimit(budget, 2, 4), Math.max(280, Math.round(budget * 0.08f)), preferences);
+    }
+
+    private List<HardwarePart> topMemoryCandidates(
+            List<HardwarePart> memories,
+            HardwarePart cpu,
+            int budget,
+            BuildPreferences preferences
+    ) {
+        if (memories.isEmpty()) {
+            return List.of();
+        }
+        int limit = supportingCandidateLimit(budget, 3, 4);
+        int targetPrice = Math.max(260, Math.round(budget * 0.08f));
+        return memories.stream()
+                .sorted(Comparator.comparingInt((HardwarePart memory) -> memorySupportingPartRank(memory, cpu, targetPrice, preferences)).reversed()
+                        .thenComparing(HardwarePart::getModel))
+                .limit(limit)
+                .toList();
     }
 
     private List<HardwarePart> automaticCoolerCandidates(List<HardwarePart> coolers) {
@@ -1431,6 +1472,125 @@ public class AiService {
         score += casePreferenceScore(part, preferences) * 80;
         score += coolerPreferenceScore(part, preferences) * 80;
         score += coolerMainstreamScore(part);
+        score += psuQualityScore(part) * 90;
+        score += storageQualityScore(part) * 70;
+        return score;
+    }
+
+    private int memorySupportingPartRank(HardwarePart memory, HardwarePart cpu, int targetPrice, BuildPreferences preferences) {
+        return supportingPartRank(memory, targetPrice, preferences)
+                + amdMemoryPreferenceScore(memory, cpu) * 90;
+    }
+
+    private int amdMemoryPreferenceScore(HardwarePart memory, HardwarePart cpu) {
+        if (memory == null || memory.getType() != HardwarePartType.MEMORY || !isAmdDdr5Platform(cpu)) {
+            return 0;
+        }
+        String text = hardwarePartText(memory);
+        int speed = memorySpeed(memory);
+        int score = 0;
+        if (speed >= 5600 && speed <= 6400) {
+            score += 4;
+        }
+        if (speed == 6000) {
+            score += 4;
+        } else if (speed >= 6800) {
+            score -= 5;
+        }
+        if (memoryCasLatency(memory) > 0 && memoryCasLatency(memory) <= 30) {
+            score += 5;
+        }
+        if (containsAny(text, "C28", "CL28", "C30", "CL30", "低时序", "低延迟")) {
+            score += 4;
+        }
+        if (containsAny(text, "海力士", "HYNIX", "A-DIE", "ADIE", "A DIE")) {
+            score += 3;
+        }
+        return score;
+    }
+
+    private boolean isAmdDdr5Platform(HardwarePart cpu) {
+        return cpu != null
+                && "AM5".equalsIgnoreCase(cpu.getSocketType())
+                && hardwarePartText(cpu).contains("RYZEN");
+    }
+
+    private boolean shouldPreferAmdTunedMemory(HardwarePart cpu, HardwarePart motherboard, BuildPreferences preferences) {
+        return isAmdDdr5Platform(cpu)
+                && motherboard != null
+                && "DDR5".equalsIgnoreCase(motherboard.getMemoryType())
+                && preferences.preferredMemoryCapacityGb() <= 0;
+    }
+
+    private boolean isLowLatencyAmdDdr5Memory(HardwarePart memory) {
+        String text = hardwarePartText(memory);
+        return isAmdDdr5SweetSpotMemory(memory)
+                && (memoryCasLatency(memory) > 0 && memoryCasLatency(memory) <= 30
+                || containsAny(text, "C28", "CL28", "C30", "CL30", "低时序", "低延迟", "海力士", "HYNIX", "A-DIE", "ADIE", "A DIE"));
+    }
+
+    private boolean isAmdDdr5SweetSpotMemory(HardwarePart memory) {
+        if (memory == null || memory.getType() != HardwarePartType.MEMORY || !"DDR5".equalsIgnoreCase(memory.getMemoryType())) {
+            return false;
+        }
+        int speed = memorySpeed(memory);
+        return speed >= 5600 && speed <= 6400;
+    }
+
+    private int memorySpeed(HardwarePart memory) {
+        Matcher matcher = Pattern.compile("(?:DDR\\d\\s*)?(\\d{4,5})").matcher(hardwarePartText(memory));
+        while (matcher.find()) {
+            int value = parseInteger(matcher.group(1));
+            if (value >= 3000 && value <= 10000) {
+                return value;
+            }
+        }
+        return 0;
+    }
+
+    private int memoryCasLatency(HardwarePart memory) {
+        Matcher matcher = Pattern.compile("(?:C|CL)\\s*-?\\s*(\\d{2})", Pattern.CASE_INSENSITIVE).matcher(hardwarePartText(memory));
+        if (matcher.find()) {
+            return parseInteger(matcher.group(1));
+        }
+        return 0;
+    }
+
+    private boolean isPcie5Storage(HardwarePart storage) {
+        String text = hardwarePartText(storage);
+        return storage.getType() == HardwarePartType.STORAGE
+                && containsAny(text, "PCIE 5.0", "PCIE5", "GEN5");
+    }
+
+    private int storageQualityScore(HardwarePart part) {
+        if (part.getType() != HardwarePartType.STORAGE) {
+            return 0;
+        }
+        return isPcie5Storage(part) ? 4 : 0;
+    }
+
+    private int psuQualityScore(HardwarePart part) {
+        if (part.getType() != HardwarePartType.PSU) {
+            return 0;
+        }
+        String text = hardwarePartText(part);
+        int score = 0;
+        if (containsAny(text, "TITANIUM", "钛金")) {
+            score += 6;
+        } else if (containsAny(text, "PLATINUM", "白金")) {
+            score += 5;
+        } else if (containsAny(text, "GOLD", "金牌")) {
+            score += 2;
+        }
+        if (containsAny(text, "全模组", "FULL MODULAR", "FULL-MODULAR")) {
+            score += 3;
+        }
+        if (containsAny(text, "ATX 3.1", "ATX3.1", "PCIE 5.1", "PCIE5.1", "12V-2X6", "12V2X6")) {
+            score += 2;
+        }
+        if (referencePrice(part) >= 1000) {
+            score += 2;
+        }
         return score;
     }
 
@@ -1439,7 +1599,7 @@ public class AiService {
             return 0;
         }
         if (is360Aio(part)) {
-            return 180;
+            return 180 + premiumCoolerScore(part) * 30;
         }
         if (is280Aio(part)) {
             return -260;
@@ -1452,6 +1612,21 @@ public class AiService {
             return 80;
         }
         return 0;
+    }
+
+    private int premiumCoolerScore(HardwarePart part) {
+        if (part.getType() != HardwarePartType.COOLER) {
+            return 0;
+        }
+        String text = hardwarePartText(part);
+        int score = 0;
+        if (containsAny(text, "旗舰", "高端", "高性能", "厚排", "水泵", "泵", "LCD", "IPS", "钛坦", "TITAN", "LG600")) {
+            score += 4;
+        }
+        if (referencePrice(part) >= 800) {
+            score += 2;
+        }
+        return score;
     }
 
     private int casePreferenceScore(HardwarePart part, BuildPreferences preferences) {
@@ -1603,20 +1778,13 @@ public class AiService {
         if (budget < 35000 || plan == null) {
             return false;
         }
-        boolean flagshipGpu = plan.parts().stream()
-                .filter(part -> part.getType() == HardwarePartType.GPU)
-                .map(part -> part.getModel().toUpperCase(Locale.ROOT))
-                .anyMatch(model -> model.contains("RTX 5090") || model.contains("RTX 5080") || model.contains("RX 9070 XT"));
-        boolean premiumCpu = plan.parts().stream()
-                .filter(part -> part.getType() == HardwarePartType.CPU)
-                .map(part -> part.getModel().toUpperCase(Locale.ROOT))
-                .anyMatch(model -> model.contains("9950X3D")
-                        || model.contains("9950X3D2")
-                        || model.contains("9900X3D")
-                        || model.contains("9850X3D")
-                        || model.contains("9800X3D")
-                        || model.contains("CORE ULTRA 9"));
-        return flagshipGpu && premiumCpu && plan.totalPrice() >= Math.round(budget * 0.72f);
+        boolean flagshipGpu = selectedPart(plan.parts(), HardwarePartType.GPU)
+                .map(this::isFlagshipGpuCandidate)
+                .orElse(false);
+        boolean premiumCpu = selectedPart(plan.parts(), HardwarePartType.CPU)
+                .map(cpu -> isPremiumCpuCandidate(cpu, preferences))
+                .orElse(false);
+        return flagshipGpu && premiumCpu && plan.totalPrice() > 0;
     }
 
     private BusinessException underusedBudgetException(int budget, int bestTotal, int minTargetTotal) {
@@ -1798,12 +1966,9 @@ public class AiService {
         if (!preferences.gamingUse() || preferences.productivityUse() || preferences.preferIntelCpu()) {
             return true;
         }
-        String model = partModelKey(plan, HardwarePartType.CPU).toUpperCase(Locale.ROOT);
-        return model.contains("9950X3D2")
-                || model.contains("9950X3D")
-                || model.contains("9900X3D")
-                || model.contains("9850X3D")
-                || model.contains("9800X3D");
+        return selectedPart(plan.parts(), HardwarePartType.CPU)
+                .map(cpu -> isGamingOptimizedCpu(cpu) && cpu.getPerformanceScore() >= 96)
+                .orElse(false);
     }
 
     private String partModelKey(BuildPlan plan, HardwarePartType type) {
@@ -2612,61 +2777,13 @@ public class AiService {
     private int hardwareGenerationRank(HardwarePart part) {
         String model = part.getModel().toUpperCase();
         return switch (part.getType()) {
-            case CPU -> cpuGenerationRank(model);
-            case GPU -> gpuGenerationRank(model);
+            case CPU, GPU -> Math.max(0, part.getPerformanceScore()) * 25;
             case MOTHERBOARD -> motherboardGenerationRank(model);
             case MEMORY -> model.contains("DDR5") ? 2000 : model.contains("DDR4") ? 1000 : 0;
             case STORAGE -> model.contains("PCIE 5.0") ? 2000 : model.contains("PCIE 4.0") ? 1500 : 0;
             case PSU -> model.contains("ATX 3.1") ? 2000 : model.contains("ATX 3.0") ? 1800 : 0;
             case CASE, COOLER -> 0;
         };
-    }
-
-    private int cpuGenerationRank(String model) {
-        if (model.contains("CORE ULTRA")) {
-            return model.contains("PLUS") ? 2600 : 2500;
-        }
-        if (model.contains("9950X3D2")) {
-            return 2700;
-        }
-        if (model.contains("9850X3D")) {
-            return 2600;
-        }
-        if (model.contains("9950X3D") || model.contains("9900X3D") || model.contains("9800X3D")) {
-            return 2500;
-        }
-        if (model.contains("RYZEN 9 99") || model.contains("RYZEN 7 97") || model.contains("RYZEN 5 96")) {
-            return 2300;
-        }
-        if (model.contains("7800X3D")) {
-            return 1800;
-        }
-        if (model.contains("14")) {
-            return 1700;
-        }
-        if (model.contains("13")) {
-            return 1600;
-        }
-        if (model.contains("12")) {
-            return 1500;
-        }
-        return 0;
-    }
-
-    private int gpuGenerationRank(String model) {
-        if (model.contains("RTX 50")) {
-            return 2600;
-        }
-        if (model.contains("RX 90")) {
-            return 2500;
-        }
-        if (model.contains("ARC B")) {
-            return 2300;
-        }
-        if (model.contains("RTX 40") || model.contains("RX 7")) {
-            return 1800;
-        }
-        return 0;
     }
 
     private int motherboardGenerationRank(String model) {
@@ -2824,35 +2941,35 @@ public class AiService {
                 || preferences.preferIntelCpu()) {
             return 0;
         }
-        String model = part.getModel().toUpperCase(Locale.ROOT);
-        if (model.contains("9950X3D2")) {
-            return 8;
+        if (isGamingOptimizedCpu(part)) {
+            return Math.max(2, Math.min(8, (part.getPerformanceScore() - 86) / 2));
         }
-        if (model.contains("9850X3D")) {
-            return 7;
-        }
-        if (model.contains("9950X3D") || model.contains("9900X3D")) {
-            return 6;
-        }
-        if (model.contains("9800X3D")) {
-            return 5;
-        }
-        if (model.contains("7800X3D") || model.contains("5700X3D")) {
-            return 2;
-        }
-        if (model.contains("9700X")) {
-            return 2;
-        }
-        if (model.contains("9600X")) {
-            return 1;
-        }
-        if (model.contains("9950X") || model.contains("9900X")) {
-            return -4;
-        }
-        if (model.contains("CORE ULTRA 9")) {
-            return -2;
+        if (part.getPerformanceScore() >= 94) {
+            return -3;
         }
         return 0;
+    }
+
+    private boolean isFlagshipGpuCandidate(HardwarePart part) {
+        return part.getType() == HardwarePartType.GPU && part.getPerformanceScore() >= 95;
+    }
+
+    private boolean isPremiumCpuCandidate(HardwarePart part, BuildPreferences preferences) {
+        if (part.getType() != HardwarePartType.CPU) {
+            return false;
+        }
+        if (preferences.gamingUse() && !preferences.productivityUse() && !preferences.preferIntelCpu()) {
+            return isGamingOptimizedCpu(part) && part.getPerformanceScore() >= 96;
+        }
+        return part.getPerformanceScore() >= 94;
+    }
+
+    private boolean isGamingOptimizedCpu(HardwarePart part) {
+        if (part.getType() != HardwarePartType.CPU) {
+            return false;
+        }
+        String text = hardwarePartText(part);
+        return containsAny(text, "X3D", "3D V-CACHE", "3DV-CACHE", "3D缓存", "游戏优先", "游戏处理器");
     }
 
     private Map<Long, BuildPartSelectionRequest> createProductSelectionMap(Map<HardwarePartType, List<HardwarePart>> typedParts, BuildPreferences preferences) {
@@ -2915,6 +3032,9 @@ public class AiService {
     }
 
     private int referencePrice(HardwarePart part) {
+        if (part.getPrice() != null && part.getPrice() > 0) {
+            return part.getPrice();
+        }
         return estimatedPartPrice(part);
     }
 

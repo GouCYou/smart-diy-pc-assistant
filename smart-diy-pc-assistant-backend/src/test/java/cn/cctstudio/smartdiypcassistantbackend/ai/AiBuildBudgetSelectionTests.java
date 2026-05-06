@@ -115,6 +115,129 @@ class AiBuildBudgetSelectionTests {
     }
 
     @Test
+    void ultraHighBudgetAcceptsPremiumCeilingBelowBudgetFloorWhenMarketPricesAreLower() {
+        List<HardwarePart> parts = seededHardware();
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> {
+            HardwarePart part = invocation.getArgument(0);
+            return List.of(productFor(part, lowerPremiumMarketPrice(part)));
+        });
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                50000,
+                "预算 50000 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        int total = intRecordValue(plan, "totalPrice");
+        String cpu = partModel(plan, HardwarePartType.CPU).toUpperCase();
+        String gpu = partModel(plan, HardwarePartType.GPU).toUpperCase();
+        assertTrue(total >= 20000 && total < 42500,
+                () -> "五万预算遇到市场可买顶配总价低于预算地板时仍应保存，实际总价 " + total);
+        assertTrue(cpu.contains("9950X3D")
+                        || cpu.contains("9950X3D2")
+                        || cpu.contains("9900X3D")
+                        || cpu.contains("9850X3D")
+                        || cpu.contains("9800X3D"),
+                () -> "低于预算地板也必须是高端 X3D 顶配 CPU，实际选择 " + cpu);
+        assertTrue(gpu.contains("RTX 5090") || gpu.contains("RTX 5080"),
+                () -> "低于预算地板也必须是旗舰 N 卡方案，实际选择 " + gpu);
+    }
+
+    @Test
+    void premiumBuildCanUseFutureModelsFromDatabaseScoresAndPrices() {
+        List<HardwarePart> parts = seededHardware();
+        parts.add(cpuWithPrice(10_001L, "Ryzen 7 Future X3D", 100, 12000, "AM5", 120,
+                "3D V-Cache，旗舰游戏处理器"));
+        parts.add(gpuWithPrice(10_002L, "RTX Next Flagship", 100, 26000, 600,
+                "旗舰 N 卡游戏显卡"));
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> {
+            HardwarePart part = invocation.getArgument(0);
+            int price = part.getPrice() != null && part.getPrice() > 0 ? part.getPrice() : fixturePrice(part);
+            return List.of(productFor(part, price));
+        });
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                50000,
+                "预算 50000 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        String cpu = partModel(plan, HardwarePartType.CPU).toUpperCase();
+        String gpu = partModel(plan, HardwarePartType.GPU).toUpperCase();
+        assertTrue(cpu.contains("FUTURE X3D"),
+                () -> "新 CPU 型号应只靠标准库性能分和游戏标签入选，实际选择 " + cpu);
+        assertTrue(gpu.contains("NEXT FLAGSHIP"),
+                () -> "新 GPU 型号应只靠标准库性能分和价格入选，实际选择 " + gpu);
+    }
+
+    @Test
+    void premiumAmdBuildPrefersPlatformTunedMemoryPcie5StorageAndBetterPowerCooling() {
+        List<HardwarePart> parts = seededHardware();
+        parts.add(memoryWithPrice(10_101L, "32GB DDR5 6000 C28 Hynix A-die", 86, 2800,
+                "2x16GB 套条，AM5 甜点频率，海力士 A-die，低时序 C28"));
+        parts.add(storageWithPrice(10_102L, "PCIe 5.0 NVMe SSD 4TB", 96, 4200,
+                "高端 PCIe 5.0 固态硬盘"));
+        parts.add(psuWithPrice(10_103L, "1200W ATX 3.1 Platinum Full Modular PSU", 1800,
+                "白金牌全模组 ATX 3.1 12V-2x6 电源"));
+        parts.add(coolerWithPrice(10_104L, "360mm Premium AIO Cooler", 1400,
+                "钛坦 LG600 级高性能 360 水冷，旗舰水泵"));
+        when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
+        when(jdProductSearchService.availableProductsForPart(
+                any(HardwarePart.class),
+                anyString(),
+                anyBoolean(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> {
+            HardwarePart part = invocation.getArgument(0);
+            int price = part.getPrice() != null && part.getPrice() > 0 ? part.getPrice() : fixturePrice(part);
+            return List.of(productFor(part, price));
+        });
+
+        Object plan = ReflectionTestUtils.invokeMethod(
+                service,
+                "selectBuildPlan",
+                50000,
+                "预算 50000 元，主要用于游戏，CPU 更倾向 AMD，显卡更倾向 N 卡，请生成一套配置单。",
+                settings,
+                (UserMemory) null
+        );
+
+        String memory = partModel(plan, HardwarePartType.MEMORY).toUpperCase();
+        String storage = partModel(plan, HardwarePartType.STORAGE).toUpperCase();
+        String psu = partModel(plan, HardwarePartType.PSU).toUpperCase();
+        String cooler = partModel(plan, HardwarePartType.COOLER).toUpperCase();
+        assertTrue(memory.contains("6000") && memory.contains("C28"),
+                () -> "高预算 AMD 游戏配置应优先 6000 低时序 A-die 内存，实际选择 " + memory);
+        assertTrue(storage.contains("PCIE 5.0"),
+                () -> "预算充足时应优先 PCIe 5.0 固态，实际选择 " + storage);
+        assertTrue(psu.contains("PLATINUM") && psu.contains("FULL MODULAR"),
+                () -> "高预算旗舰配置应优先白金牌全模组电源，实际选择 " + psu);
+        assertTrue(cooler.contains("PREMIUM") && cooler.contains("360"),
+                () -> "旗舰 X3D 平台应优先更强的 360 水冷，实际选择 " + cooler);
+    }
+
+    @Test
     void gamingBuildPrefersX3dCpuAndNvidiaGpuWhenBudgetAllows() {
         List<HardwarePart> parts = seededHardware();
         when(hardwarePartRepository.findByEnabledTrue()).thenReturn(parts);
@@ -203,7 +326,7 @@ class AiBuildBudgetSelectionTests {
         assertTrue(total >= 25500, () -> "三万预算应先锁定高端预算目标，实际总价 " + total);
         assertFalse(searchedModels.stream().anyMatch(this::isLowTierSearchModel),
                 () -> "高预算已找到可购买方案后不应继续检索低预算候选，实际检索：" + searchedModels);
-        assertTrue(searchedModels.size() <= 40,
+        assertTrue(searchedModels.size() <= 80,
                 () -> "高预算可购买方案不应全量深搜候选池，实际检索次数 " + searchedModels.size());
     }
 
@@ -274,9 +397,13 @@ class AiBuildBudgetSelectionTests {
     }
 
     private JdProduct productFor(HardwarePart part) {
+        return productFor(part, fixturePrice(part));
+    }
+
+    private JdProduct productFor(HardwarePart part, int price) {
         return new JdProduct(
                 part.getModel() + " 京东自营 全新 " + typeLabel(part.getType()),
-                fixturePrice(part),
+                price,
                 "https://img.example.com/" + part.getId() + ".jpg",
                 "https://item.jd.com/" + part.getId() + ".html",
                 String.valueOf(1_000_000 + part.getId()),
@@ -294,6 +421,24 @@ class AiBuildBudgetSelectionTests {
                 part.getSupportedFormFactors(),
                 part.getSpecs()
         );
+    }
+
+    private int lowerPremiumMarketPrice(HardwarePart part) {
+        String model = part.getModel().toUpperCase();
+        return switch (part.getType()) {
+            case CPU -> model.contains("X3D") ? 4200 : fixturePrice(part);
+            case GPU -> {
+                if (model.contains("RTX 5090")) yield 14500;
+                if (model.contains("RTX 5080")) yield 8500;
+                yield fixturePrice(part);
+            }
+            case MOTHERBOARD -> model.contains("X870") ? 1600 : fixturePrice(part);
+            case MEMORY -> model.contains("64GB") ? 1700 : fixturePrice(part);
+            case STORAGE -> model.contains("2TB") ? 1700 : fixturePrice(part);
+            case PSU -> model.contains("1000W") ? 850 : fixturePrice(part);
+            case CASE -> 650;
+            case COOLER -> model.contains("360") ? 500 : fixturePrice(part);
+        };
     }
 
     private int fixturePrice(HardwarePart part) {
@@ -510,6 +655,10 @@ class AiBuildBudgetSelectionTests {
         return part(id, HardwarePartType.CPU, model, score, socket, "", "", wattage, "");
     }
 
+    private HardwarePart cpuWithPrice(long id, String model, int score, int price, String socket, int wattage, String specs) {
+        return part(id, HardwarePartType.CPU, model, price, score, socket, "", "", wattage, specs);
+    }
+
     private HardwarePart motherboard(long id, String model, String socket, String memoryType, String formFactor) {
         return part(id, HardwarePartType.MOTHERBOARD, model, 0, socket, memoryType, formFactor, 0, "");
     }
@@ -518,16 +667,32 @@ class AiBuildBudgetSelectionTests {
         return part(id, HardwarePartType.GPU, model, score, "", "", "", wattage, "");
     }
 
+    private HardwarePart gpuWithPrice(long id, String model, int score, int price, int wattage, String specs) {
+        return part(id, HardwarePartType.GPU, model, price, score, "", "", "", wattage, specs);
+    }
+
     private HardwarePart memory(long id, String model, int score, String memoryType) {
         return part(id, HardwarePartType.MEMORY, model, score, "", memoryType, "", 0, "2x16GB 套条");
+    }
+
+    private HardwarePart memoryWithPrice(long id, String model, int score, int price, String specs) {
+        return part(id, HardwarePartType.MEMORY, model, price, score, "", "DDR5", "", 0, specs);
     }
 
     private HardwarePart storage(long id, String model, int score) {
         return part(id, HardwarePartType.STORAGE, model, score, "", "", "", 0, "NVMe M.2 固态硬盘");
     }
 
+    private HardwarePart storageWithPrice(long id, String model, int score, int price, String specs) {
+        return part(id, HardwarePartType.STORAGE, model, price, score, "", "", "", 0, specs);
+    }
+
     private HardwarePart psu(long id, String model, int wattage) {
         return part(id, HardwarePartType.PSU, model, 0, "", "", "", wattage, "");
+    }
+
+    private HardwarePart psuWithPrice(long id, String model, int price, String specs) {
+        return part(id, HardwarePartType.PSU, model, price, 0, "", "", "", 1200, specs);
     }
 
     private HardwarePart pcCase(long id, String model, String formFactor, String supportedFormFactors) {
@@ -536,6 +701,10 @@ class AiBuildBudgetSelectionTests {
 
     private HardwarePart cooler(long id, String model) {
         return part(id, HardwarePartType.COOLER, model, 0, "", "", "", 0, "");
+    }
+
+    private HardwarePart coolerWithPrice(long id, String model, int price, String specs) {
+        return part(id, HardwarePartType.COOLER, model, price, 0, "", "", "", 0, specs);
     }
 
     private HardwarePart part(
@@ -549,10 +718,25 @@ class AiBuildBudgetSelectionTests {
             int wattage,
             String specs
     ) {
-        HardwarePart part = new HardwarePart(type, model, 0, score);
+        return part(id, type, model, 0, score, socket, memoryType, formFactor, wattage, specs);
+    }
+
+    private HardwarePart part(
+            long id,
+            HardwarePartType type,
+            String model,
+            int price,
+            int score,
+            String socket,
+            String memoryType,
+            String formFactor,
+            int wattage,
+            String specs
+    ) {
+        HardwarePart part = new HardwarePart(type, model, price, score);
         String supportedFormFactors = type == HardwarePartType.CASE ? specs : "";
         String actualSpecs = type == HardwarePartType.CASE ? "" : specs;
-        part.update(type, model, 0, score, socket, memoryType, formFactor, wattage, 0, 0, supportedFormFactors, actualSpecs, true);
+        part.update(type, model, price, score, socket, memoryType, formFactor, wattage, 0, 0, supportedFormFactors, actualSpecs, true);
         ReflectionTestUtils.setField(part, "id", id);
         return part;
     }

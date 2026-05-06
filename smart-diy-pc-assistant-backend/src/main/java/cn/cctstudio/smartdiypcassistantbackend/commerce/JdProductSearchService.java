@@ -613,8 +613,88 @@ public class JdProductSearchService {
         if (StringUtils.hasText(modelKey) && title.contains(modelKey.toUpperCase(Locale.ROOT))) {
             score += 35;
         }
+        score += productQualityScore(part, product.title());
         score += caseStyleProductScore(part, product.title(), preferredCaseStyle);
         score += coolerProductScore(part, product.title(), preferredCoolerType);
+        return score;
+    }
+
+    private int productQualityScore(HardwarePart part, String title) {
+        if (part == null || !StringUtils.hasText(title)) {
+            return 0;
+        }
+        return switch (part.getType()) {
+            case MEMORY -> memoryProductQualityScore(part, title);
+            case STORAGE -> storageProductQualityScore(part, title);
+            case PSU -> psuProductQualityScore(title);
+            case COOLER -> coolerProductQualityScore(part, title);
+            default -> 0;
+        };
+    }
+
+    private int memoryProductQualityScore(HardwarePart part, String title) {
+        String text = partText(part);
+        int score = 0;
+        String targetSpeed = extractMemorySpeed(text);
+        if (StringUtils.hasText(targetSpeed)) {
+            int target = parseNumber(targetSpeed);
+            int titleSpeed = firstMemorySpeed(title);
+            if (target > 0 && titleSpeed == target) {
+                score += 55;
+            } else if (target > 0 && target <= 6400 && titleSpeed >= 6800) {
+                score -= 45;
+            }
+        }
+        if (containsAnyText(title, "c28", "cl28", "c30", "cl30", "低时序", "低延迟")) {
+            score += 55;
+        }
+        if (containsAnyText(title, "海力士", "hynix", "a-die", "adie", "a die")) {
+            score += 45;
+        }
+        return score;
+    }
+
+    private int storageProductQualityScore(HardwarePart part, String title) {
+        String text = partText(part);
+        if (containsAnyCompact(text, "PCIE50", "PCIE5", "GEN5")
+                && containsAnyCompact(title, "PCIE50", "PCIE5", "GEN5")) {
+            return 90;
+        }
+        return 0;
+    }
+
+    private int psuProductQualityScore(String title) {
+        int score = 0;
+        int certRank = psuCertificationRank(title);
+        if (certRank >= 4) {
+            score += 100;
+        } else if (certRank == 3) {
+            score += 30;
+        }
+        if (containsAnyText(title, "全模组", "全模", "full modular", "full-modular")) {
+            score += 45;
+        }
+        if (containsAnyCompact(title, "ATX31", "PCIE51", "12V2X6")) {
+            score += 35;
+        }
+        if (containsAnyText(title, "海韵", "seasonic", "振华", "super flower", "长城", "great wall", "华硕", "asus", "海盗船", "corsair", "酷冷至尊", "coolermaster", "先马", "fsp")) {
+            score += 22;
+        }
+        return score;
+    }
+
+    private int coolerProductQualityScore(HardwarePart part, String title) {
+        int score = 0;
+        String text = partText(part);
+        if (containsAnyCompact(text, "360") && containsAnyCompact(title, "360")) {
+            score += 55;
+        }
+        if (containsAnyText(title, "钛坦", "titan", "lg600", "旗舰", "高性能", "厚排", "水泵", "泵", "lcd", "ips")) {
+            score += 110;
+        }
+        if (containsAnyText(title, "tcomas", "a080", "a090", "la300")) {
+            score -= 50;
+        }
         return score;
     }
 
@@ -683,6 +763,9 @@ public class JdProductSearchService {
     }
 
     private int referencePrice(HardwarePart part) {
+        if (part.getPrice() != null && part.getPrice() > 0) {
+            return part.getPrice();
+        }
         return estimatedPartPrice(part);
     }
 
@@ -1193,6 +1276,17 @@ public class JdProductSearchService {
         }
     }
 
+    private int firstMemorySpeed(String value) {
+        Matcher matcher = MEMORY_SPEED_PATTERN.matcher(value == null ? "" : value);
+        while (matcher.find()) {
+            int speed = parseNumber(matcher.group(1));
+            if (speed >= 3000 && speed <= 10000) {
+                return speed;
+            }
+        }
+        return 0;
+    }
+
     private boolean matchesStorageIntent(String title, HardwarePart part) {
         if (part == null || part.getType() != HardwarePartType.STORAGE || !StringUtils.hasText(title)) {
             return true;
@@ -1234,8 +1328,6 @@ public class JdProductSearchService {
         if (wattage > 0 && !titleContainsWattage(title, wattage)) {
             return false;
         }
-        boolean targetBronze = text.contains("BRONZE") || text.contains("铜牌");
-        boolean targetGold = text.contains("GOLD") || text.contains("金牌");
         boolean titleHasCert = title.contains("金牌")
                 || title.contains("铜牌")
                 || title.contains("白金")
@@ -1244,10 +1336,9 @@ public class JdProductSearchService {
                 || normalizedTitle.contains("BRONZE")
                 || normalizedTitle.contains("PLATINUM")
                 || normalizedTitle.contains("TITANIUM");
-        if (targetGold && titleHasCert && !(title.contains("金牌") || normalizedTitle.contains("GOLD"))) {
-            return false;
-        }
-        if (targetBronze && titleHasCert && !(title.contains("铜牌") || normalizedTitle.contains("BRONZE"))) {
+        int targetCert = psuCertificationRank(text);
+        int titleCert = psuCertificationRank(title);
+        if (targetCert > 0 && titleHasCert && titleCert < targetCert) {
             return false;
         }
         boolean targetAtx31 = containsAnyCompact(text, "ATX31", "PCIE51");
@@ -1257,6 +1348,23 @@ public class JdProductSearchService {
             return false;
         }
         return !targetAtx30 || !titleHasAtxStandard || containsAnyCompact(title, "ATX30", "PCIE50", "12VHPWR", "12V2X6");
+    }
+
+    private int psuCertificationRank(String value) {
+        String text = value == null ? "" : value.toUpperCase(Locale.ROOT);
+        if (text.contains("TITANIUM") || text.contains("钛金")) {
+            return 5;
+        }
+        if (text.contains("PLATINUM") || text.contains("白金")) {
+            return 4;
+        }
+        if (text.contains("GOLD") || text.contains("金牌")) {
+            return 3;
+        }
+        if (text.contains("BRONZE") || text.contains("铜牌")) {
+            return 1;
+        }
+        return 0;
     }
 
     private HardwarePart matchProductPart(String title, HardwarePartType type, List<HardwarePart> candidates) {
