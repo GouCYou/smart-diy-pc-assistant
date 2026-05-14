@@ -16,8 +16,13 @@ coverage/
 *.jar
 *.war
 
-# Local database exports
-smart_diy_pc_assistant_1.sql
+# Local database exports and snapshots
+*.sql
+!smart_diy_pc_assistant.sql
+*.dump
+*.db
+*.sqlite
+*.sqlite3
 
 # Local Maven cache
 .m2/
