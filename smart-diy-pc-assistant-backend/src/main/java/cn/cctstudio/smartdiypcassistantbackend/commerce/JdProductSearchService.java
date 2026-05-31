@@ -10,6 +10,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -46,12 +47,24 @@ public class JdProductSearchService {
     private final HardwarePartRepository hardwarePartRepository;
     private final HardwareModelMatcher modelMatcher;
     private final ObjectMapper objectMapper;
+    private final JdProductSnapshotService snapshotService;
     private final Map<String, CacheItem> cache = new ConcurrentHashMap<>();
 
     public JdProductSearchService(HardwarePartRepository hardwarePartRepository, HardwareModelMatcher modelMatcher, ObjectMapper objectMapper) {
+        this(hardwarePartRepository, modelMatcher, objectMapper, null);
+    }
+
+    @Autowired
+    public JdProductSearchService(
+            HardwarePartRepository hardwarePartRepository,
+            HardwareModelMatcher modelMatcher,
+            ObjectMapper objectMapper,
+            JdProductSnapshotService snapshotService
+    ) {
         this.hardwarePartRepository = hardwarePartRepository;
         this.modelMatcher = modelMatcher;
         this.objectMapper = objectMapper;
+        this.snapshotService = snapshotService;
     }
 
     public List<JdProductResponse> search(String keyword, HardwarePartType type) {
@@ -132,6 +145,11 @@ public class JdProductSearchService {
             products = collectProductsForPart(candidateKeywords, part, false, true);
         }
         products = products.stream().limit(SEARCH_LIMIT).toList();
+        if (products.isEmpty()) {
+            recordUnavailable(part, cleanKeyword);
+        } else {
+            recordProducts(products, "JD_SEARCH", cleanKeyword);
+        }
         cache.put(cacheKey, new CacheItem(products, Instant.now().plus(CACHE_TTL)));
         return products;
     }
@@ -178,8 +196,21 @@ public class JdProductSearchService {
         } catch (IOException | RuntimeException ignored) {
             products = List.of();
         }
+        recordProducts(products, "JD_SEARCH", cleanKeyword);
         cache.put(cacheKey, new CacheItem(products, Instant.now().plus(CACHE_TTL)));
         return products;
+    }
+
+    private void recordProducts(List<JdProduct> products, String source, String rawKeyword) {
+        if (snapshotService != null) {
+            snapshotService.recordProducts(products, source, rawKeyword);
+        }
+    }
+
+    private void recordUnavailable(HardwarePart part, String rawKeyword) {
+        if (snapshotService != null) {
+            snapshotService.recordUnavailable(part, rawKeyword);
+        }
     }
 
     private List<JdProduct> fetchProducts(String keyword, HardwarePartType type, List<HardwarePart> candidates, boolean strictCategory, boolean allowCpuBundle) throws IOException {

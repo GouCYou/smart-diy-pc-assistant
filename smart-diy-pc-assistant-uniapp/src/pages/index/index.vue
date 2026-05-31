@@ -170,7 +170,7 @@
 			</view>
 
 			<view v-if="!buildPageDetailVisible" class="build-list-pane">
-				<view class="segmented">
+				<view class="segmented build-segmented">
 					<view :class="'segment-indicator segment-indicator-' + buildSegment"></view>
 					<view :class="buildSegment == 0 ? 'segment-active' : 'segment'" @click="selectBuildSegment(0)">
 						<text :class="buildSegment == 0 ? 'segment-active-text' : 'segment-text'">自定义</text>
@@ -181,16 +181,128 @@
 					<view :class="buildSegment == 2 ? 'segment-active' : 'segment'" @click="selectBuildSegment(2)">
 						<text :class="buildSegment == 2 ? 'segment-active-text' : 'segment-text'">收藏</text>
 					</view>
+					<view :class="buildSegment == 3 ? 'segment-active' : 'segment'" @click="selectBuildSegment(3)">
+						<text :class="buildSegment == 3 ? 'segment-active-text' : 'segment-text'">行情</text>
+					</view>
 				</view>
 
-				<view class="section-search">
+				<scroll-view v-if="buildSegment == 3" class="market-scroll" scroll-y="true" enable-flex="true">
+					<view class="market-panel">
+						<view class="market-head">
+							<view class="market-head-main">
+								<text class="market-title">京东行情</text>
+								<text class="market-subtitle">登录用户实时快照 · {{ marketOverview.lastUpdated }}</text>
+							</view>
+							<view class="market-head-actions">
+								<view :class="marketLoading ? 'market-icon-button market-icon-button-disabled' : 'market-icon-button'" @click="refreshMarketSnapshots">
+									<text class="market-icon-button-text">刷新京东</text>
+								</view>
+								<view :class="marketLoading ? 'market-icon-button market-icon-button-disabled' : 'market-icon-button market-icon-button-primary'" @click="runMarketAnalyze">
+									<text class="market-icon-button-text market-icon-button-text-primary">检测</text>
+								</view>
+							</view>
+						</view>
+						<view class="market-metrics">
+							<view v-for="metric in marketOverview.metrics" :key="metric.label" class="market-metric">
+								<text class="market-metric-label">{{ metric.label }}</text>
+								<text class="market-metric-value">{{ metric.value }}</text>
+								<text class="market-metric-trend">{{ metric.trend }}</text>
+							</view>
+						</view>
+						<view v-if="marketChartPoints.length > 0" class="market-chart-card">
+							<view class="market-chart-head">
+								<view class="market-chart-head-main">
+									<text class="market-chart-title">价格走势</text>
+									<text class="market-chart-subtitle">按天聚合京东可购快照均价</text>
+								</view>
+								<text class="market-chart-badge">{{ marketOverview.dailyAverages.length }} 天</text>
+							</view>
+							<view class="market-chart-body">
+								<view class="market-chart-grid market-chart-grid-top"></view>
+								<view class="market-chart-grid market-chart-grid-mid"></view>
+								<view class="market-chart-grid market-chart-grid-bottom"></view>
+								<text class="market-chart-y market-chart-y-top">¥{{ marketChartMaxPrice }}</text>
+								<text class="market-chart-y market-chart-y-bottom">¥{{ marketChartMinPrice }}</text>
+								<svg class="market-price-svg" viewBox="0 0 300 120" preserveAspectRatio="none">
+									<polyline v-if="marketChartPoints.length > 1" :points="marketChartPolyline" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
+									<line v-if="marketChartPoints.length == 1" :x1="marketChartPoints[0].x - 38" :x2="marketChartPoints[0].x + 38" :y1="marketChartPoints[0].y" :y2="marketChartPoints[0].y" stroke="#2563eb" stroke-width="3" stroke-linecap="round"></line>
+									<circle v-for="point in marketChartPoints" :key="point.date" :cx="point.x" :cy="point.y" r="4" fill="#ffffff" stroke="#2563eb" stroke-width="3"></circle>
+								</svg>
+							</view>
+							<view class="market-chart-labels">
+								<text v-for="point in marketChartLabelPoints" :key="point.date" class="market-chart-label">{{ point.date }}</text>
+							</view>
+							<view class="market-chart-summary">
+								<text class="market-chart-latest">最新日均 ¥{{ marketChartLatest.averagePrice }}</text>
+								<text class="market-chart-change">{{ getMarketRateLabel(marketChartLatest.changeRate) }}</text>
+							</view>
+						</view>
+						<view v-if="marketOverview.snapshotCount == 0" class="market-empty">
+							<text class="market-empty-title">暂无京东快照</text>
+							<text class="market-empty-desc">登录后点击“刷新京东”，系统会抓取当前标准硬件库中的代表配件并保存本地快照。</text>
+						</view>
+						<view v-if="marketOverview.snapshotCount > 0" class="market-alert-list">
+							<view v-for="alert in marketOverview.alerts.slice(0, 3)" :key="alert.title + alert.skuId" :class="getMarketAlertClass(alert.level)">
+								<view class="market-alert-main">
+									<text class="market-alert-title">{{ alert.title }}</text>
+									<text class="market-alert-content">{{ alert.content }}</text>
+									<text class="market-alert-suggestion">{{ alert.suggestion }}</text>
+								</view>
+								<text class="market-alert-rate">{{ getMarketRateLabel(alert.changeRate) }}</text>
+							</view>
+							<view v-if="marketOverview.alerts.length == 0" class="market-alert market-alert-calm">
+								<view class="market-alert-main">
+									<text class="market-alert-title">行情稳定</text>
+									<text class="market-alert-content">当前快照未发现超过阈值的价格或可购异常。</text>
+									<text class="market-alert-suggestion">购买前再次刷新即可。</text>
+								</view>
+								<text class="market-alert-rate">0%</text>
+							</view>
+						</view>
+						<view class="market-trend-card" v-if="marketOverview.trends.length > 0">
+							<view class="market-trend-head">
+								<text class="market-trend-title">最新抓取商品</text>
+								<text class="market-trend-count">{{ marketOverview.trends.length }} 条</text>
+							</view>
+							<view v-for="trend in marketOverview.trends.slice(0, 5)" :key="trend.skuId" class="market-trend-row">
+								<view class="market-trend-main">
+									<text class="market-trend-name">{{ trend.title }}</text>
+									<text class="market-trend-meta">{{ trend.type }} · {{ trend.capturedAt }} · SKU {{ trend.skuId }}</text>
+								</view>
+								<view class="market-trend-side">
+									<text class="market-trend-price">{{ trend.currentPrice > 0 ? '¥' + trend.currentPrice : '暂无' }}</text>
+									<text class="market-trend-rate">{{ getMarketRateLabel(trend.changeRate) }}</text>
+								</view>
+							</view>
+						</view>
+						<view class="market-adjust-card" v-if="marketOverview.adjustments.length > 0">
+							<view class="market-adjust-head">
+								<text class="market-adjust-title">{{ marketOverview.adjustments[0].title }}</text>
+								<text class="market-adjust-delta">{{ getMarketPerformanceLabel(marketOverview.adjustments[0].performanceChange) }}</text>
+							</view>
+							<text class="market-adjust-reason">{{ marketOverview.adjustments[0].reason }}</text>
+							<view class="market-adjust-price-row">
+								<text class="market-adjust-price">¥{{ marketOverview.adjustments[0].beforeTotalPrice }}</text>
+								<text class="market-adjust-arrow">→</text>
+								<text class="market-adjust-price market-adjust-price-after">¥{{ marketOverview.adjustments[0].afterTotalPrice }}</text>
+							</view>
+							<text class="market-adjust-suggestion">{{ marketOverview.adjustments[0].suggestion }}</text>
+						</view>
+						<view class="market-rule-row">
+							<text v-for="rule in marketOverview.rules.slice(0, 2)" :key="rule" class="market-rule">{{ rule }}</text>
+						</view>
+					</view>
+					<view class="build-bottom-spacer"></view>
+				</scroll-view>
+
+				<view v-if="buildSegment != 3" class="section-search">
 					<view class="section-search-icon">
 						<image class="section-search-image" src="/static/icons/search.svg" mode="aspectFit"></image>
 					</view>
 					<input class="section-search-input" v-model="buildSearchKeyword" placeholder="搜索配置名称、备注或配件" placeholder-class="section-search-placeholder" @input="resetBuildPage()" />
 				</view>
 
-				<scroll-view class="build-scroll" scroll-y="true" enable-flex="true" :scroll-top="buildScrollTop">
+				<scroll-view v-if="buildSegment != 3" class="build-scroll" scroll-y="true" enable-flex="true" :scroll-top="buildScrollTop">
 					<view v-if="getFilteredBuildList().length > 0" class="build-list">
 						<view v-for="item in getPagedBuildList()" :key="item.id" class="build-card" @click="openBuildPageDetail(item)">
 							<view class="build-card-head">
@@ -1286,7 +1398,7 @@
 </template>
 
 <script setup lang="ts">
-	import { nextTick, ref } from 'vue'
+	import { computed, nextTick, ref } from 'vue'
 	import { onHide, onShow } from '@dcloudio/uni-app'
 	import { API_BASE_URL, normalizeMediaUrl as normalizeRemoteMediaUrl } from '../../common/api'
 	import { MentionItem, MentionSearchUser, MentionToken, buildMentionTokens, getActiveMentionQuery, insertMention, normalizeMentionSearchUsers, normalizeMentions } from '../../common/mention'
@@ -1399,6 +1511,77 @@
 		aiReview : string
 		aiReviewUpdatedAt : string
 		updatedAt : string
+	}
+
+	type MarketMetricItem = {
+		label : string
+		value : string
+		trend : string
+	}
+
+	type MarketAlertItem = {
+		level : string
+		title : string
+		content : string
+		suggestion : string
+		currentPrice : number
+		baselinePrice : number
+		changeRate : number
+		skuId : string
+		type : string
+	}
+
+	type MarketTrendItem = {
+		hardwarePartId : number
+		skuId : string
+		title : string
+		type : string
+		currentPrice : number
+		previousPrice : number
+		changeRate : number
+		available : boolean
+		capturedAt : string
+	}
+
+	type MarketDailyAverageItem = {
+		date : string
+		averagePrice : number
+		snapshotCount : number
+		availableCount : number
+		changeRate : number
+	}
+
+	type MarketChartPoint = {
+		date : string
+		averagePrice : number
+		changeRate : number
+		x : number
+		y : number
+	}
+
+	type MarketAdjustmentItem = {
+		title : string
+		reason : string
+		beforeTotalPrice : number
+		afterTotalPrice : number
+		performanceChange : number
+		suggestion : string
+		createdAt : string
+	}
+
+	type MarketOverview = {
+		snapshotCount : number
+		availableCount : number
+		alertCount : number
+		adjustmentCount : number
+		metrics : MarketMetricItem[]
+		alerts : MarketAlertItem[]
+		trends : MarketTrendItem[]
+		dailyAverages : MarketDailyAverageItem[]
+		adjustments : MarketAdjustmentItem[]
+		rules : string[]
+		fallbackPlan : string[]
+		lastUpdated : string
 	}
 
 	type AuthorItem = {
@@ -1545,6 +1728,14 @@
 	} as BuildConfigItem)
 	const buildReviewLoading = ref(false)
 	const buildAiReviewDisplay = ref('')
+	const marketOverview = ref(createEmptyMarketOverview())
+	const marketLoading = ref(false)
+	const marketChartPoints = computed(() : MarketChartPoint[] => buildMarketChartPoints())
+	const marketChartPolyline = computed(() : string => marketChartPoints.value.map((point : MarketChartPoint) : string => point.x + ',' + point.y).join(' '))
+	const marketChartLabelPoints = computed(() : MarketChartPoint[] => getMarketChartLabelPoints())
+	const marketChartLatest = computed(() : MarketDailyAverageItem => getMarketChartLatest())
+	const marketChartMaxPrice = computed(() : number => getMarketChartMaxPrice())
+	const marketChartMinPrice = computed(() : number => getMarketChartMinPrice())
 	const pageMotionClass = ref('')
 	const chatMessages = ref([] as ChatMessage[])
 	const chatScrollTop = ref(0)
@@ -1760,6 +1951,7 @@
 		}
 		if (activeTab.value == 1) {
 			loadBuildConfigs()
+			loadMarketOverview()
 		}
 		if (activeTab.value == 2) {
 			loadCommunityPosts()
@@ -2202,6 +2394,7 @@
 		}
 		if (index == 1) {
 			loadBuildConfigs()
+			loadMarketOverview()
 		}
 		if (index == 2) {
 			loadCommunityPosts()
@@ -2217,6 +2410,10 @@
 	function selectBuildSegment(index : number) {
 		buildSegment.value = index
 		scrollBuildToTop()
+		if (index == 3) {
+			loadMarketOverview()
+			return
+		}
 		loadBuildConfigs()
 	}
 
@@ -4240,6 +4437,7 @@
 		if (token.value.length == 0) {
 			buildList.value = []
 			resetBuildPage()
+			marketOverview.value = createEmptyMarketOverview()
 			return
 		}
 		buildLoading.value = true
@@ -4268,6 +4466,351 @@
 				buildLoading.value = false
 			}
 		})
+	}
+
+	function loadMarketOverview() {
+		if (marketLoading.value) {
+			return
+		}
+		if (token.value.length == 0) {
+			marketOverview.value = createEmptyMarketOverview()
+			return
+		}
+		marketLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/market/overview',
+			method: 'GET',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					backendReconnectPending.value = false
+					marketOverview.value = normalizeMarketOverview(body.data)
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+				}
+				marketOverview.value = createEmptyMarketOverview()
+			},
+			fail: () => {
+				marketOverview.value = createEmptyMarketOverview()
+				scheduleBackendReconnect()
+			},
+			complete: () => {
+				marketLoading.value = false
+			}
+		})
+	}
+
+	function refreshMarketSnapshots() {
+		if (marketLoading.value) {
+			return
+		}
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		marketLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/market/refresh',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					marketOverview.value = normalizeMarketOverview(body.data)
+					loadUnreadNotificationCount()
+					uni.showToast({
+						title: '京东刷新完成',
+						icon: 'none'
+					})
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
+			},
+			complete: () => {
+				marketLoading.value = false
+			}
+		})
+	}
+
+	function runMarketAnalyze() {
+		if (marketLoading.value) {
+			return
+		}
+		if (token.value.length == 0) {
+			openAuthPage()
+			return
+		}
+		if (marketOverview.value.snapshotCount == 0) {
+			uni.showToast({
+				title: '请先刷新京东',
+				icon: 'none'
+			})
+			return
+		}
+		marketLoading.value = true
+		uni.request({
+			url: apiBaseUrl + '/api/market/analyze',
+			method: 'POST',
+			header: {
+				'Authorization': 'Bearer ' + token.value
+			},
+			success: (res) => {
+				const body = res.data as any
+				if (body != null && body.code == 0 && body.data != null) {
+					marketOverview.value = normalizeMarketOverview(body.data)
+					loadUnreadNotificationCount()
+					uni.showToast({
+						title: '行情检测完成',
+						icon: 'none'
+					})
+					return
+				}
+				if (res.statusCode == 401 || res.statusCode == 403 || (body != null && body.code == 401)) {
+					clearAuth()
+					openAuthPage()
+				}
+			},
+			fail: () => {
+				scheduleBackendReconnect()
+			},
+			complete: () => {
+				marketLoading.value = false
+			}
+		})
+	}
+
+	function normalizeMarketOverview(item : any) : MarketOverview {
+		return {
+			snapshotCount: safeNumber(item == null ? 0 : item.snapshotCount),
+			availableCount: safeNumber(item == null ? 0 : item.availableCount),
+			alertCount: safeNumber(item == null ? 0 : item.alertCount),
+			adjustmentCount: safeNumber(item == null ? 0 : item.adjustmentCount),
+			metrics: Array.isArray(item == null ? null : item.metrics) ? (item.metrics as any[]).map(normalizeMarketMetric) : [],
+			alerts: Array.isArray(item == null ? null : item.alerts) ? (item.alerts as any[]).map(normalizeMarketAlert) : [],
+			trends: Array.isArray(item == null ? null : item.trends) ? (item.trends as any[]).map(normalizeMarketTrend) : [],
+			dailyAverages: Array.isArray(item == null ? null : item.dailyAverages) ? (item.dailyAverages as any[]).map(normalizeMarketDailyAverage) : [],
+			adjustments: Array.isArray(item == null ? null : item.adjustments) ? (item.adjustments as any[]).map(normalizeMarketAdjustment) : [],
+			rules: Array.isArray(item == null ? null : item.rules) ? (item.rules as any[]).map((value : any) : string => safeText(value)) : [],
+			fallbackPlan: Array.isArray(item == null ? null : item.fallbackPlan) ? (item.fallbackPlan as any[]).map((value : any) : string => safeText(value)) : [],
+			lastUpdated: safeText(item == null ? '' : item.lastUpdated)
+		}
+	}
+
+	function normalizeMarketMetric(item : any) : MarketMetricItem {
+		return {
+			label: safeText(item == null ? '' : item.label),
+			value: safeText(item == null ? '' : item.value),
+			trend: safeText(item == null ? '' : item.trend)
+		}
+	}
+
+	function normalizeMarketAlert(item : any) : MarketAlertItem {
+		return {
+			level: safeText(item == null ? '' : item.level),
+			title: safeText(item == null ? '' : item.title),
+			content: safeText(item == null ? '' : item.content),
+			suggestion: safeText(item == null ? '' : item.suggestion),
+			currentPrice: safeNumber(item == null ? 0 : item.currentPrice),
+			baselinePrice: safeNumber(item == null ? 0 : item.baselinePrice),
+			changeRate: safeNumber(item == null ? 0 : item.changeRate),
+			skuId: safeText(item == null ? '' : item.skuId),
+			type: safeText(item == null ? '' : item.type)
+		}
+	}
+
+	function normalizeMarketTrend(item : any) : MarketTrendItem {
+		return {
+			hardwarePartId: safeNumber(item == null ? 0 : item.hardwarePartId),
+			skuId: safeText(item == null ? '' : item.skuId),
+			title: safeText(item == null ? '' : item.title),
+			type: safeText(item == null ? '' : item.type),
+			currentPrice: safeNumber(item == null ? 0 : item.currentPrice),
+			previousPrice: safeNumber(item == null ? 0 : item.previousPrice),
+			changeRate: safeNumber(item == null ? 0 : item.changeRate),
+			available: item == null || item.available == null ? false : Boolean(item.available),
+			capturedAt: safeText(item == null ? '' : item.capturedAt)
+		}
+	}
+
+	function normalizeMarketDailyAverage(item : any) : MarketDailyAverageItem {
+		return {
+			date: safeText(item == null ? '' : item.date),
+			averagePrice: safeNumber(item == null ? 0 : item.averagePrice),
+			snapshotCount: safeNumber(item == null ? 0 : item.snapshotCount),
+			availableCount: safeNumber(item == null ? 0 : item.availableCount),
+			changeRate: safeNumber(item == null ? 0 : item.changeRate)
+		}
+	}
+
+	function normalizeMarketAdjustment(item : any) : MarketAdjustmentItem {
+		return {
+			title: safeText(item == null ? '' : item.title),
+			reason: safeText(item == null ? '' : item.reason),
+			beforeTotalPrice: safeNumber(item == null ? 0 : item.beforeTotalPrice),
+			afterTotalPrice: safeNumber(item == null ? 0 : item.afterTotalPrice),
+			performanceChange: safeNumber(item == null ? 0 : item.performanceChange),
+			suggestion: safeText(item == null ? '' : item.suggestion),
+			createdAt: safeText(item == null ? '' : item.createdAt)
+		}
+	}
+
+	function createEmptyMarketOverview() : MarketOverview {
+		return {
+			snapshotCount: 0,
+			availableCount: 0,
+			alertCount: 0,
+			adjustmentCount: 0,
+			metrics: [
+				{ label: '快照', value: '0', trend: '本地持久化' },
+				{ label: '可购', value: '0', trend: '京东商品' },
+				{ label: '均价', value: '暂无', trend: '近批次样本' },
+				{ label: '预警', value: '0', trend: '异常检测' }
+			],
+			alerts: [],
+			trends: [],
+			dailyAverages: [],
+			adjustments: [],
+			rules: [
+				'价格暴涨：当前价高于历史基准 20% 触发暂缓/替换建议',
+				'价格好价：当前价低于历史基准 15% 触发升级/入手建议',
+				'批次离群：缺少历史时使用同型号京东批次中位价识别异常',
+				'可购异常：连续抓取无可购买商品时切换同档位备选',
+				'配置联动：整机超预算时优先替换涨价配件'
+			],
+			fallbackPlan: [
+				'1. 优先读取京东推荐搜索结构化数据',
+				'2. 失败后抓取京东普通搜索 HTML',
+				'3. 再失败使用本地最近一次价格快照',
+				'4. 全部失败回退到标准硬件库参考价'
+			],
+			lastUpdated: '暂无'
+		}
+	}
+
+	function buildMarketChartPoints() : MarketChartPoint[] {
+		const data = marketOverview.value.dailyAverages.filter((item : MarketDailyAverageItem) : boolean => item.averagePrice > 0)
+		if (data.length == 0) {
+			return []
+		}
+		const prices = data.map((item : MarketDailyAverageItem) : number => item.averagePrice)
+		const maxPrice = Math.max(...prices)
+		const minPrice = Math.min(...prices)
+		const priceRange = Math.max(maxPrice - minPrice, 1)
+		const chartWidth = 300
+		const chartTop = 16
+		const chartBottom = 18
+		const chartHeight = 120
+		const chartLeft = 26
+		const chartRight = 14
+		const innerWidth = chartWidth - chartLeft - chartRight
+		const innerHeight = chartHeight - chartTop - chartBottom
+		return data.map((item : MarketDailyAverageItem, index : number) : MarketChartPoint => {
+			const x = data.length == 1 ? chartWidth / 2 : chartLeft + innerWidth * index / (data.length - 1)
+			const y = chartTop + (maxPrice - item.averagePrice) * innerHeight / priceRange
+			return {
+				date: item.date,
+				averagePrice: item.averagePrice,
+				changeRate: item.changeRate,
+				x: roundChartValue(x),
+				y: roundChartValue(y)
+			}
+		})
+	}
+
+	function getMarketChartLabelPoints() : MarketChartPoint[] {
+		const points = marketChartPoints.value
+		if (points.length <= 4) {
+			return points
+		}
+		const middleIndex = Math.floor((points.length - 1) / 2)
+		return [points[0], points[middleIndex], points[points.length - 1]]
+	}
+
+	function getMarketChartLatest() : MarketDailyAverageItem {
+		const data = marketOverview.value.dailyAverages.filter((item : MarketDailyAverageItem) : boolean => item.averagePrice > 0)
+		if (data.length == 0) {
+			return {
+				date: '',
+				averagePrice: 0,
+				snapshotCount: 0,
+				availableCount: 0,
+				changeRate: 0
+			}
+		}
+		return data[data.length - 1]
+	}
+
+	function getMarketChartMaxPrice() : number {
+		const prices = marketOverview.value.dailyAverages
+			.map((item : MarketDailyAverageItem) : number => item.averagePrice)
+			.filter((price : number) : boolean => price > 0)
+		return prices.length == 0 ? 0 : Math.max(...prices)
+	}
+
+	function getMarketChartMinPrice() : number {
+		const prices = marketOverview.value.dailyAverages
+			.map((item : MarketDailyAverageItem) : number => item.averagePrice)
+			.filter((price : number) : boolean => price > 0)
+		return prices.length == 0 ? 0 : Math.min(...prices)
+	}
+
+	function roundChartValue(value : number) : number {
+		return Math.round(value * 10) / 10
+	}
+
+	function getMarketAlertClass(level : string) : string {
+		if (level == 'danger') {
+			return 'market-alert market-alert-danger'
+		}
+		if (level == 'success') {
+			return 'market-alert market-alert-success'
+		}
+		if (level == 'warning') {
+			return 'market-alert market-alert-warning'
+		}
+		return 'market-alert market-alert-calm'
+	}
+
+	function getMarketRateLabel(rate : number) : string {
+		if (rate > 0) {
+			return '+' + rate + '%'
+		}
+		return rate + '%'
+	}
+
+	function getMarketPerformanceLabel(value : number) : string {
+		if (value > 0) {
+			return '+' + value + ' 分'
+		}
+		return value + ' 分'
+	}
+
+	function safeText(value : any) : string {
+		if (value == null) {
+			return ''
+		}
+		return String(value)
+	}
+
+	function safeNumber(value : any) : number {
+		if (value == null || value === '') {
+			return 0
+		}
+		const numberValue = Number(value)
+		return Number.isFinite(numberValue) ? numberValue : 0
 	}
 
 	function getBuildSegmentKey() : string {
@@ -5902,6 +6445,7 @@
 		}
 		if (activeTab.value == 1) {
 			loadBuildConfigs()
+			loadMarketOverview()
 		}
 		if (activeTab.value == 2) {
 			loadCommunityPosts()
@@ -8589,6 +9133,10 @@
 		z-index: 0;
 	}
 
+	.build-segmented .segment-indicator {
+		width: calc((100% - 8px) / 4);
+	}
+
 	.segment-indicator-0 {
 		transform: translateX(0);
 	}
@@ -8599,6 +9147,10 @@
 
 	.segment-indicator-2 {
 		transform: translateX(200%);
+	}
+
+	.segment-indicator-3 {
+		transform: translateX(300%);
 	}
 
 	.discovery-segmented .segment-indicator {
@@ -8617,6 +9169,508 @@
 	.segment-active-text {
 		color: #111827;
 		font-weight: 700;
+	}
+
+	.market-panel {
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #edf0f5;
+		border-radius: 8px;
+		padding: 14px;
+		margin-bottom: 14px;
+		flex-shrink: 0;
+	}
+
+	.market-scroll {
+		flex: 1;
+		height: 0;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.market-head {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 12px;
+	}
+
+	.market-head-main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.market-title {
+		font-size: 17px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 23px;
+	}
+
+	.market-subtitle {
+		margin-top: 3px;
+		font-size: 11px;
+		color: #667085;
+		line-height: 16px;
+	}
+
+	.market-head-actions {
+		flex-direction: row;
+		align-items: center;
+		margin-left: 8px;
+	}
+
+	.market-icon-button {
+		height: 30px;
+		min-width: 64px;
+		padding-left: 10px;
+		padding-right: 10px;
+		border-radius: 15px;
+		border-width: 1px;
+		border-color: #d6dce8;
+		align-items: center;
+		justify-content: center;
+		margin-left: 6px;
+		background-color: #ffffff;
+	}
+
+	.market-icon-button-primary {
+		background-color: #111827;
+		border-color: #111827;
+	}
+
+	.market-icon-button-disabled {
+		opacity: 0.52;
+	}
+
+	.market-icon-button-text {
+		font-size: 12px;
+		color: #344054;
+		font-weight: 700;
+	}
+
+	.market-icon-button-text-primary {
+		color: #ffffff;
+	}
+
+	.market-metrics {
+		flex-direction: row;
+		margin-left: -4px;
+		margin-right: -4px;
+		margin-bottom: 12px;
+	}
+
+	.market-metric {
+		flex: 1;
+		min-height: 74px;
+		margin-left: 4px;
+		margin-right: 4px;
+		border-radius: 8px;
+		background-color: #f6f8fb;
+		padding: 8px;
+		justify-content: space-between;
+	}
+
+	.market-metric-label {
+		font-size: 11px;
+		color: #667085;
+		line-height: 15px;
+	}
+
+	.market-metric-value {
+		font-size: 17px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 22px;
+		margin-top: 4px;
+	}
+
+	.market-metric-trend {
+		font-size: 9px;
+		color: #98a2b3;
+		line-height: 13px;
+		margin-top: 2px;
+	}
+
+	.market-chart-card {
+		border-radius: 8px;
+		background-color: #f6f8fb;
+		padding: 12px;
+		margin-bottom: 12px;
+	}
+
+	.market-chart-head,
+	.market-chart-summary,
+	.market-chart-labels {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.market-chart-head {
+		margin-bottom: 8px;
+	}
+
+	.market-chart-head-main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.market-chart-title {
+		font-size: 14px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 19px;
+	}
+
+	.market-chart-subtitle {
+		margin-top: 2px;
+		font-size: 10px;
+		color: #667085;
+		line-height: 14px;
+	}
+
+	.market-chart-badge {
+		margin-left: 8px;
+		padding-left: 8px;
+		padding-right: 8px;
+		height: 22px;
+		border-radius: 11px;
+		background-color: #e8f0ff;
+		color: #1d4ed8;
+		font-size: 11px;
+		font-weight: 800;
+		line-height: 22px;
+	}
+
+	.market-chart-body {
+		height: 132px;
+		border-radius: 8px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-color: #e8edf5;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.market-price-svg {
+		position: absolute;
+		left: 0;
+		top: 6px;
+		width: 100%;
+		height: 120px;
+	}
+
+	.market-chart-grid {
+		position: absolute;
+		left: 12px;
+		right: 12px;
+		height: 1px;
+		background-color: #edf1f7;
+	}
+
+	.market-chart-grid-top {
+		top: 22px;
+	}
+
+	.market-chart-grid-mid {
+		top: 66px;
+	}
+
+	.market-chart-grid-bottom {
+		bottom: 22px;
+	}
+
+	.market-chart-y {
+		position: absolute;
+		left: 10px;
+		font-size: 9px;
+		color: #98a2b3;
+		line-height: 12px;
+		background-color: #ffffff;
+		padding-right: 4px;
+	}
+
+	.market-chart-y-top {
+		top: 8px;
+	}
+
+	.market-chart-y-bottom {
+		bottom: 8px;
+	}
+
+	.market-chart-labels {
+		margin-top: 7px;
+		padding-left: 4px;
+		padding-right: 4px;
+	}
+
+	.market-chart-label {
+		font-size: 10px;
+		color: #98a2b3;
+		line-height: 14px;
+	}
+
+	.market-chart-summary {
+		margin-top: 7px;
+	}
+
+	.market-chart-latest {
+		font-size: 11px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 16px;
+	}
+
+	.market-chart-change {
+		font-size: 11px;
+		font-weight: 800;
+		color: #2563eb;
+		line-height: 16px;
+	}
+
+	.market-alert-list {
+		margin-bottom: 10px;
+	}
+
+	.market-alert {
+		flex-direction: row;
+		align-items: flex-start;
+		border-radius: 8px;
+		padding: 10px;
+		margin-bottom: 8px;
+		border-left-width: 4px;
+	}
+
+	.market-alert-danger {
+		background-color: #fff4f2;
+		border-left-color: #e5484d;
+	}
+
+	.market-alert-success {
+		background-color: #effaf4;
+		border-left-color: #16a163;
+	}
+
+	.market-alert-warning {
+		background-color: #fff8e8;
+		border-left-color: #f5a524;
+	}
+
+	.market-alert-calm {
+		background-color: #f6f8fb;
+		border-left-color: #98a2b3;
+	}
+
+	.market-alert-main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.market-alert-title {
+		font-size: 13px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 18px;
+	}
+
+	.market-alert-content {
+		margin-top: 3px;
+		font-size: 11px;
+		color: #475467;
+		line-height: 16px;
+	}
+
+	.market-alert-suggestion {
+		margin-top: 3px;
+		font-size: 11px;
+		color: #1d2939;
+		line-height: 16px;
+	}
+
+	.market-alert-rate {
+		margin-left: 8px;
+		font-size: 14px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 18px;
+	}
+
+	.market-empty {
+		border-radius: 8px;
+		background-color: #f6f8fb;
+		padding: 18px 14px;
+		margin-bottom: 12px;
+	}
+
+	.market-empty-title {
+		font-size: 15px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 20px;
+	}
+
+	.market-empty-desc {
+		margin-top: 6px;
+		font-size: 12px;
+		color: #667085;
+		line-height: 18px;
+	}
+
+	.market-trend-card {
+		border-radius: 8px;
+		background-color: #f6f8fb;
+		padding: 12px;
+		margin-bottom: 10px;
+	}
+
+	.market-trend-head,
+	.market-trend-row {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.market-trend-head {
+		margin-bottom: 8px;
+	}
+
+	.market-trend-title {
+		font-size: 14px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 19px;
+	}
+
+	.market-trend-count {
+		font-size: 11px;
+		color: #667085;
+		line-height: 16px;
+	}
+
+	.market-trend-row {
+		padding-top: 8px;
+		padding-bottom: 8px;
+		border-top-width: 1px;
+		border-top-color: #e8edf5;
+	}
+
+	.market-trend-main {
+		flex: 1;
+		min-width: 0;
+		padding-right: 8px;
+	}
+
+	.market-trend-name {
+		font-size: 12px;
+		font-weight: 700;
+		color: #111827;
+		line-height: 17px;
+	}
+
+	.market-trend-meta {
+		margin-top: 2px;
+		font-size: 10px;
+		color: #98a2b3;
+		line-height: 14px;
+	}
+
+	.market-trend-side {
+		align-items: flex-end;
+	}
+
+	.market-trend-price {
+		font-size: 13px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 17px;
+	}
+
+	.market-trend-rate {
+		margin-top: 2px;
+		font-size: 10px;
+		color: #667085;
+		line-height: 14px;
+	}
+
+	.market-adjust-card {
+		border-radius: 8px;
+		background-color: #f6f8fb;
+		padding: 12px;
+		margin-bottom: 10px;
+	}
+
+	.market-adjust-head {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 6px;
+	}
+
+	.market-adjust-title {
+		font-size: 14px;
+		font-weight: 800;
+		color: #111827;
+		line-height: 19px;
+	}
+
+	.market-adjust-delta {
+		font-size: 12px;
+		font-weight: 800;
+		color: #16a163;
+		line-height: 16px;
+	}
+
+	.market-adjust-reason,
+	.market-adjust-suggestion {
+		font-size: 11px;
+		color: #475467;
+		line-height: 16px;
+	}
+
+	.market-adjust-price-row {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 8px;
+		margin-bottom: 6px;
+	}
+
+	.market-adjust-price {
+		font-size: 16px;
+		font-weight: 800;
+		color: #e5484d;
+		line-height: 20px;
+	}
+
+	.market-adjust-arrow {
+		margin-left: 8px;
+		margin-right: 8px;
+		font-size: 14px;
+		color: #98a2b3;
+		line-height: 20px;
+	}
+
+	.market-adjust-price-after {
+		color: #16a163;
+	}
+
+	.market-rule-row {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-left: -3px;
+		margin-right: -3px;
+	}
+
+	.market-rule {
+		font-size: 10px;
+		color: #475467;
+		background-color: #f6f8fb;
+		border-radius: 8px;
+		padding: 5px 7px;
+		margin-left: 3px;
+		margin-right: 3px;
+		margin-bottom: 5px;
+		line-height: 14px;
 	}
 
 	.section-search {

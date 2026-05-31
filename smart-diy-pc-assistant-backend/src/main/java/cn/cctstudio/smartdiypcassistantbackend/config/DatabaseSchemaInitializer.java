@@ -56,13 +56,15 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     'COMMUNITY_COMMENT_MENTION',
                     'NEWS_COMMENT_MENTION',
                     'NEWS_COMMENT_REPLY',
-                    'FEEDBACK_RESOLVED'
+                    'FEEDBACK_RESOLVED',
+                    'PRICE_ALERT'
                 ) NOT NULL
                 """);
         ensureUserMemorySchema();
         ensureBuildConfigSchema();
         ensureBuildConfigAiReviewSchema();
         ensureFeedbackSchema();
+        ensureMarketSchema();
         cleanLegacyUserData();
     }
 
@@ -182,6 +184,46 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     PRIMARY KEY (id),
                     KEY idx_user_feedback_user_created (user_id, created_at),
                     KEY idx_user_feedback_status (status, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
+    }
+
+    private void ensureMarketSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS jd_product_snapshot (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    hardware_part_id bigint NULL,
+                    type varchar(30) NULL,
+                    sku_id varchar(80) NOT NULL,
+                    title varchar(240) NOT NULL,
+                    price int NOT NULL,
+                    image varchar(500) NULL,
+                    link varchar(500) NULL,
+                    shop_name varchar(120) NULL,
+                    matched_model varchar(120) NULL,
+                    available bit(1) NOT NULL,
+                    source varchar(30) NOT NULL,
+                    raw_keyword TEXT NULL,
+                    captured_at datetime(6) NOT NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_jd_snapshot_sku_time (sku_id, captured_at),
+                    KEY idx_jd_snapshot_part_time (hardware_part_id, captured_at),
+                    KEY idx_jd_snapshot_time (captured_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS build_optimization_log (
+                    id bigint NOT NULL AUTO_INCREMENT,
+                    user_id bigint NOT NULL,
+                    title varchar(120) NOT NULL,
+                    reason TEXT NOT NULL,
+                    before_total_price int NULL,
+                    after_total_price int NULL,
+                    performance_change int NULL,
+                    suggestion TEXT NOT NULL,
+                    created_at datetime(6) NOT NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_build_optimization_user_created (user_id, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
                 """);
     }

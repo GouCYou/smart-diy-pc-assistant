@@ -3125,7 +3125,7 @@ public class AiService {
         if (model.contains("16GB") && model.contains("DDR5")) return 1100;
         if (model.contains("32GB") && model.contains("DDR4")) return 1200;
         if (model.contains("16GB") && model.contains("DDR4")) return 700;
-        return 1500;
+        return 150;
     }
 
     private int estimatedStoragePrice(String model) {
