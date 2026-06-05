@@ -1,4 +1,4 @@
-const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? ''
+const rawApiBaseUrl = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api-smartdiy.cctstudio.cn/').trim()
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '')
 

@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendOrigin = (env.VITE_BACKEND_ORIGIN || 'http://localhost:8080').trim()
+  const backendOrigin = (env.VITE_BACKEND_ORIGIN || 'https://api-smartdiy.cctstudio.cn/').trim()
 
   return {
     plugins: [vue()],
