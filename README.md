@@ -1,8 +1,10 @@
 # Smart DIY 装机助手
 
-🇨🇳 简体中文|
-<a href="README.zh-TW.md">🇹🇼 繁體中文</a>|
-<a href="README.en-US.md">🇺🇸 English</a>
+<p align="center">
+  🇨🇳 简体中文 ·
+  <a href="i18n/README.zh-TW.md">🇭🇰 繁體中文</a> ·
+  <a href="i18n/README.en-US.md">🇺🇸 English</a>
+</p>
 
 面向 DIY PC 装机场景的智能化助手，通过录入标准硬件型号库，自动获取京东商品作为实时价格、图片和购买链接来源。
 项目包含用户端、管理端和 Spring Boot 后端，覆盖 AI 装机对话、配置单生成、京东商品搜索、硬件兼容性检查、社区动态、热点新闻、个人空间、用户管理和账号安全等功能。
@@ -23,11 +25,28 @@
 
 ## 演示截图
 
-<img width="369" height="803" alt="image" src="https://github.com/user-attachments/assets/27c2a9a8-d787-4a1c-a494-59a4f8042727" />
-<img width="366" height="802" alt="image" src="https://github.com/user-attachments/assets/ed12b66d-abfd-4bed-9052-a9a944842eae" />
-![配置详情](docs/screenshots/build-detail.png)
-![AI 对话](docs/screenshots/ai-chat.png)
-![管理面板](docs/screenshots/admin-dashboard.png)
+<p align="center">
+  <span>
+    <img width="23%" alt="AI 装机对话" src="docs/screenshots/ai-chat.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="快速设定装机需求" src="docs/screenshots/ai-requirements.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="京东硬件行情" src="docs/screenshots/market-overview.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="账号登录" src="docs/screenshots/account-login.jpg" />
+  </span>
+  <br />
+  <sub>AI 装机对话</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>快速需求设定</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>京东硬件行情</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>账号登录</sub>
+</p>
 
 ## 核心功能
 
@@ -62,6 +81,7 @@ smart-diy-pc-assistant/
 ├── smart-diy-pc-assistant-backend/   # Spring Boot 后端
 ├── smart-diy-pc-assistant-admin/     # Vue 管理端
 ├── smart-diy-pc-assistant-uniapp/    # uni-app 用户端
+├── i18n/                             # 多语言 README
 ├── LICENSE
 └── README.md
 ```

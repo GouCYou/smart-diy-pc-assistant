@@ -1,14 +1,13 @@
 # Smart DIY PC Assistant
 
 <p align="center">
-  <a href="README.md">🇨🇳 简体中文</a> ·
-  🇹🇼 繁體中文 ·
+  <a href="../README.md">🇨🇳 简体中文</a> ·
+  🇭🇰 繁體中文 ·
   <a href="README.en-US.md">🇺🇸 English</a>
 </p>
 
-Smart DIY 裝機助手是一個面向 DIY PC 裝機場景的全端專案。系統只維護標準硬體型號庫，京東商品只作為即時價格、圖片與購買連結來源，避免把帶品牌、帶店鋪資訊的電商商品直接混入硬體資料庫。
-
-專案包含使用者端、管理端與 Spring Boot 後端，涵蓋 AI 裝機對話、配置單生成、京東商品搜尋、硬體相容性檢查、社群動態、熱點新聞、個人空間、使用者管理與帳號安全等功能。
+面向 DIY PC 裝機場景的智慧化助手，透過錄入標準硬體型號庫，自動取得京東商品作為即時價格、圖片和購買連結來源。
+專案包含使用者端、管理端和 Spring Boot 後端，涵蓋 AI 裝機對話、配置單生成、京東商品搜尋、硬體相容性檢查、社群動態、熱點新聞、個人空間、使用者管理和帳號安全等功能。
 
 ## 目錄
 
@@ -26,14 +25,28 @@ Smart DIY 裝機助手是一個面向 DIY PC 裝機場景的全端專案。系�
 
 ## 展示截圖
 
-<!--
-將截圖放到 docs/screenshots/ 後在這裡引用。
-
-![使用者端首頁](docs/screenshots/user-home.png)
-![配置詳情](docs/screenshots/build-detail.png)
-![AI 對話](docs/screenshots/ai-chat.png)
-![管理面板](docs/screenshots/admin-dashboard.png)
--->
+<p align="center">
+  <span>
+    <img width="23%" alt="AI 裝機對話" src="../docs/screenshots/ai-chat.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="快速設定裝機需求" src="../docs/screenshots/ai-requirements.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="京東硬體行情" src="../docs/screenshots/market-overview.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="帳號登入" src="../docs/screenshots/account-login.jpg" />
+  </span>
+  <br />
+  <sub>AI 裝機對話</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>快速需求設定</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>京東硬體行情</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>帳號登入</sub>
+</p>
 
 ## 核心功能
 
@@ -68,6 +81,7 @@ smart-diy-pc-assistant/
 ├── smart-diy-pc-assistant-backend/   # Spring Boot 後端
 ├── smart-diy-pc-assistant-admin/     # Vue 管理端
 ├── smart-diy-pc-assistant-uniapp/    # uni-app 使用者端
+├── i18n/                             # 多語言 README
 ├── LICENSE
 └── README.md
 ```
@@ -196,4 +210,4 @@ npm run build
 
 ## 授權
 
-本專案基於 [MIT License](LICENSE) 開源。
+本專案基於 [MIT License](../LICENSE) 開源。

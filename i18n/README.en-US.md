@@ -1,14 +1,13 @@
 # Smart DIY PC Assistant
 
 <p align="center">
-  <a href="README.md">🇨🇳 简体中文</a> ·
-  <a href="README.zh-TW.md">🇹🇼 繁體中文</a> ·
+  <a href="../README.md">🇨🇳 简体中文</a> ·
+  <a href="README.zh-TW.md">🇭🇰 繁體中文</a> ·
   🇺🇸 English
 </p>
 
-Smart DIY PC Assistant is a full-stack project for DIY PC building. The system keeps a standard hardware model library and uses JD products only as a real-time source for prices, images, and purchase links. This avoids mixing branded e-commerce listings and store-specific product data into the hardware database.
-
-The project includes a user app, an admin panel, and a Spring Boot backend. It supports AI-powered PC build conversations, build generation, JD product search, hardware compatibility checks, community posts, tech news, user spaces, user management, and account security.
+Smart DIY PC Assistant is an intelligent assistant for DIY PC building. It records a standard hardware model library and automatically uses JD products as real-time sources for prices, images, and purchase links.
+The project includes a user app, an admin panel, and a Spring Boot backend. It covers AI-powered PC build conversations, build generation, JD product search, hardware compatibility checks, community posts, tech news, user spaces, user management, and account security.
 
 ## Table of Contents
 
@@ -26,14 +25,28 @@ The project includes a user app, an admin panel, and a Spring Boot backend. It s
 
 ## Screenshots
 
-<!--
-Place screenshots under docs/screenshots/ and reference them here.
-
-![User Home](docs/screenshots/user-home.png)
-![Build Detail](docs/screenshots/build-detail.png)
-![AI Chat](docs/screenshots/ai-chat.png)
-![Admin Dashboard](docs/screenshots/admin-dashboard.png)
--->
+<p align="center">
+  <span>
+    <img width="23%" alt="AI build chat" src="../docs/screenshots/ai-chat.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="Quick build requirements" src="../docs/screenshots/ai-requirements.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="JD hardware market overview" src="../docs/screenshots/market-overview.jpg" />
+  </span>
+  <span>
+    <img width="23%" alt="Account login" src="../docs/screenshots/account-login.jpg" />
+  </span>
+  <br />
+  <sub>AI Build Chat</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Quick Requirements</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>JD Hardware Market</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Account Login</sub>
+</p>
 
 ## Features
 
@@ -68,6 +81,7 @@ smart-diy-pc-assistant/
 ├── smart-diy-pc-assistant-backend/   # Spring Boot backend
 ├── smart-diy-pc-assistant-admin/     # Vue admin panel
 ├── smart-diy-pc-assistant-uniapp/    # uni-app user app
+├── i18n/                             # localized README files
 ├── LICENSE
 └── README.md
 ```
@@ -196,4 +210,4 @@ Issues and pull requests are welcome. Please include:
 
 ## License
 
-This project is open-sourced under the [MIT License](LICENSE).
+This project is open-sourced under the [MIT License](../LICENSE).
