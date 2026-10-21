@@ -36,9 +36,12 @@ rollback() {
 trap rollback ERR
 # A disabled systemd unit can still be active/retrying and steal the host port.
 if systemctl cat cct-smartdiy.service >/dev/null 2>&1; then
+  mkdir -p /etc/systemd/system/cct-smartdiy.service.d
+  printf '[Unit]\nConditionPathExists=!%s/compose.yaml\n' "$root" > /etc/systemd/system/cct-smartdiy.service.d/docker-migration.conf
+  systemctl daemon-reload
   systemctl stop cct-smartdiy.service
   systemctl disable cct-smartdiy.service
-  echo 'PASS legacy direct Java service stopped and disabled'
+  echo 'PASS legacy direct Java service stopped, disabled and guarded against starting alongside Docker'
 fi
 python3 - <<'PYPORT'
 import json,re,subprocess
