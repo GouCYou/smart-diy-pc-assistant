@@ -812,12 +812,13 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .activity-event p, .activity-plan { font-size: 13px; }
 .mobile-nav { isolation: isolate; }
 
-/* Continuous orbital motion on desktop and mobile, respecting reduced motion. */
-.welcome-orbit { animation: agent-orbit 9s linear infinite; }
-.orbit-core { animation: agent-counter-orbit 9s linear infinite; }
-@keyframes agent-orbit { to { transform: rotate(360deg); } }
-@keyframes agent-counter-orbit { to { transform: rotate(-360deg); } }
-@media (prefers-reduced-motion: reduce) { .welcome-orbit, .orbit-core { animation: none; } }
+/* Each dot floats vertically in place; the central AI mark remains still. */
+.orbit-dot {animation:agent-dot-float 2.8s ease-in-out infinite;}
+.orbit-blue {left:30px;top:1px;animation-delay:-.4s;}
+.orbit-green {right:2px;top:43px;animation-delay:-1.3s;}
+.orbit-orange {left:6px;bottom:8px;animation-delay:-2.2s;}
+@keyframes agent-dot-float {0%,100%{transform:translateY(-4px);}50%{transform:translateY(4px);}}
+@media (prefers-reduced-motion: reduce) {.orbit-dot {animation:none;}}
 
 .conversation-history > header button { margin-left: 0; color: #566276; }
 
@@ -891,7 +892,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .requirements-form .choice-chips {background:transparent;padding:0;gap:9px;border-radius:0;}
 .requirements-form .choice-chips button {border:1px solid #e6e9ef;background:#f7f8fa;color:#626a77;border-radius:12px;padding:9px 17px;transition:background .18s,border-color .18s,color .18s;}
 .requirements-form .choice-chips button.selected {background:#242831;border-color:#242831;color:#fff;}
-.requirements-form .choice-chips button[aria-pressed=true]::after {content:'✓';margin-left:7px;font-size:12px;}
 /* Keep scroll tracks on their panel edge, with a separate content gutter. */
 .web-content:not(.chat-content) {max-width:none;}
 .web-content:not(.chat-content)>.route-page {max-width:1216px;margin-inline:auto;}
