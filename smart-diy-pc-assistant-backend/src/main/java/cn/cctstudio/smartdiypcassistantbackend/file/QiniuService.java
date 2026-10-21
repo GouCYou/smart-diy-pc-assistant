@@ -113,9 +113,17 @@ public class QiniuService {
         }catch(InterruptedException e){Thread.currentThread().interrupt();throw new BusinessException("资讯图片上传中断");}
         catch(IOException e){throw new BusinessException("资讯图片上传连接失败");}
     }
+    private Region newsRegion() {
+        String host=java.net.URI.create(uploadUrl()).getHost();
+        if(host.contains("as0"))return Region.regionAs0();
+        if(host.contains("na0"))return Region.regionNa0();
+        if(host.contains("z1"))return Region.region1();
+        if(host.contains("z2"))return Region.region2();
+        return Region.autoRegion();
+    }
     public void deleteNewsImage(String key) {
         if(!key.matches("news-import/[a-zA-Z0-9.-]+"))throw new BusinessException("非资讯专属对象不能自动删除");
-        try {Configuration config=new Configuration(Region.region2());config.useHttpsDomains=true;new com.qiniu.storage.BucketManager(Auth.create(properties.accessKey(),properties.secretKey()),config).delete(properties.bucket(),key);}
+        try {Configuration config=new Configuration(newsRegion());config.useHttpsDomains=true;new com.qiniu.storage.BucketManager(Auth.create(properties.accessKey(),properties.secretKey()),config).delete(properties.bucket(),key);}
         catch(QiniuException e){if(e.response==null || e.response.statusCode!=612)throw new BusinessException("资讯对象删除失败，稍后重试");}
     }
 
