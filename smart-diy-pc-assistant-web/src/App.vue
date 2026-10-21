@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { feedbackOpen,feedbackView } from "./lib/feedback";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ChatDotRound,
@@ -13,9 +14,12 @@ import {
   ArrowLeft,
   QuestionFilled,
 } from "@element-plus/icons-vue";
+import { api } from "./lib/api";
+import { newChatVersion,lastChatConversation,runningConversation } from "./lib/chatNavigation";
 import NavigationToggle from "./components/NavigationToggle.vue";
 import { sidebarCollapsed } from "./lib/navigation";
 import { user, restore, logout } from "./lib/session";
+const Feedback=defineAsyncComponent(()=>import("./views/Feedback.vue"));
 const router = useRouter();
 const route = useRoute(),
   ready = ref(false);
@@ -29,6 +33,16 @@ const nav = [
 const rootPaths = ["/", "/builds", "/community", "/news", "/account"];
 const rootPage = computed(() => rootPaths.includes(route.path));
 const pageTitle = computed(() => ({"/auth":"登录 / 注册", "/profile":"个人资料", "/settings":"设置", "/preferences":"装机偏好", "/notifications":"消息通知", "/feedback":"反馈", "/feedback/mine":"我的反馈"}[route.path] || (route.path.startsWith("/shared/") ? "分享的对话" : route.path.startsWith("/users/") ? "个人空间" : route.path.startsWith("/news/") ? "新闻详情" : "动态详情")));
+function newConversation(){newChatVersion.value++;if(route.path!=='/')void router.push('/');}
+async function goChat(){
+  if(route.path==='/')return;
+  const origin=route.fullPath,version=newChatVersion.value;
+  let id='';
+  if(user.value){try{const rows=await api.request<any[]>('/agent/conversations');id=runningConversation(rows,lastChatConversation.value)?.id || '';}catch{id=lastChatConversation.value;}}
+  if(route.fullPath!==origin || newChatVersion.value!==version)return;
+  await router.push({path:'/',query:id ? {conversation:id} : {}});
+}
+function navClick(event:MouseEvent,path:string){if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(path==='/')void goChat();else void router.push(path);}
 function back() { if (window.history.state.back) router.back(); else router.push('/account'); }
 function expired(e: Event) {
   if ((e as CustomEvent).detail === "smartdiy_token") logout();
@@ -44,17 +58,19 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
   <el-config-provider size="large" :locale="zhCn"
     ><div class="web-shell" :class="{ 'is-chat': route.path === '/', 'is-auth': route.path === '/auth', 'is-subpage': !rootPage, 'sidebar-collapsed': sidebarCollapsed }">
       <aside class="web-sidebar">
-        <router-link to="/" class="brand"
+        <a href="/" class="brand" @click.prevent="newConversation"
           ><img src="/logo.png" alt="" /><span
             >Smart DIY</span
-          ></router-link
+          ></a
         >
 
         <nav v-slider class="primary-nav">
-          <router-link
+          <a
             v-for="n in nav"
             :key="n.path"
-            :to="n.path"
+            :href="n.path"
+
+            @click="(event:MouseEvent)=>navClick(event,n.path)"
             :title="n.path === '/' ? '装机对话' : n.label"
             :class="{
               active:
@@ -72,7 +88,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
                     : n.path === "/news"
                       ? "硬件资讯"
                       : "个人中心"
-            }}</span></router-link>
+            }}</span></a>
         </nav>
         <div class="sidebar-bottom">
           <router-link to="/feedback" title="帮助与反馈" aria-label="帮助与反馈" class="sidebar-help"><el-icon><QuestionFilled /></el-icon><span>帮助与反馈</span></router-link
@@ -93,11 +109,14 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
         </main>
         <div v-else class="startup">正在恢复会话…</div>
       </div>
+      <el-dialog v-if="ready" v-model="feedbackOpen" :title="feedbackView==='mine' ? '我的反馈' : '反馈'" width="720px" class="feedback-dialog"><Feedback :embedded="true" :view="feedbackView" @change-view="view=>feedbackView=view" /><template #footer><div id="feedback-dialog-actions" class="feedback-dialog-actions"><el-button @click="feedbackOpen=false">关闭</el-button></div></template></el-dialog>
       <nav v-if="rootPage" v-slider class="mobile-nav">
-        <router-link
+        <a
           v-for="n in nav"
           :key="n.path"
-          :to="n.path"
+          :href="n.path"
+
+            @click="(event:MouseEvent)=>navClick(event,n.path)"
           :class="{
             active:
               route.path === n.path ||
@@ -106,7 +125,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
           ><span class="mobile-nav-icon"
             ><span v-if="n.path === '/'" class="ai-tab">AI</span
             ><el-icon v-else><component :is="n.icon" /></el-icon></span
-          ><span>{{ n.label }}</span></router-link
+          ><span>{{ n.label }}</span></a
         >
       </nav>
     </div></el-config-provider

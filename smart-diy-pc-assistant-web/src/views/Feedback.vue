@@ -6,8 +6,10 @@ import { Plus, ArrowRight } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user, authenticated } from "../lib/session";
 import { useTask } from "../lib/task";
-const props = defineProps<{ view?: string }>();
+const props = defineProps<{ view?: string;embedded?:boolean }>();
+const emit=defineEmits<{changeView:[view:string]}>();
 const router = useRouter();
+function mine(){if(props.embedded)emit("changeView","mine");else router.push("/feedback/mine");}
 const { busy, error, perform } = useTask(),
   rows = ref<any[]>([]),
   form = reactive({ content: "", imageKeys: [] as string[] }),
@@ -38,16 +40,16 @@ async function send() {
 onMounted(() => perform(load));
 </script>
 <template>
-  <div class="feedback-page"><Teleport to="#mobile-page-action"><router-link v-if="props.view !== 'mine'" to="/feedback/mine" class="feedback-nav-action">我的反馈</router-link></Teleport>
-    <div class="page-heading feedback-heading"><h1 class="desktop-only">{{props.view === 'mine' ? '我的反馈' : '反馈'}}</h1><router-link v-if="props.view !== 'mine'" to="/feedback/mine" class="feedback-mine desktop-only">我的反馈 <el-icon><ArrowRight /></el-icon></router-link></div>
+  <div class="feedback-page"><Teleport v-if="!embedded" to="#mobile-page-action"><router-link v-if="props.view !== 'mine'" to="/feedback/mine" class="feedback-nav-action">我的反馈</router-link></Teleport>
+    <div class="page-heading feedback-heading"><h1 class="desktop-only">{{props.view === 'mine' ? '我的反馈' : '反馈'}}</h1><button v-if="props.view !== 'mine'" class="feedback-mine desktop-only" @click="mine">我的反馈 <el-icon><ArrowRight /></el-icon></button><button v-else-if="embedded" class="feedback-mine" @click="emit('changeView','new')">提交反馈</button></div>
     <el-alert v-if="error" :title="error" type="error" />
     <template v-if="props.view !== 'mine'">
-      <section class="panel"><h2>反馈内容</h2><el-input v-model="form.content" type="textarea" :rows="7" maxlength="1200" show-word-limit placeholder="写下遇到的问题、建议或想补充的功能" /></section>
+      <section class="panel"><h2>反馈内容</h2><el-input v-model="form.content" type="textarea" :rows="embedded ? 5 : 7" aria-label="反馈内容" maxlength="1200" show-word-limit placeholder="写下遇到的问题、建议或想补充的功能" /></section>
       <section class="panel"><h2>截图</h2><div class="image-grid">
         <div v-for="(img,i) in images" :key="img"><el-image :src="img" :preview-src-list="images" fit="cover" /><el-button text @click="images.splice(i,1);form.imageKeys.splice(i,1)">移除</el-button></div>
         <label v-if="images.length < 9" class="image-add"><input hidden type="file" multiple accept="image/*" @change="perform(() => upload($event))" /><el-icon><Plus /></el-icon><span>添加图片</span></label>
       </div></section>
-      <div class="feedback-submit"><el-button type="primary" :loading="busy" :disabled="!form.content.trim()" @click="perform(async () => { await send(); router.push('/feedback/mine'); },'反馈已提交')">提交反馈</el-button></div>
+      <Teleport v-if="embedded" defer to="#feedback-dialog-actions"><el-button type="primary" :loading="busy" :disabled="!form.content.trim()" @click="perform(async () => { await send(); mine(); },'反馈已提交')">提交反馈</el-button></Teleport><div v-else class="feedback-submit"><el-button type="primary" :loading="busy" :disabled="!form.content.trim()" @click="perform(async () => { await send(); mine(); },'反馈已提交')">提交反馈</el-button></div>
     </template>
     <template v-else>
       <article v-for="r in rows" :key="r.id" class="panel feedback-record"><div class="row" style="justify-content:space-between"><el-tag :type="r.status === 'RESOLVED' ? 'success' : 'info'">{{r.statusLabel}}</el-tag><time>{{r.createdAt?.replace('T',' ').slice(0,16)}}</time></div><p class="content-text">{{r.content}}</p><div v-if="r.imageUrls?.length" class="image-grid"><el-image v-for="img in r.imageUrls" :key="img" :src="img" :preview-src-list="r.imageUrls" fit="cover" /></div><el-steps :active="r.status === 'RESOLVED' ? 3 : r.status === 'RECEIVED' ? 2 : 1" finish-status="success" align-center><el-step title="已提交" /><el-step title="已收到" /><el-step title="已解决" /></el-steps></article>

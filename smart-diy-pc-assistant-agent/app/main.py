@@ -14,7 +14,7 @@ from .business import Business
 from .config import settings
 from .crawler import Crawler
 from .knowledge import Knowledge
-from .runtime import Runtime
+from .runtime import Runtime, requires_build, complete_draft
 from .store import Store, now, uid
 from .conversation_view import message_view, short_title
 
@@ -61,17 +61,24 @@ async def administrator(user=Depends(identity)):
     return user
 
 
+def run_view(run):
+    if run:
+        run['completion_required']=run['status']=='completed' and requires_build(run['payload'].get('message','')) and not complete_draft(run.get('draft'),run['payload'].get('message',''))
+    return run
+
+
 async def owned_run(request, run_id, user):
     run = await request.app.state.store.run(run_id)
     if not run or run["user_id"] != user["userId"]:
         raise HTTPException(404, "任务不存在")
-    return run
+    return run_view(run)
 
 
 class RunRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     conversation_id: str | None = None
     build_id: int | None = None
+    completion_of: str | None = None
 
 
 class ResumeRequest(BaseModel):
@@ -133,7 +140,7 @@ async def conversation(conversation_id: str, request: Request, user=Depends(iden
     if not (meta and meta["title_manual"]) and len(row["title"])>24: row["title"]=short_title(row["title"])
     row["messages"] = [message_view(m) for m in await store.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id", (conversation_id,))]
     rows = await store.all("SELECT id FROM runs WHERE conversation_id=? ORDER BY created_at", (conversation_id,))
-    row["runs"] = [await store.run(r["id"]) for r in rows]
+    row["runs"] = [run_view(await store.run(r["id"])) for r in rows]
     for run in row['runs']:
         if run.get('draft') and run.get('answer'):
             message=next((m for m in reversed(row['messages']) if m['role']=='assistant' and m['content']==run['answer']),None)
@@ -214,6 +221,12 @@ async def create_run(body: RunRequest, request: Request, user=Depends(identity))
     if not body.message.strip():
         raise HTTPException(422, "消息不能为空")
     store = request.app.state.store
+    payload=body.model_dump()
+    if body.completion_of:
+        previous=await owned_run(request,body.completion_of,user)
+        if not previous.get('completion_required') or previous['conversation_id']!=body.conversation_id:
+            raise HTTPException(409,'该任务不需要继续生成配置')
+        payload['message']=previous['payload']['message']+'\n用户本次选择：'+body.message
     active_count = await store.one("SELECT COUNT(*) AS n FROM runs WHERE user_id=? AND status IN ('queued','running','needs_input')", (user["userId"],))
     if active_count["n"] >= 3:
         raise HTTPException(429, "已有三个进行中的任务，请先完成或取消后再创建")
@@ -233,7 +246,7 @@ async def create_run(body: RunRequest, request: Request, user=Depends(identity))
         message += f"\n关联配置单 ID：{body.build_id}，请用 get_build 读取。"
     run_id = uid()
     await store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), conversation_id, "user", message, now()))
-    await store.execute("INSERT INTO runs(id,user_id,conversation_id,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", (run_id, user["userId"], conversation_id, "queued", body.model_dump_json(), now(), now()))
+    await store.execute("INSERT INTO runs(id,user_id,conversation_id,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", (run_id, user["userId"], conversation_id, "queued", json.dumps(payload,ensure_ascii=False), now(), now()))
     await store.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now(), conversation_id))
     request.app.state.runtime.launch(run_id, user["authorization"])
     return await store.run(run_id)
@@ -322,7 +335,8 @@ async def resume(run_id: str, body: ResumeRequest, request: Request, user=Depend
     if run["status"] != "needs_input":
         raise HTTPException(409, "当前任务没有等待补充信息")
     await request.app.state.store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), run["conversation_id"], "user", body.answer, now()))
-    await request.app.state.store.execute("UPDATE runs SET status='queued' WHERE id=?", (run_id,))
+    await request.app.state.store.execute("UPDATE runs SET status='queued',error=NULL WHERE id=?", (run_id,))
+    await request.app.state.store.event(run_id,"status",{"status":"queued"})
     request.app.state.runtime.launch(run_id, user["authorization"], body.answer)
     return await request.app.state.store.run(run_id)
 

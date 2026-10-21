@@ -111,4 +111,7 @@ class Store:
             for field in ("payload", "draft", "references_json"):
                 row[field] = json.loads(row[field]) if row[field] else None
             row["references"] = row.pop("references_json")
+            if row['status']=='needs_input':
+                question=await self.one("SELECT data FROM events WHERE run_id=? AND type='needs_input' ORDER BY id DESC LIMIT 1",(run_id,))
+                row['question']=json.loads(question['data']) if question else None
         return row

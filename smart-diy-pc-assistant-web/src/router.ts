@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
-export default createRouter({
+import { feedbackOpen,feedbackView } from "./lib/feedback";
+const router=createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
@@ -41,3 +42,11 @@ export default createRouter({
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
+
+router.beforeEach((to,from)=>{
+  if(['/feedback','/feedback/mine'].includes(to.path) && window.matchMedia('(min-width:761px)').matches){
+    feedbackView.value=to.path.endsWith('/mine') ? 'mine' : 'new';feedbackOpen.value=true;
+    return from.matched.length ? false : {path:'/',replace:true};
+  }
+});
+export default router;

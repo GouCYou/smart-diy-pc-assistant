@@ -90,7 +90,7 @@ async def test_actual_langgraph_tool_loop_and_draft(env):
 
 async def test_interrupt_resume_and_authorization(env):
     store,runtime,k,crawler,web,mp=env
-    model=ScriptedModel(responses=[call('ask_user',{'question':'预算是多少？'}),AIMessage(content='已记录预算。')])
+    model=ScriptedModel(responses=[call('ask_user',{'question':'预算是多少？','options':['6000 元','8000 元']}),call('propose_build',{'title':'完整测试配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='已记录预算。')])
     mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
     run=(await web.post('/agent/runs',json={'message':'帮我配电脑'})).json()
     paused=await done(store,run['id']);assert paused['status']=='needs_input',paused
@@ -160,7 +160,7 @@ async def test_missing_model_is_explicit_failure_and_retry_preserves_history(env
     run=(await web.post('/agent/runs',json={'message':'帮我配电脑'})).json()
     failed=await done(store,run['id']);assert failed['status']=='failed' and '配置模型' in failed['error']
     runtime.config.api_key='test'
-    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[AIMessage(content='已恢复。')]))
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[call('propose_build',{'title':'完整测试配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='已恢复。')]))
     assert (await web.post(f"/agent/runs/{run['id']}/retry")).status_code==200
     assert (await done(store,run['id']))['status']=='completed'
     messages=await store.all('SELECT * FROM messages WHERE conversation_id=?',(run['conversation_id'],))
@@ -355,7 +355,7 @@ async def test_legacy_message_attachments_preserve_source_and_render_as_metadata
 
 async def test_model_plan_title_and_manual_title_protection(env):
     store,runtime,k,crawler,web,mp=env
-    model=ScriptedModel(responses=[call('record_plan',{'steps':['查询资料'],'title':'游戏装机方案'}),AIMessage(content='## 建议\n\n**检查兼容性**。')])
+    model=ScriptedModel(responses=[call('record_plan',{'steps':['查询资料'],'title':'游戏装机方案'}),call('propose_build',{'title':'完整测试配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='## 建议\n\n**检查兼容性**。')])
     mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
     run=(await web.post('/agent/runs',json={'message':'帮我配一台游戏电脑'})).json()
     assert (await done(store,run['id']))['status']=='completed'
@@ -523,3 +523,72 @@ async def test_transient_timeout_retries_real_checkpoint_and_finishes_once(env,e
     assert not any(e['type']=='run_failed' for e in events)
     messages=await store.all("SELECT content FROM messages WHERE conversation_id=? AND role='assistant'",(r['conversation_id'],))
     assert [m['content'] for m in messages]==['恢复后的完整回答']
+
+
+async def test_build_cannot_finish_as_prose_and_internal_reminder_is_not_a_user_message(env):
+    store,runtime,k,crawler,web,mp=env
+    model=ScriptedModel(responses=[AIMessage(content='我可以下次再为你出配置单。'),call('propose_build',{'title':'完整配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='选择兼容平台，并从京东获取商品信息。')])
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
+    r=(await web.post('/agent/runs',json={'message':'帮我规划一套装机方案，预算6000元'})).json()
+    final=await done(store,r['id']);assert final['status']=='completed'
+    assert len(final['draft']['parts'])==7
+    rows=await store.all('SELECT role,content FROM messages WHERE conversation_id=?',(r['conversation_id'],))
+    assert len(rows)==2 and not any('本内部提醒' in m['content'] for m in rows)
+    assert '下次再' not in final['answer']
+
+
+async def test_structured_choices_survive_reload_and_selection_produces_complete_draft(env):
+    store,runtime,k,crawler,web,mp=env
+    model=ScriptedModel(responses=[call('ask_user',{'question':'预算和性能优先哪项？','options':['保持预算','适当提高预算']}),call('propose_build',{'title':'按选择完成的配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='已根据你的选择完成配置。')])
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
+    r=(await web.post('/agent/runs',json={'message':'生成一套完整配置单，预算6000元'})).json()
+    paused=await done(store,r['id']);assert paused['status']=='needs_input'
+    reload=(await web.get('/agent/conversations/'+r['conversation_id'])).json()
+    assert reload['runs'][-1]['question']['options']==['保持预算','适当提高预算']
+    await web.post('/agent/runs/'+r['id']+'/resume',json={'answer':'保持预算'})
+    final=await done(store,r['id']);assert final['status']=='completed' and len(final['draft']['parts'])==7
+
+
+async def test_no_artifact_remains_waiting_for_choice_instead_of_false_completion(env):
+    store,runtime,k,crawler,web,mp=env
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[AIMessage(content='如果你愿意我可以下一步再出完整方案。')]))
+    r=(await web.post('/agent/runs',json={'message':'生成一份完整配置单'})).json()
+    result=await done(store,r['id'])
+    assert result['status']=='needs_input' and not result['answer']
+    assert result['question']['options'] and not await store.one("SELECT id FROM messages WHERE conversation_id=? AND role='assistant'",(r['conversation_id'],))
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[call('propose_build',{'title':'继续完成','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='已完成配置卡片。')]))
+    await web.post('/agent/runs/'+r['id']+'/resume',json={'answer':'优先控制在原预算内'})
+    final=await done(store,r['id']);assert final['status']=='completed' and final['draft']
+
+
+async def test_existing_prose_only_build_reply_gets_continuation_options_without_rewriting_it(env):
+    store,runtime,k,crawler,web,mp=env
+    cid=uid();rid=uid()
+    await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(cid,1,'旧方案',now()))
+    await store.execute("INSERT INTO runs(id,user_id,conversation_id,status,payload,answer,created_at,updated_at) VALUES(?,?,?,'completed',?,?,?,?)",(rid,1,cid,json.dumps({'message':'帮我规划一套20000元装机方案'}),'如果你愿意，我下次再给配置单。',now(),now()))
+    view=(await web.get('/agent/conversations/'+cid)).json()
+    assert view['runs'][-1]['completion_required']
+    assert (await store.run(rid))['status']=='completed' and (await store.run(rid))['answer']=='如果你愿意，我下次再给配置单。'
+    body={'message':'按原预算完成并生成配置单','conversation_id':cid,'completion_of':rid}
+    assert (await web.post('/agent/runs',json=body,headers={'Authorization':'Bearer other'})).status_code==404
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[call('propose_build',{'title':'继续完成的配置','selections':[{'hardware_id':p['id']} for p in PARTS]}),AIMessage(content='已经生成配置单。')]))
+    new=(await web.post('/agent/runs',json=body)).json()
+    final=await done(store,new['id']);assert final['status']=='completed'
+    assert '20000' in final['payload']['message']
+    users=await store.all("SELECT content FROM messages WHERE conversation_id=? AND role='user'",(cid,))
+    assert [m['content'] for m in users]==['按原预算完成并生成配置单']
+    assert (await store.run(rid))['answer']=='如果你愿意，我下次再给配置单。'
+
+
+
+async def test_explicit_budget_choice_can_raise_cap_but_no_silent_increase(env):
+    store,runtime,k,crawler,web,mp=env
+    cid=uid();rid=uid();await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(cid,1,'budget',now()))
+    await store.execute("INSERT INTO runs(id,user_id,conversation_id,status,payload,created_at,updated_at) VALUES(?,?,?,'running',?,?,?)",(rid,1,cid,json.dumps({'message':'生成配置单，预算20000'}),now(),now()))
+    await store.event(rid,'products',{'products':[{'hardwareId':1,'skuId':'123','title':'CPU 7600','price':23999,'image':'','link':'https://item.jd.com/123.html'}]})
+    args={'title':'budget','budget':24000,'selections':[{'hardware_id':p['id'],'sku_id':'123' if p['id']==1 else ''} for p in PARTS]}
+    tools={t.name:t for t in await runtime.tools(await store.run(rid),'Bearer user',runtime.config.model_dump())}
+    assert not (await tools['propose_build'].ainvoke(args)).get('created')
+    await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',(uid(),cid,'user','预算调整为24000元',now()))
+    tools={t.name:t for t in await runtime.tools(await store.run(rid),'Bearer user',runtime.config.model_dump())}
+    assert (await tools['propose_build'].ainvoke(args))['created']

@@ -811,17 +811,21 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .activity-event p, .activity-plan { font-size: 13px; }
 .mobile-nav { isolation: isolate; }
 
-/* Combine orbital motion with each dot floating; counter-rotate the AI core. */
-.welcome-orbit {animation:agent-orbit 9s linear infinite;}
-.orbit-core {top:12px;animation:agent-counter-orbit 9s linear infinite;}
-.orbit-dot {animation:agent-dot-float 2.8s ease-in-out infinite;}
-.orbit-blue {left:30px;top:1px;animation-delay:-.4s;}
-.orbit-green {right:2px;top:43px;animation-delay:-1.3s;}
-.orbit-orange {left:6px;bottom:8px;animation-delay:-2.2s;}
+/* Counter-rotate each dot's frame so all beads float on the same screen axis. */
+.orbit-track {position:absolute;inset:0;animation:agent-orbit 9s linear infinite;}
+.orbit-core {top:12px;}
+.orbit-dot {animation:agent-counter-orbit 9s linear infinite;background:transparent;}
+.orbit-bead {display:block;width:100%;height:100%;border-radius:50%;background:var(--orb-color);animation:agent-dot-float 2.8s ease-in-out infinite;}
+.orbit-blue {left:30px;top:1px;background:transparent;--orb-color:#3f79ef;}
+.orbit-green {right:2px;top:43px;background:transparent;--orb-color:#50b26a;}
+.orbit-orange {left:6px;bottom:8px;background:transparent;--orb-color:#ee9633;}
+.orbit-blue .orbit-bead {animation-delay:-.4s;}
+.orbit-green .orbit-bead {animation-delay:-1.3s;}
+.orbit-orange .orbit-bead {animation-delay:-2.2s;}
 @keyframes agent-orbit {to{transform:rotate(360deg);}}
 @keyframes agent-counter-orbit {to{transform:rotate(-360deg);}}
-@keyframes agent-dot-float {0%,100%{transform:translateY(-4px);}50%{transform:translateY(4px);}}
-@media (prefers-reduced-motion: reduce) {.welcome-orbit,.orbit-core,.orbit-dot {animation:none;}}
+@keyframes agent-dot-float {0%,100%{transform:translateY(-7px);}50%{transform:translateY(7px);}}
+@media (prefers-reduced-motion: reduce) {.orbit-track,.orbit-dot,.orbit-bead {animation:none;}}
 
 .conversation-history > header button { margin-left: 0; color: #566276; }
 
@@ -1041,3 +1045,35 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .subpage-navigation-toggle {position:absolute;top:20px;left:24px;z-index:5;}
 @media(min-width:761px){.web-shell.is-subpage:not(.is-auth) .web-content {padding-top:76px;}}
 @media(max-width:760px){.main-navigation-toggle {display:none;}}
+
+.messages {max-width:1040px;}
+.message.user .message-body {border-radius:20px;max-width:78%;}
+.message.assistant {max-width:88%;margin-right:auto;}
+.execution-panel {max-width:88%;}
+.main-navigation-toggle {width:38px;height:36px;flex-basis:38px;background:#fff;border:1px solid #e3e8ef;border-radius:11px;color:#627188;box-shadow:0 1px 3px #14223b05;}
+.main-navigation-toggle:hover {background:#f5f7fa;border-color:#cbd4e0;}
+.build-segments {width:min(600px,100%);margin-inline:auto;}
+.feed-segments {width:fit-content;max-width:100%;margin-inline:auto;}
+.space-segments {width:min(360px,100%);margin-inline:auto;}
+.favorite-tabs {width:fit-content;max-width:100%;margin-inline:auto;}
+.page-heading:has(.news-sort) {position:relative;}
+.page-heading .news-sort {position:absolute;left:50%;transform:translateX(-50%);}
+.feedback-dialog .el-dialog__body {max-height:calc(85dvh - 90px);overflow-y:auto;padding:0 24px 24px;}
+.feedback-dialog .feedback-heading {justify-content:flex-end;margin-bottom:16px;}
+.feedback-dialog .feedback-heading h1 {display:none;}
+.feedback-dialog .feedback-page>.panel {margin-bottom:16px;}
+.feedback-dialog .feedback-page .feedback-submit {position:static;}
+.decision-options {display:grid;gap:10px;margin-top:14px;}
+.decision-options button {border:1px solid #dce3ed;background:white;border-radius:12px;text-align:left;padding:12px 16px;line-height:1.65;color:#364256;}
+.decision-options button:hover {background:#f1f4f8;border-color:#b8c5d6;}
+@media(max-width:760px){.message.assistant {max-width:96%;}.message.user .message-body {max-width:86%;}.execution-panel {max-width:96%;}.main-navigation-toggle {display:none;}}
+
+button.feedback-mine {border:0;background:transparent;padding:4px 0;}
+
+.feedback-dialog.el-dialog {padding:0;margin-top:7.5dvh;max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;}
+.feedback-dialog .el-dialog__header {padding:20px 24px;flex-shrink:0;margin:0;}
+.feedback-dialog .el-dialog__body {flex:1;min-height:0;max-height:none;}
+
+.feedback-dialog .el-dialog__footer {padding:16px 24px;flex-shrink:0;border-top:1px solid #edf0f5;}
+.feedback-dialog-actions {display:flex;justify-content:flex-end;gap:12px;}
+.feedback-dialog-actions .el-button {margin:0;border-radius:12px;}

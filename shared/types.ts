@@ -129,6 +129,8 @@ export interface Run {
   created_at: string;
   partial_text?:string;
   event_cursor?:number;
+  completion_required?:boolean;
+  question?:{question:string;options?:string[]};
 }
 export const hardwareTypes: Record<string, string> = {
   CPU: "处理器",

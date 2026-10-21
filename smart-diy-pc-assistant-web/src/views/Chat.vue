@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { newChatVersion,lastChatConversation } from "../lib/chatNavigation";
 import NavigationToggle from "../components/NavigationToggle.vue";
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Fold,
@@ -37,6 +38,7 @@ const route = useRoute(),
   plan = ref<string[]>([]),
   step = ref(""),
   question = ref(""),
+  questionOptions=ref<string[]>([]),
   conversation = ref(""),
   history = ref<any[]>([]),
   sharingMessageId = ref(""),
@@ -65,6 +67,7 @@ const active = computed(
     propose_build: "校验配置方案",
   };
 const visibleMessages = computed(() => {
+  if(run.value?.completion_required)return messages.value;
   const last = messages.value.at(-1);
   return run.value?.answer && last?.role === 'assistant' && last.content === run.value.answer ? messages.value.slice(0,-1) : messages.value;
 });
@@ -79,7 +82,7 @@ const totalCalls = computed(() => currentEvents.value.filter(e => e.type === 'to
 const progress = computed(() => run.value?.status === 'completed' ? 100 : totalCalls.value ? Math.min(100, Math.round(completedCalls.value / totalCalls.value * 100)) : 0);
 const workSummaries = computed(() => activity.value.filter(e => e.run_id === run.value?.id && ['work_summary','partial_saved'].includes(e.type)).map(e => (e.type==='partial_saved' ? '上次中断前已保存的内容：\n\n' : '')+e.data.text));
 const progressHint = computed(()=>live.value.trim() ? live.value.replace(/[#*`]/g,'').split('\n').filter(Boolean).at(-1)?.slice(0,100) : step.value || (totalCalls.value ? '正在整理查询结果' : '正在分析需求，等待模型响应'));
-const executionTitle = computed(() => active.value ? (step.value || '正在理解需求') : run.value?.status === 'completed' ? '处理完成' : runStatuses[run.value?.status || ''] || '执行过程');
+const executionTitle = computed(() => run.value?.completion_required ? "等待选择，继续生成配置单" : active.value ? (step.value || '正在理解需求') : run.value?.status === 'completed' ? '处理完成' : runStatuses[run.value?.status || ''] || '执行过程');
 let controller: AbortController | undefined,
   cursor = 0,
   selectionVersion = 0;
@@ -135,6 +138,7 @@ async function loadConversation(id: string) {
   live.value = "";
   cursor = run.value?.event_cursor || 0;
   live.value=run.value?.partial_text || "";
+  hydrateQuestion();
   const logs = await Promise.all(c.runs.map((r:Run) => api.request<ActivityEvent[]>(`/agent/runs/${r.id}/activity`)));
   if (version !== selectionVersion) return;
   activity.value = logs.flat().sort((a:ActivityEvent,b:ActivityEvent) => a.id-b.id);
@@ -142,6 +146,10 @@ async function loadConversation(id: string) {
   await router.replace({ path: "/", query: { conversation: id } });
   if (run.value && ['queued','running'].includes(run.value.status)) void connect();
   await bottom(true);
+}
+function hydrateQuestion(){
+  question.value=run.value?.question?.question || (run.value?.completion_required ? '这份方案尚未生成配置单，请选择优先方向继续。' : '');
+  questionOptions.value=run.value?.question?.options || (run.value?.completion_required ? ['按原预算完成并生成配置单','优先性能，说明预算取舍并生成配置单'] : []);
 }
 async function connect() {
   if (!run.value) return;
@@ -176,7 +184,9 @@ async function connect() {
           type === "needs_input" &&
           (!historical || run.value.status === "needs_input")
         ) {
+          run.value.question=data;
           question.value = data.question;
+          questionOptions.value=data.options || [];
           if (!historical) run.value.status = "needs_input";
         }
         if (type === "status" && !historical) {run.value.status = data.status;run.value.error=undefined;}
@@ -196,6 +206,7 @@ async function connect() {
     );
     if (run.value?.id === current) {
       run.value = await api.request(`/agent/runs/${current}`);
+      hydrateQuestion();
       if (run.value?.status === "completed") {
         const c = await api.request(
           `/agent/conversations/${conversation.value}`,
@@ -230,20 +241,27 @@ async function submit(text = draft.value) {
   }
   if (!text.trim() || active.value) return;
   showRequirements.value = false;
+  const version=selectionVersion;
   await perform(async () => {
     if (run.value?.status === "needs_input") {
-      run.value = await api.request(
+      const resumed = await api.request<Run>(
         `/agent/runs/${run.value.id}/resume`,
         "POST",
         { answer: text },
       );
+      if(version!==selectionVersion)return;
+      run.value=resumed;
       question.value = "";
+      questionOptions.value=[];
     } else {
-      run.value = await api.request("/agent/runs", "POST", {
+      const created = await api.request<Run>("/agent/runs", "POST", {
         message: text,
         conversation_id: conversation.value || undefined,
         build_id: route.query.build ? Number(route.query.build) : undefined,
+        completion_of:run.value?.completion_required ? run.value.id : undefined,
       });
+      if(version!==selectionVersion)return;
+      run.value=created;
       conversation.value = run.value!.conversation_id;
       await router.replace({
         path: "/",
@@ -316,7 +334,9 @@ onMounted(() => {
     });
   }
 });
-onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
+watch(newChatVersion,()=>fresh());
+watch(conversation,id=>{if(id)lastChatConversation.value=id;});
+onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
 </script>
 <template>
   <div class="chat-layout agent-workspace" :class="{ 'has-conversation': messages.length, 'history-collapsed':!historyOpen, 'activity-collapsed':!activityOpen }">
@@ -352,13 +372,7 @@ onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval
       <div ref="scroll" class="chat-scroll" @scroll="trackChatScroll">
         <el-alert v-if="error" :title="error" type="error" show-icon />
         <section v-if="!messages.length" class="welcome">
-          <div class="welcome-orbit">
-            <span class="orbit-dot orbit-blue" /><span class="orbit-core"
-              >AI</span
-            ><span class="orbit-dot orbit-green" /><span
-              class="orbit-dot orbit-orange"
-            />
-          </div>
+          <div class="welcome-orbit"><div class="orbit-track" aria-hidden="true"><span class="orbit-dot orbit-blue"><i class="orbit-bead" /></span><span class="orbit-dot orbit-green"><i class="orbit-bead" /></span><span class="orbit-dot orbit-orange"><i class="orbit-bead" /></span></div><span class="orbit-core">AI</span></div>
           <h2>
             <span class="mobile-welcome-title">您好，别来无恙啊！</span
             ><span class="desktop-welcome-title"
@@ -446,11 +460,11 @@ onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval
             <div v-if="active || totalCalls" class="execution-progress" role="progressbar" aria-label="工具执行进度" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{width: progress + '%'}" /></div>
             <p v-if="active" class="execution-hint">{{progressHint}}<span class="execution-elapsed"> · {{elapsed}} 秒</span></p>
             <p v-if="run.error" class="execution-error">{{ run.error }}</p>
-            <p v-if="question" class="content-text">{{ question }}</p>
+            <p v-if="question" class="content-text">{{ question }}</p><div v-if="(run.status==='needs_input' || run.completion_required) && questionOptions.length" class="decision-options" role="group" :aria-label="question"><button v-for="option in questionOptions" :key="option" :disabled="busy" @click="submit(option)">{{option}}</button></div>
             <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" class="stop-task-button" :icon="VideoPause" round @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
           </section>
           <article v-if="live && !run?.answer" class="message assistant streaming-answer" aria-live="polite"><p v-if="!active" class="partial-label">已保存的生成内容 · 尚未完成</p><div class="message-body markdown" v-html="markdown(live)" /><span v-if="active" class="streaming-cursor" /></article>
-          <article v-if="run?.answer" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
+          <article v-if="run?.answer && !run.completion_required" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
           <DraftCard
             v-if="run?.draft"
             :key="run.id + JSON.stringify(run.draft.partIds)"
@@ -516,10 +530,10 @@ onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval
         </form>
       </footer>
     </section>
-    <aside class="chat-activity desktop-only" :aria-hidden="!activityOpen" :inert="!activityOpen"><ToolTimeline :events="activity" :status="run?.status" @close="activityOpen = false" /></aside>
+    <aside class="chat-activity desktop-only" :aria-hidden="!activityOpen" :inert="!activityOpen"><ToolTimeline :events="activity" :status="run?.completion_required ? 'needs_input' : run?.status" @close="activityOpen = false" /></aside>
   <el-dialog v-model="shareOpen" title="分享对话" width="480px"><p>创建链接后，任何获得链接的人都可以查看当前对话快照；后续消息不会自动加入。你可以随时停止分享。</p><template v-if="shareUrl"><el-input :model-value="shareUrl" readonly /><div class="action-row"><el-button type="primary" @click="copyShare">复制链接</el-button><el-button @click="revokeShare">停止分享</el-button></div></template><el-button v-else type="primary" :loading="busy" @click="createShare">创建分享链接</el-button><el-button v-if="!shareUrl" text @click="revokeShare">停止已有分享</el-button></el-dialog>
 </div>
-  <el-drawer v-model="showActivityMobile" title="执行记录" direction="rtl" size="min(360px, 94vw)" :with-header="false" class="activity-drawer"><ToolTimeline :events="activity" :status="run?.status" @close="showActivityMobile = false" /></el-drawer
+  <el-drawer v-model="showActivityMobile" title="执行记录" direction="rtl" size="min(360px, 94vw)" :with-header="false" class="activity-drawer"><ToolTimeline :events="activity" :status="run?.completion_required ? 'needs_input' : run?.status" @close="showActivityMobile = false" /></el-drawer
   ><el-dialog
     v-model="showRequirements"
     title="快速设定需求"
