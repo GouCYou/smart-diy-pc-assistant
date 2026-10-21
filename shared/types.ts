@@ -22,6 +22,9 @@ export interface Hardware {
   supportedFormFactors: string;
   specs: string;
   enabled: boolean;
+  priceType?:string;
+  priceLabel?:string;
+  priceConditions?:string;
   productPrice?: number;
   productTitle?: string;
   productLink?: string;
@@ -98,7 +101,7 @@ export interface Reference {
   updatedAt: string;
 }
 export interface ProductSelection {
-  hardwarePartId:number; title:string; price:number; image:string; link:string; skuId:string; matchedModel:string;
+  priceType?:string;priceLabel?:string;priceConditions?:string; hardwarePartId:number; title:string; price:number; image:string; link:string; skuId:string; matchedModel:string;
 }
 export interface Draft {
   title: string;
@@ -124,6 +127,8 @@ export interface Run {
   references: Reference[];
   error?: string;
   created_at: string;
+  partial_text?:string;
+  event_cursor?:number;
 }
 export const hardwareTypes: Record<string, string> = {
   CPU: "处理器",

@@ -25,7 +25,7 @@ public class AgentGatewayController {
     public void forward(HttpServletRequest request, HttpServletResponse response) throws IOException {
         String target = origin + request.getRequestURI()
                 + (request.getQueryString() == null ? "" : "?" + request.getQueryString());
-        var builder = HttpRequest.newBuilder(URI.create(target)).timeout(Duration.ofSeconds(650));
+        var builder = HttpRequest.newBuilder(URI.create(target)).timeout(Duration.ofSeconds(15000));
         for (String header : new String[]{"Authorization", "Content-Type", "Accept", "Last-Event-ID"}) {
             if (request.getHeader(header) != null) builder.header(header, request.getHeader(header));
         }

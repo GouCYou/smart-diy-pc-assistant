@@ -88,11 +88,11 @@ class Configuration(BaseModel):
     api_key: str = Field(default="", max_length=512)
     clear_api_key: bool = False
     embedding_model: str = Field(default="", max_length=120)
-    timeout_seconds: int = Field(default=60, ge=10, le=180)
+    timeout_seconds: int = Field(default=1800, ge=1800, le=7200)
     max_steps: int = Field(default=30, ge=4, le=100)
     max_tool_calls: int = Field(default=48, ge=2, le=60)
     max_output_tokens: int = Field(default=4096, ge=256, le=16384)
-    max_run_seconds: int = Field(default=180, ge=30, le=600)
+    max_run_seconds: int = Field(default=3600, ge=1800, le=14400)
     rag_chunk_size: int = Field(default=900, ge=200, le=4000)
     rag_chunk_overlap: int = Field(default=150, ge=0, le=1000)
     rag_top_k: int = Field(default=6, ge=1, le=20)
@@ -336,6 +336,7 @@ async def retry(run_id: str, request: Request, user=Depends(identity)):
     if other:
         raise HTTPException(409, "请先完成当前会话的其他任务")
     await request.app.state.store.execute("UPDATE runs SET status='queued',error=NULL WHERE id=?", (run_id,))
+    await request.app.state.store.event(run_id,"status",{"status":"queued","message":"正在继续已保存的任务"})
     request.app.state.runtime.launch(run_id, user["authorization"])
     return await request.app.state.store.run(run_id)
 

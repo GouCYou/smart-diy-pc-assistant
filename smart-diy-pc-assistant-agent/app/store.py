@@ -44,6 +44,16 @@ class Store:
         share_columns={row[1] for row in await (await self.db.execute("PRAGMA table_info(conversation_shares)")).fetchall()}
         if 'snapshot' not in share_columns:
             await self.db.execute("ALTER TABLE conversation_shares ADD COLUMN snapshot TEXT")
+        run_columns={row[1] for row in await (await self.db.execute("PRAGMA table_info(runs)")).fetchall()}
+        if 'partial_text' not in run_columns: await self.db.execute("ALTER TABLE runs ADD COLUMN partial_text TEXT NOT NULL DEFAULT ''")
+        # Completed model output is durable even if a later title/checkpoint step failed.
+        await self.db.execute("""UPDATE runs SET answer=COALESCE((SELECT json_extract(data,'$.answer') FROM events WHERE run_id=runs.id AND type='answer_ready' ORDER BY id DESC LIMIT 1),'') WHERE answer=''""")
+        await self.db.execute("""INSERT OR IGNORE INTO messages(id,conversation_id,role,content,created_at) SELECT 'run-'||r.id,r.conversation_id,'assistant',r.answer,r.updated_at FROM runs r WHERE r.answer<>'' AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=r.conversation_id AND m.role='assistant' AND m.content=r.answer)""")
+        # Recover previously streamed text from the latest model turn without inventing a final answer.
+        await self.db.execute("""UPDATE runs SET partial_text=COALESCE((SELECT group_concat(json_extract(data,'$.text'),'') FROM (SELECT data FROM events WHERE run_id=runs.id AND type='text_delta' AND id>COALESCE((SELECT max(id) FROM events WHERE run_id=runs.id AND type IN ('model_turn_started','work_summary','answer_ready')),0) ORDER BY id)),'') WHERE answer='' AND partial_text='' AND status IN ('failed','interrupted','cancelled')""")
+        # Upgrade legacy five-minute limits; never lower an administrator's longer limits.
+        for key,default in (("timeout_seconds",1800),("max_run_seconds",3600)):
+            await self.db.execute("UPDATE settings SET value=? WHERE key=? AND CAST(value AS REAL)<1800",(json.dumps(default),key))
         await self.db.execute("UPDATE runs SET status='interrupted',error='服务重启，点击重试继续任务' WHERE status IN ('queued','running')")
         await self.db.commit()
 
@@ -72,11 +82,31 @@ class Store:
         cursor = await self.execute("INSERT INTO events(run_id,type,data,created_at) VALUES(?,?,?,?)", (run_id, kind, json.dumps(data, ensure_ascii=False, default=str), now()))
         return cursor.lastrowid
 
+    async def model_event(self, run_id, kind, data, partial_text="", answer=None):
+        # Publish the snapshot and its event cursor together, so reconnect cannot
+        # either duplicate a delta or skip text generated during the snapshot.
+        async with self.write_lock:
+            try:
+                if kind=="model_turn_started":
+                    previous=await (await self.db.execute("SELECT partial_text FROM runs WHERE id=?",(run_id,))).fetchone()
+                    if previous and previous[0].strip():
+                        await self.db.execute("INSERT INTO events(run_id,type,data,created_at) VALUES(?,?,?,?)",(run_id,"partial_saved",json.dumps({"text":previous[0]},ensure_ascii=False),now()))
+                await self.db.execute("UPDATE runs SET partial_text=? WHERE id=?",(partial_text,run_id))
+                if answer is not None:
+                    await self.db.execute("UPDATE runs SET answer=? WHERE id=?",(answer,run_id))
+                    await self.db.execute("INSERT INTO messages(id,conversation_id,role,content,created_at) SELECT ?,conversation_id,'assistant',?,? FROM runs WHERE id=? ON CONFLICT(id) DO UPDATE SET content=excluded.content",("run-"+run_id,answer,now(),run_id))
+                await self.db.execute("INSERT INTO events(run_id,type,data,created_at) VALUES(?,?,?,?)",(run_id,kind,json.dumps(data,ensure_ascii=False),now()))
+                await self.db.commit()
+            except Exception:
+                await self.db.rollback()
+                raise
+
     async def configuration(self):
         return {row["key"]: json.loads(row["value"]) for row in await self.all("SELECT * FROM settings")}
 
     async def run(self, run_id):
-        row = await self.one("SELECT * FROM runs WHERE id=?", (run_id,))
+        async with self.write_lock:
+            row = await self.one("SELECT runs.*,(SELECT COALESCE(max(id),0) FROM events WHERE run_id=runs.id) AS event_cursor FROM runs WHERE id=?", (run_id,))
         if row:
             for field in ("payload", "draft", "references_json"):
                 row[field] = json.loads(row[field]) if row[field] else None

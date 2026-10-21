@@ -31,6 +31,6 @@ server {
         proxy_buffering off;
         gzip off;
         proxy_cache off;
-        proxy_read_timeout 650s;
+        proxy_read_timeout 15000s;
     }
 }

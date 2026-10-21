@@ -261,7 +261,10 @@ public class BuildConfigService {
                             cleanSnapshotText(item.image(), 500),
                             cleanSnapshotText(item.link(), 500),
                             cleanSnapshotText(item.skuId(), 80),
-                            cleanSnapshotText(item.matchedModel(), 120)
+                            cleanSnapshotText(item.matchedModel(), 120),
+                            cleanSnapshotText(item.priceType(), 20),
+                            cleanSnapshotText(item.priceLabel(), 40),
+                            cleanSnapshotText(item.priceConditions(), 200)
                     ))
                     .toList();
         }

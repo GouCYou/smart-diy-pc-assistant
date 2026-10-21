@@ -15,6 +15,9 @@ public record HardwarePartResponse(
         String productLink,
         String skuId,
         String matchedModel,
+        String priceType,
+        String priceLabel,
+        String priceConditions,
         Integer performanceScore,
         String socketType,
         String memoryType,
@@ -40,6 +43,7 @@ public record HardwarePartResponse(
                 "",
                 "",
                 part.getModel(),
+                "", "", "",
                 part.getPerformanceScore(),
                 part.getSocketType(),
                 part.getMemoryType(),
@@ -60,7 +64,10 @@ public record HardwarePartResponse(
             String productImage,
             String productLink,
             String skuId,
-            String matchedModel
+            String matchedModel,
+            String priceType,
+            String priceLabel,
+            String priceConditions
     ) {
         return new HardwarePartResponse(
                 part.getId(),
@@ -74,6 +81,7 @@ public record HardwarePartResponse(
                 productLink == null ? "" : productLink,
                 skuId == null ? "" : skuId,
                 matchedModel == null || matchedModel.isBlank() ? part.getModel() : matchedModel,
+                priceType,priceLabel,priceConditions,
                 part.getPerformanceScore(),
                 part.getSocketType(),
                 part.getMemoryType(),

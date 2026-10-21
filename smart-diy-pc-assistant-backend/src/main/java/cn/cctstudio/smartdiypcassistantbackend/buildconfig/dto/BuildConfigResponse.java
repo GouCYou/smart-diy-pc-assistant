@@ -64,7 +64,8 @@ public record BuildConfigResponse(
                 selection.image(),
                 selection.link(),
                 selection.skuId(),
-                selection.matchedModel()
+                selection.matchedModel(),
+                selection.priceType(),selection.priceLabel(),selection.priceConditions()
         );
     }
 

@@ -112,11 +112,11 @@ watch(
         ><el-switch v-model="form.clear_api_key" /></el-form-item
       ><el-form-item
         v-for="[key, label, min, max] in [
-          ['timeout_seconds', '模型请求超时（秒）', 10, 180],
+          ['timeout_seconds', '模型请求超时（秒）', 1800, 7200],
           ['max_steps', '执行步骤上限', 4, 100],
           ['max_tool_calls', '工具调用上限', 2, 60],
           ['max_output_tokens', '回答 Token 上限', 256, 16384],
-          ['max_run_seconds', '单次任务时限（秒）', 30, 600],
+          ['max_run_seconds', '单次任务时限（秒）', 1800, 14400],
           ['rag_chunk_size', 'RAG 分块长度（字符）', 200, 4000],
           ['rag_chunk_overlap', 'RAG 分块重叠（字符）', 0, 1000],
           ['rag_top_k', 'RAG 返回片段数', 1, 20],

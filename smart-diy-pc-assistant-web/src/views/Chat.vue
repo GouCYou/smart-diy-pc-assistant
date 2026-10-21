@@ -76,7 +76,7 @@ const currentEvents = computed(() => {
 const completedCalls = computed(() => currentEvents.value.filter(e => e.type === 'tool_completed').length);
 const totalCalls = computed(() => currentEvents.value.filter(e => e.type === 'tool_started').length);
 const progress = computed(() => run.value?.status === 'completed' ? 100 : totalCalls.value ? Math.min(100, Math.round(completedCalls.value / totalCalls.value * 100)) : 0);
-const workSummaries = computed(() => currentEvents.value.filter(e => e.type === 'work_summary').map(e => e.data.text));
+const workSummaries = computed(() => activity.value.filter(e => e.run_id === run.value?.id && ['work_summary','partial_saved'].includes(e.type)).map(e => (e.type==='partial_saved' ? '上次中断前已保存的内容：\n\n' : '')+e.data.text));
 const progressHint = computed(()=>live.value.trim() ? live.value.replace(/[#*`]/g,'').split('\n').filter(Boolean).at(-1)?.slice(0,100) : step.value || (totalCalls.value ? '正在整理查询结果' : '正在分析需求，等待模型响应'));
 const executionTitle = computed(() => active.value ? (step.value || '正在理解需求') : run.value?.status === 'completed' ? '处理完成' : runStatuses[run.value?.status || ''] || '执行过程');
 let controller: AbortController | undefined,
@@ -132,20 +132,25 @@ async function loadConversation(id: string) {
   plan.value = [];
   question.value = "";
   live.value = "";
-  cursor = 0;
+  cursor = run.value?.event_cursor || 0;
+  live.value=run.value?.partial_text || "";
   const logs = await Promise.all(c.runs.map((r:Run) => api.request<ActivityEvent[]>(`/agent/runs/${r.id}/activity`)));
   if (version !== selectionVersion) return;
   activity.value = logs.flat().sort((a:ActivityEvent,b:ActivityEvent) => a.id-b.id);
+  const plans=currentEvents.value.filter(e=>e.type==='plan');plan.value=plans.at(-1)?.data.steps || [];
   await router.replace({ path: "/", query: { conversation: id } });
-  if (run.value) await connect();
+  if (run.value && ['queued','running'].includes(run.value.status)) void connect();
   await bottom(true);
 }
 async function connect() {
   if (!run.value) return;
   controller?.abort();
   controller = new AbortController();
+  const connection=controller;
   const current = run.value.id;
   elapsed.value=Math.max(0,Math.floor((Date.now()-new Date(run.value.created_at).getTime())/1000));
+  cursor=Math.max(cursor,run.value.event_cursor || 0);
+  live.value=run.value.partial_text || live.value;
   const historical = !["queued", "running"].includes(run.value.status);
   try {
     await api.stream(
@@ -173,7 +178,8 @@ async function connect() {
           question.value = data.question;
           if (!historical) run.value.status = "needs_input";
         }
-        if (type === "status" && !historical) run.value.status = data.status;
+        if (type === "status" && !historical) {run.value.status = data.status;run.value.error=undefined;}
+        if(type==='retry_scheduled'){step.value=data.message;run.value.status='queued';run.value.error=undefined;}
         if (type === "run_failed" && !historical) {
           run.value.status = "failed";
           run.value.error = data.message;
@@ -196,10 +202,24 @@ async function connect() {
         messages.value = c.messages;
         live.value = "";
       }
+      live.value=run.value?.partial_text || "";
       await loadHistory();
     }
   } catch (e) {
-    if ((e as Error).name !== "AbortError") error.value = (e as Error).message;
+    if ((e as Error).name !== "AbortError" && !connection.signal.aborted && run.value?.id===current) {
+      error.value = "连接中断，正在恢复已保存的进度…";
+      setTimeout(async()=>{
+        if(connection.signal.aborted || run.value?.id!==current)return;
+        try {
+          const snapshot=await api.request<Run>(`/agent/runs/${current}`);
+          if(connection.signal.aborted || run.value?.id!==current)return;
+          run.value=snapshot;cursor=snapshot.event_cursor || cursor;live.value=snapshot.partial_text || "";
+          error.value="";
+          if(['queued','running'].includes(snapshot.status))void connect();
+          else await loadConversation(conversation.value);
+        }catch{if(!connection.signal.aborted && run.value?.id===current)void connect();}
+      },2000);
+    }
   }
 }
 async function submit(text = draft.value) {
@@ -276,7 +296,9 @@ async function retry() {
   if (!run.value) return;
   await perform(async () => {
     run.value = await api.request(`/agent/runs/${run.value!.id}/retry`, "POST");
-    live.value = "";
+    cursor=run.value!.event_cursor || 0;
+    live.value=run.value!.partial_text || "";
+    step.value="正在继续已保存的任务";
     void connect();
   });
 }
@@ -425,7 +447,7 @@ onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval
             <p v-if="question" class="content-text">{{ question }}</p>
             <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" class="stop-task-button" :icon="VideoPause" round @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
           </section>
-          <article v-if="active && live && !run?.answer" class="message assistant streaming-answer" aria-live="polite"><div class="message-body markdown" v-html="markdown(live)" /><span class="streaming-cursor" /></article>
+          <article v-if="live && !run?.answer" class="message assistant streaming-answer" aria-live="polite"><p v-if="!active" class="partial-label">已保存的生成内容 · 尚未完成</p><div class="message-body markdown" v-html="markdown(live)" /><span v-if="active" class="streaming-cursor" /></article>
           <article v-if="run?.answer" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
           <DraftCard
             v-if="run?.draft"

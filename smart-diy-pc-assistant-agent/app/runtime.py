@@ -24,6 +24,7 @@ SYSTEM = """你是 Smart DIY 装机 Agent，负责咨询、整机规划、升级
 使用 Markdown 排版：适当使用小标题、列表、加粗或表格，链接用标准 Markdown；不要把整篇回答包进代码块，不要转义用于排版的星号。
 先理解需求，复杂任务先用 record_plan 给出简短执行计划，并在 title 参数中概括一个最多16字的对话标题。缺少关键预算、用途等条件时使用 ask_user 等待补充。
 所有硬件 ID 来自 search_hardware，价格和商品链接来自 search_products；严禁编造报价、商品、FPS 或测试结果。
+显卡、内存、固态硬盘可能因供需和行情波动明显涨价。以本轮带抓取时间的实际报价为依据，不能因为超过训练记忆或旧目录参考价就宣称异常、看错或捏造更低价格。超预算时调整型号/容量并说明取舍。判断错配要依据型号后缀、容量、规格和SKU，不是价格高低。
 商品查询返回的是抓取时的页面报价，不代表库存、在售状态或可发货，也不是最终成交价。没有库存证据时只能说“匹配商品”，不得声称“有货”“在售”或“可发货”。
 知识性结论用 search_knowledge 获取资料，引用资料标题；检索无结果时说明依据不足。
 生成/修改配置必须调用 propose_build；若校验有 BLOCK，调整部件重新校验。缺少报价必须说明总价不完整。
@@ -65,7 +66,7 @@ class Runtime:
             return
         task = asyncio.create_task(self.execute(run_id, token, resume))
         self.tasks[run_id] = task
-        task.add_done_callback(lambda _: self.tasks.pop(run_id, None))
+        task.add_done_callback(lambda done: self.tasks.pop(run_id, None) if self.tasks.get(run_id) is done else None)
 
     async def tools(self, run, token, cfg):
         business = Business(self.client, token)
@@ -117,7 +118,7 @@ class Runtime:
 
         @tool
         async def search_hardware(query: str = "", part_type: Literal["", "CPU", "MOTHERBOARD", "GPU", "MEMORY", "STORAGE", "PSU", "CASE", "COOLER"] = "", limit: int = 20) -> dict:
-            """查询真实硬件目录。part_type 必须用英文分类枚举；query 是型号/规格关键词，可留空查看该类全部型号。不要用用途或预算搜索。空结果附带可用候选，优先从中选取。price 仅作参考，不能当作商品报价。"""
+            """查询真实硬件目录。part_type 必须用英文分类枚举；query 是型号/规格关键词，可留空查看该类全部型号。不要用用途或预算搜索。空结果附带可用候选，优先从中选取。目录 price 是历史参考价，可能明显低于当前行情，不能当作商品报价或用来否定实时报价。"""
             await guard("search_hardware")
             candidates = [p for p in catalog.values() if not part_type or p["type"] == part_type]
             terms = re.sub(r"[-_]", "", query.lower()).split()
@@ -170,11 +171,18 @@ class Runtime:
                 part = catalog.get(choice.hardware_id)
                 if not part:
                     return {"error": f"硬件 ID {choice.hardware_id} 不存在或已停用"}
-                quote = quotes.get((choice.hardware_id, choice.sku_id))
-                if choice.sku_id and not quote:
-                    return {"error": "商品未通过当前任务查询验证，请先查询商品"}
-                parts.append({**part, "selectedPrice": round(quote["price"]) if quote and quote.get("price") else 0, "productTitle": quote.get("title", "") if quote else "", "productImage": quote.get("image", "") if quote else "", "productLink": quote.get("link", "") if quote else "", "shopName": quote.get("shopName", "") if quote else "", "capturedAt": quote.get("capturedAt", "") if quote else ""})
-                snapshots.append({"hardwarePartId": part["id"], "title": quote["title"] if quote else "", "price": round(quote["price"]) if quote and quote.get("price") else 0, "image": quote["image"] if quote else "", "link": quote["link"] if quote else "", "skuId": quote["skuId"] if quote else "", "matchedModel": part["model"]})
+                sku=choice.sku_id.strip()
+                match=re.fullmatch(r"https://item\.jd\.com/(\d+)\.html",sku)
+                if match: sku=match[1]
+                candidates=[q for (hid,_),q in quotes.items() if hid==choice.hardware_id]
+                quote = quotes.get((choice.hardware_id,sku))
+                if sku and not quote:
+                    return {"error":"该部件的 SKU 未匹配已查询记录", "hardware_id":choice.hardware_id,"model":part['model'],"provided_sku":sku,"valid_selections":[{"sku_id":q['skuId'],"title":q['title'],"price":q.get('price')} for q in candidates],"instruction":"使用该部件 valid_selections 中的精确 sku_id；只有一个已验证商品时可以留空自动选择。不能把其他部件的 SKU 填到此处。"}
+                if not sku and len(candidates)==1: quote=candidates[0]
+                elif not sku and len(candidates)>1:
+                    return {"error":"该部件有多个报价，请明确选择商品", "hardware_id":choice.hardware_id,"valid_selections":[{"sku_id":q['skuId'],"title":q['title'],"price":q.get('price')} for q in candidates]}
+                parts.append({**part, "selectedPrice": round(quote["price"]) if quote and quote.get("price") else 0, "productTitle": quote.get("title", "") if quote else "", "productImage": quote.get("image", "") if quote else "", "productLink": quote.get("link", "") if quote else "", "shopName": quote.get("shopName", "") if quote else "", "capturedAt": quote.get("capturedAt", "") if quote else "", "priceType": quote.get("priceType", "page") if quote else "unknown", "priceLabel": quote.get("priceLabel", "页面价") if quote else "待询价", "priceConditions": quote.get("priceConditions", "") if quote else ""})
+                snapshots.append({"hardwarePartId": part["id"], "title": quote["title"] if quote else "", "price": round(quote["price"]) if quote and quote.get("price") else 0, "image": quote["image"] if quote else "", "link": quote["link"] if quote else "", "skuId": quote["skuId"] if quote else "", "matchedModel": part["model"], **({key:quote.get(key,"") for key in ("priceType","priceLabel","priceConditions")} if quote else {})})
             # The model cannot silently increase the user's explicitly stated budget.
             effective_budget = min(budget, explicit_budget) if budget and explicit_budget else explicit_budget or budget
             validation = check(parts, effective_budget)
@@ -192,16 +200,33 @@ class Runtime:
 
     async def execute(self, run_id, token, resume=None):
         try:
+            for attempt in range(4):
+                retryable=await self.execute_attempt(run_id,token,resume,retries_left=3-attempt)
+                resume=None
+                if not retryable or attempt==3: return
+                delay=(5,15,30)[attempt]
+                await self.store.execute("UPDATE runs SET status='queued',error=NULL,updated_at=? WHERE id=?",(now(),run_id))
+                await self.store.event(run_id,'retry_scheduled',{'attempt':attempt+1,'limit':3,'delay_seconds':delay,'message':f'连接或执行超时，{delay} 秒后自动重试（{attempt+1}/3），保留已有进度'})
+                await self.store.event(run_id,'status',{'status':'queued'})
+                await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            await self.store.execute("UPDATE runs SET status='cancelled',updated_at=? WHERE id=?",(now(),run_id))
+            await self.store.event(run_id,'status',{'status':'cancelled'})
+
+    async def execute_attempt(self, run_id, token, resume=None, retries_left=0):
+        try:
             async with self.semaphore:
                 run = await self.store.run(run_id)
                 cfg = {**self.config.model_dump(), **await self.store.configuration()}
+                cfg["timeout_seconds"]=max(1800,cfg["timeout_seconds"])
+                cfg["max_run_seconds"]=max(1800,cfg["max_run_seconds"])
                 if not cfg.get("api_key") or not cfg.get("model"):
                     raise ValueError("请先在管理端配置模型、API Key 和支持工具调用的模型名称")
                 await self.store.execute("UPDATE runs SET status='running',error=NULL,updated_at=? WHERE id=?", (now(), run_id))
                 await self.store.event(run_id, "status", {"status": "running"})
                 model = ChatOpenAI(model=cfg["model"], api_key=cfg["api_key"], base_url=cfg["base_url"], timeout=cfg["timeout_seconds"], max_retries=1, max_tokens=cfg["max_output_tokens"], streaming=True)
                 memory = await self.store.one("SELECT content FROM preferences WHERE user_id=?", (run["user_id"],))
-                prompt = SYSTEM + "\n用户主动保存的偏好：" + (memory["content"] if memory else "无") + "\n管理员补充：" + cfg.get("extra_prompt", "")
+                prompt = SYSTEM + "\n当前 UTC 时间：" + now() + "\n用户主动保存的偏好：" + (memory["content"] if memory else "无") + "\n管理员补充：" + cfg.get("extra_prompt", "")
                 previous = await self.store.one("SELECT draft FROM runs WHERE conversation_id=? AND id<>? AND draft IS NOT NULL ORDER BY created_at DESC LIMIT 1", (run["conversation_id"], run_id))
                 if previous:
                     prompt += "\n上一次配置草稿（报价仅作历史参考，修改后需重新查询）：" + previous["draft"]
@@ -222,7 +247,8 @@ class Runtime:
                     async for event in agent.astream_events(data, config=config, version="v2"):
                         kind = event["event"]
                         if kind == "on_chat_model_start":
-                            await self.store.event(run_id, "model_turn_started", {})
+                            turn_text=""
+                            await self.store.model_event(run_id,"model_turn_started",{})
                         elif kind == "on_chat_model_stream":
                             chunk = event["data"]["chunk"]
                             text = chunk.content
@@ -230,7 +256,7 @@ class Runtime:
                                 pending_text += text
                                 turn_text += text
                                 if len(pending_text) >= 24 or time.monotonic() - flushed_at >= 0.08:
-                                    await self.store.event(run_id, "text_delta", {"text": pending_text})
+                                    await self.store.model_event(run_id,"text_delta",{"text":pending_text},partial_text=turn_text)
                                     pending_text, flushed_at = "", time.monotonic()
                         elif kind == "on_tool_end":
                             tool_output = event["data"].get("output")
@@ -241,13 +267,13 @@ class Runtime:
                             if not turn_text and isinstance(getattr(output, "content", None), str):
                                 turn_text = output.content
                             if pending_text:
-                                await self.store.event(run_id, "text_delta", {"text": pending_text})
+                                await self.store.model_event(run_id,"text_delta",{"text":pending_text},partial_text=turn_text)
                                 pending_text = ""
                             if getattr(output, "tool_calls", None):
                                 if turn_text.strip():
-                                    await self.store.event(run_id, "work_summary", {"text": turn_text})
+                                    await self.store.model_event(run_id,"work_summary",{"text":turn_text})
                             elif turn_text.strip():
-                                await self.store.event(run_id, "answer_ready", {"answer": turn_text})
+                                await self.store.model_event(run_id,"answer_ready",{"answer":turn_text},answer=turn_text)
                             turn_text = ""
                             usage = getattr(output, "usage_metadata", None)
                             if usage:
@@ -265,7 +291,7 @@ class Runtime:
                 final = next((m for m in reversed(messages) if m.type == "ai" and not m.tool_calls), None)
                 answer = final.content if final and isinstance(final.content, str) else "任务已完成，请查看配置草稿和工具结果。"
                 await self.store.execute("UPDATE runs SET answer=?,updated_at=? WHERE id=?", (answer, now(), run_id))
-                await self.store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), run["conversation_id"], "assistant", answer, now()))
+                await self.store.execute("INSERT INTO messages VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content", ("run-"+run_id, run["conversation_id"], "assistant", answer, now()))
                 title_row = await self.store.one("SELECT c.title,COALESCE(s.title_manual,0) AS manual,COALESCE(s.title_generated,0) AS generated FROM conversations c LEFT JOIN conversation_settings s ON s.conversation_id=c.id WHERE c.id=?",(run["conversation_id"],))
                 if title_row and not title_row["manual"] and not title_row["generated"]:
                     try:
@@ -283,6 +309,8 @@ class Runtime:
             await self.store.execute("UPDATE runs SET status='cancelled',updated_at=? WHERE id=?", (now(), run_id))
             await self.store.event(run_id, "status", {"status": "cancelled"})
         except Exception as exc:
+            if locals().get("turn_text", "").strip():
+                await self.store.execute("UPDATE runs SET partial_text=? WHERE id=?",(turn_text,run_id))
             log.error("Agent run %s failed (%s)", run_id, type(exc).__name__)
             # Never persist provider exceptions: they can contain request headers or API keys.
             message = str(exc) if isinstance(exc, (ValueError, TimeoutError)) else "任务执行失败，请检查模型、工具服务和调用额度后重试"
@@ -295,10 +323,15 @@ class Runtime:
             elif type(exc).__name__ in ("APITimeoutError", "APIConnectionError"):
                 message = "模型服务暂时无法连接或请求超时，已保留任务进度，可稍后继续"
             elif isinstance(exc, TimeoutError):
-                message = "任务超过运行时限，可重试或缩小任务范围"
+                message = "本次执行超过时限，已保存已生成文本、商品报价和配置进度"
             elif isinstance(exc, RuntimeError) and "工具调用上限" in str(exc):
                 message = "任务达到工具调用上限，已保留查询结果，可调整执行额度后继续"
             elif type(exc).__name__ == "GraphRecursionError":
                 message = "任务达到执行步骤上限，已保留进度。请缩小需求或调整执行额度后重试"
+            retryable=isinstance(exc,TimeoutError) or type(exc).__name__ in ("APITimeoutError","APIConnectionError","RateLimitError","InternalServerError")
+            if retryable and retries_left:
+                await self.store.event(run_id,'attempt_failed',{'message':message[:300],'will_retry':True})
+                return True
             await self.store.execute("UPDATE runs SET status='failed',error=?,updated_at=? WHERE id=?", (message[:300], now(), run_id))
             await self.store.event(run_id, "run_failed", {"message": message[:300]})
+            return isinstance(exc,TimeoutError) or type(exc).__name__ in ("APITimeoutError","APIConnectionError","RateLimitError","InternalServerError")

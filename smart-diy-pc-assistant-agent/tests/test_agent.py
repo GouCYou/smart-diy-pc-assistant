@@ -428,3 +428,93 @@ async def test_reply_regeneration_branches_without_overwriting_history(env):
     token=(await web.post('/agent/conversations/original/share',json={'message_id':'1'})).json()['token']
     public=(await web.get('/agent/shared/'+token)).json()
     assert [m['content'] for m in public['messages']]==['第一个问题','原回答']
+
+
+async def test_retry_cursor_and_partial_text_survive_failure_and_reload(env):
+    store,runtime,k,crawler,web,mp=env
+    class BrokenStream(ScriptedModel):
+        async def _astream(self,messages,stop=None,run_manager=None,**kwargs):
+            from langchain_core.messages import AIMessageChunk
+            from langchain_core.outputs import ChatGenerationChunk
+            yield ChatGenerationChunk(message=AIMessageChunk(content='这是中断前已生成但尚未完成的内容。'))
+            raise ValueError('test interruption')
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:BrokenStream(responses=[]))
+    r=(await web.post('/agent/runs',json={'message':'部分输出恢复验收'})).json()
+    failed=await done(store,r['id'])
+    assert failed['status']=='failed' and '中断前' in failed['partial_text']
+    reloaded=(await web.get('/agent/conversations/'+r['conversation_id'])).json()['runs'][0]
+    assert reloaded['partial_text']==failed['partial_text']
+    last=failed['event_cursor']
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[AIMessage(content='继续完成的回答')]))
+    retried=(await web.post('/agent/runs/'+r['id']+'/retry')).json()
+    assert retried['status'] in ('queued','running') and retried['error'] is None
+    assert retried['event_cursor']>last
+    final=await done(store,r['id']);assert final['status']=='completed'
+    events=(await web.get(f"/agent/runs/{r['id']}/events?after={retried['event_cursor']}")).text
+    assert 'event: run_failed' not in events and 'event: run_completed' in events
+
+
+async def test_automatic_retry_is_bounded_and_keeps_active_status(env):
+    store,runtime,k,crawler,web,mp=env
+    cid=uid();await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(cid,1,'retry',now()))
+    await store.execute('INSERT INTO runs(id,user_id,conversation_id,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',('auto-retry',1,cid,'running','{}',now(),now()))
+    calls=[]
+    async def attempt(rid,token,resume=None,retries_left=0):calls.append(retries_left);return len(calls)<3
+    async def no_delay(delay):pass
+    mp.setattr(runtime,'execute_attempt',attempt)
+    mp.setattr('app.runtime.asyncio.sleep',no_delay)
+    await runtime.execute('auto-retry','Bearer user')
+    assert calls==[3,2,1]
+    events=await store.all("SELECT data FROM events WHERE run_id='auto-retry' AND type='retry_scheduled'")
+    assert len(events)==2
+    assert (await store.run('auto-retry'))['status']=='queued'
+
+
+async def test_sku_repair_offers_exact_owned_candidates_and_reuses_verified_single_quote(env):
+    store,runtime,k,crawler,web,mp=env
+    cid=uid();await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(cid,1,'sku',now()))
+    await store.execute('INSERT INTO runs(id,user_id,conversation_id,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',('sku-repair',1,cid,'running','{}',now(),now()))
+    await store.event('sku-repair','products',{'products':[{'hardwareId':1,'skuId':'123','title':'CPU 7600','price':5999,'image':'https://example.com/cpu.jpg','link':'https://item.jd.com/123.html'}]})
+    tools={t.name:t for t in await runtime.tools(await store.run('sku-repair'),'Bearer user',runtime.config.model_dump())}
+    bad=await tools['propose_build'].ainvoke({'title':'sku','selections':[{'hardware_id':1,'sku_id':'wrong'}]})
+    assert bad['hardware_id']==1 and bad['valid_selections'][0]['sku_id']=='123'
+    good=await tools['propose_build'].ainvoke({'title':'sku','selections':[{'hardware_id':1}]})
+    draft=(await store.run('sku-repair'))['draft']
+    assert good['created'] and draft['partSelections'][0]['skuId']=='123'
+    assert draft['validation']['quotedTotal']==5999
+
+
+async def test_legacy_short_limits_upgrade_without_lowering_long_limits(tmp_path):
+    store=Store(tmp_path/'limits.sqlite');await store.connect()
+    await store.execute("INSERT INTO settings VALUES('timeout_seconds','120')")
+    await store.execute("INSERT INTO settings VALUES('max_run_seconds','300')")
+    await store.close();await store.connect()
+    assert (await store.configuration())['timeout_seconds']==1800
+    assert (await store.configuration())['max_run_seconds']==3600
+    await store.execute("UPDATE settings SET value='7200' WHERE key='max_run_seconds'")
+    await store.close();await store.connect()
+    assert (await store.configuration())['max_run_seconds']==7200
+    await store.close()
+
+
+async def test_transient_timeout_retries_real_checkpoint_and_finishes_once(env):
+    store,runtime,k,crawler,web,mp=env
+    class OnceTimeout(ScriptedModel):
+        def _generate(self,messages,stop=None,run_manager=None,**kwargs):
+            if self.index==0:
+                self.index+=1
+                raise TimeoutError()
+            return super()._generate(messages,stop,run_manager,**kwargs)
+    model=OnceTimeout(responses=[AIMessage(content='恢复后的完整回答')])
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
+    original_sleep=asyncio.sleep
+    async def quick_delay(delay):await original_sleep(.001 if delay in (5,15,30) else delay)
+    mp.setattr('app.runtime.asyncio.sleep',quick_delay)
+    r=(await web.post('/agent/runs',json={'message':'自动重试验收'})).json()
+    final=await done(store,r['id'])
+    assert final['status']=='completed' and final['answer']=='恢复后的完整回答'
+    events=await store.all('SELECT type FROM events WHERE run_id=?',(r['id'],))
+    assert sum(e['type']=='retry_scheduled' for e in events)==1
+    assert not any(e['type']=='run_failed' for e in events)
+    messages=await store.all("SELECT content FROM messages WHERE conversation_id=? AND role='assistant'",(r['conversation_id'],))
+    assert [m['content'] for m in messages]==['恢复后的完整回答']

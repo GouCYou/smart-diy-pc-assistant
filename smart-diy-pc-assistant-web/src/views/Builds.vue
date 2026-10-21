@@ -40,6 +40,7 @@ async function load() {
 }
 async function edit(build?: Build) {
   authenticated();
+  detail.value=null;
   Object.keys(selections).forEach(k=>delete selections[k]);
   hardware.value = await api.request("/api/hardware-parts");
   Object.keys(chosen).forEach((k) => delete chosen[k]);
@@ -53,7 +54,7 @@ async function edit(build?: Build) {
   for (const p of build?.parts || []) {
     chosen[p.type] = p.id;
     prices[p.type] = p.productPrice || 0;
-    selections[p.type]={title:p.productTitle || p.model,image:p.productImage,link:p.productLink,skuId:p.skuId};
+    selections[p.type]={title:p.productTitle || p.model,image:p.productImage,link:p.productLink,skuId:p.skuId,priceType:p.priceType,priceLabel:p.priceLabel,priceConditions:p.priceConditions};
   }
   validation.value = null;
   open.value = true;
@@ -74,6 +75,7 @@ function payload() {
         link: old?.link || "",
         skuId: old?.skuId || "",
         matchedModel: p.model,
+        priceType:old?.priceType || "",priceLabel:old?.priceLabel || "",priceConditions:old?.priceConditions || "",
       };
     }),
   };
@@ -247,5 +249,5 @@ onMounted(() =>
       ></template
     ></el-dialog
   >
-<el-dialog v-model="productPicker" title="选择京东商品" width="760px" class="product-picker-dialog"><div v-if="productLoading" class="product-loading"><span class="execution-spinner" />正在查询商品…</div><el-alert v-if="productWarning" :title="productWarning" type="info" :closable="false" /><div class="product-picker-list"><button v-for="p in productOptions" :key="p.skuId" class="product-picker-option" @click="selectProduct(p)"><el-image v-if="p.image" :src="p.image" fit="contain" /><div><strong>{{p.title}}</strong><p>{{p.shopName}}</p><b>{{p.price ? '¥'+p.price : '待询价'}}</b></div><span>选择</span></button></div><p class="muted">报价以商品页面实际结算为准。</p></el-dialog>
+<el-dialog v-model="productPicker" title="选择京东商品" width="760px" class="product-picker-dialog"><div v-if="productLoading" class="product-loading"><span class="execution-spinner" />正在查询商品…</div><el-alert v-if="productWarning" :title="productWarning" type="info" :closable="false" /><div class="product-picker-list"><button v-for="p in productOptions" :key="p.skuId" class="product-picker-option" @click="selectProduct(p)"><el-image v-if="p.image" :src="p.image" fit="contain" /><div><strong>{{p.title}}</strong><p>{{p.shopName}}</p><b>{{p.price ? '¥'+p.price : '待询价'}}</b><small class="picker-price-label">{{p.priceLabel || '页面价'}} · {{p.priceConditions || '以结算为准'}}</small></div><span>选择</span></button></div><p class="muted">报价以商品页面实际结算为准。</p></el-dialog>
 </template>

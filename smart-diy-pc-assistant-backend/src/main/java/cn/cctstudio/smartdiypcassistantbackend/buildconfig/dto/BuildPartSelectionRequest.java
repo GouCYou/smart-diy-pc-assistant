@@ -7,6 +7,9 @@ public record BuildPartSelectionRequest(
         String image,
         String link,
         String skuId,
-        String matchedModel
+        String matchedModel,
+        String priceType,
+        String priceLabel,
+        String priceConditions
 ) {
 }

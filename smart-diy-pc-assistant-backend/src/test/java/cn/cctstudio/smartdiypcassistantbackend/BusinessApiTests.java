@@ -62,11 +62,13 @@ class BusinessApiTests {
     @Test void configurationsKeepSnapshotsWithoutNetworkOrAi() {
         var user=auth.adminLogin(new LoginRequest("admin","123456"));
         var storage=part(HardwarePartType.STORAGE,"test snapshot SSD","","",0,0);
-        var request=new BuildConfigRequest("snapshot test","",List.of(storage.id()),List.of(new BuildPartSelectionRequest(storage.id(),"Recorded product",499,"","https://item.jd.com/123.html","123",storage.model())),BuildConfigSource.MANUAL);
+        var request=new BuildConfigRequest("snapshot test","",List.of(storage.id()),List.of(new BuildPartSelectionRequest(storage.id(),"Recorded product",499,"","https://item.jd.com/123.html","123",storage.model(),"final","页面到手价","需满足补贴资格")),BuildConfigSource.MANUAL);
         var saved=builds.create(user.userId(),request);
         var read=builds.get(user.userId(),saved.id());
         assertThat(read.totalPrice()).isEqualTo(499);
         assertThat(read.parts().get(0).productTitle()).isEqualTo("Recorded product");
+        assertThat(read.parts().get(0).priceType()).isEqualTo("final");
+        assertThat(read.parts().get(0).priceConditions()).isEqualTo("需满足补贴资格");
         assertThat(read.serialNumber()).startsWith("#");
     }
 }

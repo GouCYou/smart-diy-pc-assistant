@@ -82,6 +82,62 @@ class Crawler:
         return not any(word in title for word in forbidden)
 
     @staticmethod
+    def amount(value):
+        if isinstance(value,bool): return None
+        if isinstance(value,dict): value=value.get('value',value.get('price'))
+        if not isinstance(value,(str,int,float)): return None
+        text=str(value).strip().replace(',','').removeprefix('¥').removeprefix('￥')
+        if not re.fullmatch(r"\d+(?:\.\d{1,2})?",text):return None
+        number=float(text)
+        return round(number,2) if math.isfinite(number) and number>0 else None
+
+    @staticmethod
+    def price_fields(item):
+        # Never infer a discount from coupon thresholds, flags such as lowestPrice=1,
+        # crossed-out originals, or login-obfuscated digits.
+        for key in ('finalPrice','到手价','handPrice','到手价格','payPrice','到手价金额','afterCouponPrice'):
+            value=Crawler.amount(item.get(key))
+            if value is not None:return {'price':value,'priceType':'final','priceLabel':'页面到手价','priceConditions':str(item.get('priceConditions') or item.get('couponDesc') or '优惠资格、地区与结算条件以京东页面为准')[:200]}
+        for key in ('salePrice','pPrice','jdPrice','price'):
+            value=Crawler.amount(item.get(key))
+            if value is not None:return {'price':value,'priceType':'page','priceLabel':'页面价','priceConditions':'到手价可能需登录或满足优惠条件；以结算为准'}
+        return {'price':None,'priceType':'unknown','priceLabel':'待询价','priceConditions':'页面未公开有效价格'}
+
+    @staticmethod
+    def detail_price(html,sku):
+        decoder=json.JSONDecoder()
+        for m in re.finditer(r"window\._item(?:Only|Info)\s*=\s*\(?\s*",html):
+            try: data,_=decoder.raw_decode(html[m.end():])
+            except ValueError: continue
+            if not isinstance(data,dict):continue
+            item=data.get('item',{})
+            found=str(item.get('wareId') or item.get('skuId') or data.get('skuId') or '') if isinstance(item,dict) else ''
+            if found and found!=str(sku):continue
+            floor=data.get('priceFloor') or (item.get('priceFloor') if isinstance(item,dict) else None)
+            if not isinstance(floor,dict):continue
+            price=Crawler.price_fields(floor)
+            if price['priceType']=='final':return price
+            subsidy=floor.get('byBtPrice')
+            if isinstance(subsidy,dict):
+                value=Crawler.amount(subsidy.get('jdPrice'))
+                if value:return {'price':value,'priceType':'final','priceLabel':'页面补贴到手价','priceConditions':'需满足页面补贴资格、地区与结算条件'}
+        soup=BeautifulSoup(html,'html.parser')
+        for node in soup.select('.p-price .final-price, .p-price .到手价, [data-final-price]'):
+            value=Crawler.amount(node.get('data-final-price') or node.get_text(strip=True))
+            if value:return {'price':value,'priceType':'final','priceLabel':'页面到手价','priceConditions':'优惠条件以京东页面为准'}
+        return None
+
+    async def enrich_price(self,product):
+        if product.get('priceType')=='final':return product
+        try:
+            response=await self.client.get(f"https://item.m.jd.com/product/{product['skuId']}.html",timeout=6)
+            if response.status_code==200 and len(response.content)<2_000_000:
+                final=self.detail_price(response.text,product['skuId'])
+                if final:return {**product,'pagePrice':product.get('price'),**final}
+        except httpx.HTTPError: pass
+        return product
+
+    @staticmethod
     def parse_products(html, keyword, part_type=""):
         soup = BeautifulSoup(html, "html.parser")
         result, seen = [], set()
@@ -102,12 +158,14 @@ class Crawler:
                 price = None
             if price is not None and (not math.isfinite(price) or price <= 0):
                 price = None
+            pricing=Crawler.detail_price(str(item),sku) or Crawler.price_fields({"price":price})
+            price=pricing["price"]
             image = item.select_one(".p-img img")
             image_url = (image.get("data-lazy-img") or image.get("src") or "") if image else ""
             if image_url.startswith("//"):
                 image_url = "https:" + image_url
             shop = item.select_one(".p-shop")
-            result.append({"skuId": sku, "title": title, "price": price, "image": image_url, "link": f"https://item.jd.com/{sku}.html", "shopName": shop.get_text(strip=True) if shop else "", "capturedAt": now(), "source": "jd", "keyword": keyword, "availability": "unknown", "priceType": "page"})
+            result.append({"skuId": sku, "title": title, "price": price, "image": image_url, "link": f"https://item.jd.com/{sku}.html", "shopName": shop.get_text(strip=True) if shop else "", "capturedAt": now(), "source": "jd", "keyword": keyword, "availability": "unknown", **pricing})
             seen.add(sku)
         return result[:12]
 
@@ -145,18 +203,8 @@ class Crawler:
                         continue
                     if not sku.isdigit() or not Crawler.matches(title, keyword, part_type):
                         continue
-                    price = None
-                    for key in ("jdPrice", "price", "pPrice", "salePrice"):
-                        try:
-                            raw_price = item.get(key, "")
-                            if isinstance(raw_price, bool):
-                                continue
-                            candidate = float(raw_price)
-                            if math.isfinite(candidate) and candidate > 0:
-                                price = round(candidate, 2)
-                                break
-                        except (TypeError, ValueError):
-                            pass
+                    pricing=Crawler.price_fields(item)
+                    price=pricing['price']
                     image = item.get("imageUrl") or ""
                     if not isinstance(image, str):
                         image = ""
@@ -166,7 +214,7 @@ class Crawler:
                         image = "https://img10.360buyimg.com/n1/" + image
                     elif not image.startswith("https://"):
                         image = ""
-                    products.append({"skuId": sku, "title": title, "price": price, "image": image, "link": f"https://item.jd.com/{sku}.html", "shopName": item.get("shopName", ""), "capturedAt": now(), "source": "jd", "keyword": keyword, "availability": "unknown", "priceType": "page"})
+                    products.append({"skuId": sku, "title": title, "price": price, "image": image, "link": f"https://item.jd.com/{sku}.html", "shopName": item.get("shopName", ""), "capturedAt": now(), "source": "jd", "keyword": keyword, "availability": "unknown", **pricing})
         return list({p["skuId"]: p for p in products}.values())[:12]
 
     async def search(self, keyword, part_type=""):
@@ -194,6 +242,10 @@ class Crawler:
                     except httpx.HTTPError as exc:
                         diagnostics.append({"endpoint": endpoint, "status": "error", "reason": type(exc).__name__})
                         continue
+                enriched=[]
+                for offset in range(0,len(products),3):
+                    enriched.extend(await asyncio.gather(*(self.enrich_price(p) for p in products[offset:offset+3])))
+                products=enriched
                 data = {"products": products, "warning": "" if products else "商品页面未返回有效结果，可能需要登录或遭遇反爬；不能据此判断无货", "cached": False, "diagnostics": diagnostics}
             except httpx.HTTPError:
                 data = {"products": [], "warning": "商品查询暂不可用，请稍后重试；未生成替代价格", "cached": False}

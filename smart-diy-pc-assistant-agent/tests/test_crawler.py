@@ -52,6 +52,7 @@ def test_parser_tolerates_metadata_modules_and_deduplicates():
 async def test_search_uses_upgrade_results_and_caches_success():
     calls=[]
     async def handler(request):
+        if request.url.host=='item.m.jd.com':return httpx.Response(200,text='登录查看价格')
         calls.append(request)
         return httpx.Response(200,text=page([{'id':'123','title':'RTX 5060 显卡','cid3':'679','price':'2499'}]))
     crawler=Crawler()
@@ -86,3 +87,26 @@ def test_ambiguous_gpu_variants_and_matx_only_cases_are_not_exact_matches():
     assert Crawler.matches('RTX5070 Ti 16G OC 显卡','RTX 5070 Ti','GPU')
     assert not Crawler.matches('微星机箱 支持M-ATX主板','ATX Airflow Case','CASE')
     assert Crawler.matches('机箱 支持ATX/M-ATX主板','ATX Airflow Case','CASE')
+
+
+def test_final_price_priority_and_obfuscated_or_flag_prices_are_not_inferred():
+    item={'id':'123','title':'RTX 5060 显卡','price':'3999','jdPrice':'3899','finalPrice':'3499','lowestPrice':1}
+    p=Crawler.parse_hot_products(page([item]),'RTX 5060','GPU')[0]
+    assert p['price']==3499 and p['priceType']=='final'
+    assert Crawler.price_fields({'price':'3999','finalPrice':'3??9','lowestPrice':1})['price']==3999
+    assert Crawler.price_fields({'lowestPrice':1,'couponPrice':True})['price'] is None
+    detail='<script>window._itemInfo = ({"item":{"skuId":"123"},"priceFloor":{"byBtPrice":{"jdPrice":"2999"}}});</script>'
+    assert Crawler.detail_price(detail,'123')['price']==2999
+    assert Crawler.detail_price(detail,'456') is None
+    assert Crawler.detail_price(detail.replace('2999','2??9'),'123') is None
+
+
+async def test_search_enriches_explicit_public_final_price_and_retains_page_price():
+    async def handler(request):
+        if request.url.host=='item.m.jd.com':return httpx.Response(200,text='<script>window._itemInfo=({"item":{"skuId":"123"},"priceFloor":{"finalPrice":"1999"}});</script>')
+        return httpx.Response(200,text=page([{'id':'123','title':'RTX 5060 显卡','price':'2499'}]))
+    crawler=Crawler();await crawler.client.aclose();crawler.client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        p=(await crawler.search('RTX 5060','GPU'))['products'][0]
+        assert p['price']==1999 and p['pagePrice']==2499 and p['priceType']=='final'
+    finally: await crawler.close()

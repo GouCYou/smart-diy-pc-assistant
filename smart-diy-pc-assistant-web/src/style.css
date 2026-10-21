@@ -1013,3 +1013,20 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .build-score-chip {font-size:11px;color:#8b97a8;display:inline-flex;gap:8px;align-items:center;background:#f3f6fa;padding:6px 10px;border-radius:8px;}
 .build-score-chip b {color:#687b97;font-weight:550;}
 @media(max-width:760px){.chat-toolbar .chat-heading {position:static;left:auto;transform:none;flex:1;min-width:0;} .chat-toolbar .activity-toggle-mobile {margin-left:0;}}
+/* A dedicated second row prevents selected product titles from shrinking the model selector. */
+.hardware-edit-row>div {display:grid;grid-template-columns:minmax(0,1fr) 106px 136px;gap:10px 12px;align-items:center;}
+.hardware-edit-row>div>.el-select {width:100%;min-width:0;}
+.hardware-edit-row>div>.el-button {width:136px;margin:0;}
+.hardware-edit-row .editor-selected-product {grid-column:1/-1;display:block;min-width:0;overflow-wrap:anywhere;background:#f6f8fb;border-radius:10px;padding:10px 12px;line-height:1.8;}
+.agent-workspace {--activity-size:320px;}
+.agent-workspace.activity-collapsed {--activity-size:0px;}
+.tool-timeline {width:100%;padding:0;}
+.tool-timeline>header {padding-inline:20px 14px;}
+.tool-timeline-scroll {width:100%;scrollbar-width:thin;scrollbar-color:#cbd2dc transparent;}
+.tool-timeline-list {padding:8px 18px 24px 20px;}
+.partial-label {font-size:12px;color:#98a3b4;}
+@media(max-width:1100px) and (min-width:761px){.agent-workspace {--activity-size:0px;}}
+@media(max-width:760px){.hardware-edit-row>div {grid-template-columns:minmax(0,1fr) 96px;} .hardware-edit-row>div>.el-button {grid-column:1/-1;width:100%;} .hardware-edit-row .editor-selected-product {grid-column:1/-1;} .activity-drawer .tool-timeline {width:100%;}}
+.product-price-kind {font-size:10px;color:#99a4b5;font-weight:400;}
+.picker-price-label {display:block;font-size:10px;color:#99a4b5;line-height:1.7;margin-top:6px;}
+.is-compact .product-price-kind {display:none;}
