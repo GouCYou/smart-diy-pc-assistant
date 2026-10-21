@@ -79,7 +79,7 @@ class NewsSync:
                             await self.call('/article',{**item,'content':content[:100000],'images':uploads});report['added']+=1
                         except Exception as exc:
                             report['failed']+=1
-                            report.setdefault('failureReasons',[]).append({'url':item['sourceUrl'],'type':type(exc).__name__})
+                            report.setdefault('failureReasons',[]).append({'url':item['sourceUrl'],'type':type(exc).__name__, 'status':exc.response.status_code if isinstance(exc,httpx.HTTPStatusError) else None})
                         await asyncio.sleep(1)
                 report['cleanup']=await self.call('/cleanup',{})
             except Exception:report['error']='资讯同步失败，请检查来源站点或业务服务连接'
@@ -92,7 +92,10 @@ class NewsSync:
                 row=await self.store.one("SELECT value FROM settings WHERE key='news_sync_report'")
                 last=json.loads(row['value']) if row else {}
                 today=datetime.now(UTC8).date().isoformat()
-                if last.get('error') or not last.get('finishedAt','').startswith(today):await self.run()
+                if last.get('error') or not last.get('finishedAt','').startswith(today) or (datetime.now(UTC8).hour>=6 and last.get('finishedAt','')<today+'T06:00'):last=await self.run()
             except asyncio.CancelledError:raise
             except Exception:pass
-            await asyncio.sleep(3600)
+            current=datetime.now(UTC8)
+            next_run=current.replace(hour=6,minute=0,second=0,microsecond=0)
+            if next_run<=current:next_run+=timedelta(days=1)
+            await asyncio.sleep(3600 if last.get('error') else max(1,(next_run-current).total_seconds()))

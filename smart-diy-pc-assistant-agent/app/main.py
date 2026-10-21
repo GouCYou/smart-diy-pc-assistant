@@ -147,9 +147,12 @@ async def conversation(conversation_id: str, request: Request, user=Depends(iden
     rows = await store.all("SELECT id FROM runs WHERE conversation_id=? ORDER BY created_at", (conversation_id,))
     row["runs"] = [run_view(await store.run(r["id"])) for r in rows]
     for run in row['runs']:
-        if run.get('draft') and run.get('answer'):
+        if run.get('answer'):
             message=next((m for m in reversed(row['messages']) if m['role']=='assistant' and m['content']==run['answer']),None)
-            if message: message['attachments']['draft']=run['draft']
+            if message:
+                if run.get('draft'): message['attachments']['draft']=run['draft']
+                news_refs=[{'id':r['newsId'],'title':r['title'],'summary':r.get('excerpt',''),'coverUrl':r.get('coverUrl','')} for r in run.get('references',[]) if r.get('newsId')]
+                if news_refs: message['attachments']['news']=news_refs
     return row
 
 

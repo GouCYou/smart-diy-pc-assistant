@@ -4,7 +4,7 @@ import { Check, Tools, Clock, Close, Document, ChatDotRound } from '@element-plu
 import { runStatuses } from '../../../shared/types';
 export interface ActivityEvent {id:number;run_id:string;type:string;data:Record<string,any>;created_at:string}
 const props=defineProps<{events:ActivityEvent[]; status?:string}>(), emit=defineEmits<{close:[]}>(), scroller=ref<HTMLElement|null>(null), following=ref(true);
-const toolNames:Record<string,string>={record_plan:'整理任务计划',ask_user:'询问补充信息',search_hardware:'筛选硬件型号',search_knowledge:'检索知识库',search_products:'查询京东商品',get_build:'读取配置单',propose_build:'检查兼容性并生成草稿'};
+const toolNames:Record<string,string>={record_plan:'整理任务计划',ask_user:'询问补充信息',search_hardware:'筛选硬件型号',search_knowledge:'检索知识库',search_news:'查询硬件资讯',search_products:'查询京东商品',get_build:'读取配置单',propose_build:'检查兼容性并生成草稿'};
 function title(e:ActivityEvent) {
   const names:Record<string,string>={partial_saved:'上次中断前的内容',retry_scheduled:'自动重试',budget_warning:'正在整理已有结果',work_summary:'处理摘要',tool_limited:'查询额度提醒',plan:'任务计划',products:'京东查询结果',references:'检索到参考资料',build_updated:'配置草稿已更新',needs_input:'等待补充信息',run_completed:'本轮任务完成',run_failed:'任务失败',run_interrupted:'任务已中断'};
   if(e.type === 'tool_started' || e.type === 'tool_completed') return toolNames[e.data.name] || e.data.name || '工具调用';

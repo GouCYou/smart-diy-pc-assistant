@@ -103,7 +103,9 @@ public class QiniuService {
         String prefix="--"+boundary+"\r\nContent-Disposition: form-data; name=\"key\"\r\n\r\n"+key+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\n"+token+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"image\"\r\nContent-Type: "+mime+"\r\n\r\n";
         try {
             var client=java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build();
-            var body=java.net.http.HttpRequest.BodyPublishers.ofByteArrays(java.util.List.of(prefix.getBytes(java.nio.charset.StandardCharsets.UTF_8),bytes,("\r\n--"+boundary+"--\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            var multipart=new java.io.ByteArrayOutputStream();
+            multipart.write(prefix.getBytes(java.nio.charset.StandardCharsets.UTF_8));multipart.write(bytes);multipart.write(("\r\n--"+boundary+"--\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var body=java.net.http.HttpRequest.BodyPublishers.ofByteArray(multipart.toByteArray());
             var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create(uploadUrl().replaceFirst("^http:","https:"))).timeout(java.time.Duration.ofSeconds(45)).header("Content-Type","multipart/form-data; boundary="+boundary).POST(body).build();
             var response=client.send(request,java.net.http.HttpResponse.BodyHandlers.discarding());
             if(response.statusCode()!=200)throw new BusinessException("资讯图片上传失败 HTTP "+response.statusCode());

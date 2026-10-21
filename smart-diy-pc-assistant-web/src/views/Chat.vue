@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {previewNewsId} from "../lib/previews";
 import { newChatVersion,lastChatConversation } from "../lib/chatNavigation";
 import NavigationToggle from "../components/NavigationToggle.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
@@ -482,8 +483,9 @@ onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyT
               >
                 <strong>{{ r.title }}</strong>
                 <p>{{ r.excerpt }}</p>
+                <button v-if="r.newsId" class="text-link" @click="previewNewsId=r.newsId">查看资讯 →</button>
                 <a
-                  v-if="/^https:\/\//.test(r.source)"
+                  v-else-if="/^https:\/\//.test(r.source)"
                   :href="r.source"
                   target="_blank"
                   rel="noopener noreferrer"

@@ -616,3 +616,18 @@ async def test_provider_identity_cannot_leak_across_stream_chunks(env):
     frames=await store.all("SELECT data FROM events WHERE run_id=? AND type='text_delta'",(run['id'],))
     text=''.join(json.loads(row['data'])['text'] for row in frames)
     assert 'Kimi' not in text and 'Moonshot' not in text and text==run['answer']
+
+async def test_news_tool_persists_preview_reference_in_conversation(env):
+    store,runtime,k,crawler,web,mp=env
+    from app.business import Business
+    original=Business.get
+    async def get(self,path,params=None):
+        if path=='/api/news':return [dict(id=42,title='新款硬件发布',summary='扩展坞支持 USB4',content='厂商发布新款扩展坞。',createdAt='2026-10-21T10:00:00',coverUrl='https://images.test/news.jpg')]
+        return await original(self,path,params)
+    mp.setattr(Business,'get',get)
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kw:ScriptedModel(responses=[call('search_news',{'query':'USB4'}),AIMessage(content='新款扩展坞支持 USB4，详情见引用资讯。')]))
+    response=await web.post('/agent/runs',json={'message':'最近有什么硬件新闻？'})
+    run=await done(store,response.json()['id'])
+    assert run['status']=='completed' and run['references'][0]['newsId']==42
+    detail=(await web.get('/agent/conversations/'+run['conversation_id'])).json()
+    assert detail['messages'][-1]['attachments']['news'][0]['id']==42

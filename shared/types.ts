@@ -94,6 +94,8 @@ export interface News {
   favorite: boolean;
 }
 export interface Reference {
+  newsId?: number;
+  coverUrl?: string;
   id: string;
   title: string;
   source: string;
