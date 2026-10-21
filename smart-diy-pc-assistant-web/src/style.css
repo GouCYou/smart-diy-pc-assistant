@@ -1224,3 +1224,4 @@ button.feedback-mine {border:0;background:transparent;padding:4px 0;}
 html,body,* {scrollbar-width:none!important;scrollbar-gutter:auto!important;-ms-overflow-style:none!important;}
 *::-webkit-scrollbar {display:none!important;width:0!important;height:0!important;}
 .el-scrollbar__bar {display:none!important;}
+.social-list-pane,.stable-masonry,.social-detail-body {overflow-anchor:none;}
