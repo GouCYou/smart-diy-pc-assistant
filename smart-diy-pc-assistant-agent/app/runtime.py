@@ -231,7 +231,7 @@ class Runtime:
                 return {"validation": validation, "instruction": "请调整后重新提交，未创建草稿"}
             await self.store.execute("UPDATE runs SET draft=? WHERE id=?", (json.dumps(draft, ensure_ascii=False), run["id"]))
             await self.store.event(run["id"], "build_updated", draft)
-            return {"created": True, "title": draft["title"], "validation": validation, "instruction": "配置卡片已展示商品图片、名称、报价和链接；接下来解释选型理由、方案评价与关键风险，不要再输出配件明细表或链接清单。"}
+            return {"created": True, "title": draft["title"], "validation": validation, "instruction": ("存在待询价部件，界面暂不展示配置入口；尽量继续获取有效商品报价，无法补齐时说明缺失信息，不要宣称已交付完整报价或输出配件清单。" if validation["unpricedParts"] else "最终回复结束后界面会在消息内提供配置预览入口，含图片和商品链接；接下来解释选型理由、方案评价与关键风险，不要再输出配件明细表或链接清单。")}
 
         tools = [record_plan, ask_user, search_hardware, search_knowledge, search_news, search_products, get_build, propose_build]
         for item in tools:

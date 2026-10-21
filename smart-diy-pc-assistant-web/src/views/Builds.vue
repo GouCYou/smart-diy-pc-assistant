@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AnimatedDisclosure from "../components/AnimatedDisclosure.vue";
 import NavigationToggle from "../components/NavigationToggle.vue";
 import ProductParts from "../components/ProductParts.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -193,7 +194,7 @@ onMounted(() =>
       <div class="build-detail-overview"><span>{{detail.serialNumber}}</span><strong>¥{{detail.totalPrice.toLocaleString()}}</strong><span>已报价合计</span><span v-if="detail.performanceScore" class="build-score-chip">综合性能 <b>{{detail.performanceScore}} 分</b></span></div>
       <ProductParts :parts="detail.parts" />
 
-      <details class="compatibility-details"><summary>兼容性与待核实事项<span class="compatibility-badge">{{detail.compatibilityStatus==='BLOCK' ? '需要调整' : '查看检查结果'}}</span></summary><ul><li v-for="m in detail.compatibilityMessages" :key="m">{{m}}</li></ul></details>
+      <AnimatedDisclosure class="compatibility-details"><template #summary>兼容性与待核实事项<span class="compatibility-badge">{{detail.compatibilityStatus==='BLOCK' ? '需要调整' : '查看检查结果'}}</span></template><ul><li v-for="m in detail.compatibilityMessages" :key="m">{{m}}</li></ul></AnimatedDisclosure>
       </template><template #footer><div v-if="detail" class="action-row build-detail-actions">
 
         <el-button

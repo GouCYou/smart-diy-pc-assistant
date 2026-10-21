@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ThemeControl from "../components/ThemeControl.vue";
 import { onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowRight } from '@element-plus/icons-vue';
@@ -12,6 +13,7 @@ onMounted(() => perform(async () => { if(user.value) Object.assign(profile,await
 <template>
   <div class="settings-page">
     <h1 class="desktop-only">设置</h1><el-alert v-if="error" :title="error" type="error" />
+    <h2>外观</h2><section class="settings-group"><ThemeControl/></section>
     <template v-if="user">
       <h2>账号</h2><nav class="account-menu"><router-link to="/profile"><span>编辑个人资料</span><el-icon><ArrowRight /></el-icon></router-link><router-link to="/auth"><span>登录与密码</span><el-icon><ArrowRight /></el-icon></router-link></nav>
       <h2>个人隐私</h2><section class="settings-group">

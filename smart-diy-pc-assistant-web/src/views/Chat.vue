@@ -28,7 +28,9 @@ import { useTask } from "../lib/task";
 import ConversationHistory from "../components/ConversationHistory.vue";
 import ToolTimeline, { type ActivityEvent } from "../components/ToolTimeline.vue";
 import Requirements from "../components/Requirements.vue";
-import DraftCard from "../components/DraftCard.vue";
+import DraftAttachment from "../components/DraftAttachment.vue";
+import AnimatedDisclosure from "../components/AnimatedDisclosure.vue";
+import {quotedDraft,elapsedLabel} from "../lib/chatPresentation";
 import { runStatuses, type Run } from "../../../shared/types";
 const route = useRoute(),
   router = useRouter(),
@@ -63,6 +65,7 @@ function updateViewport(){
   isMobile.value=mobileViewport.matches;
   if(!isMobile.value)mobileHistoryOpen.value=false;
 }
+const executionOpen=ref(false);
 const currentAnswerMessage = computed(()=>[...messages.value].reverse().find(m=>m.role==='assistant' && m.content===run.value?.answer));
 const active = computed(
     () => run.value && ["queued", "running"].includes(run.value.status),
@@ -99,11 +102,18 @@ let historyTimer:ReturnType<typeof setInterval>, elapsedTimer:ReturnType<typeof 
 function trackChatScroll(){const el=scroll.value;if(el)followOutput.value=el.scrollHeight-el.clientHeight-el.scrollTop<96;}
 async function bottom(force=false) {
   await nextTick();
-  if(!force && !followOutput.value)return;
+  if(!force && (!followOutput.value || active.value))return;
   scroll.value?.scrollTo({
     top: scroll.value.scrollHeight,
     behavior: "instant",
   });
+}
+async function revealExecution(){
+  await nextTick();
+  const container=scroll.value,panel=container?.querySelector<HTMLElement>('.execution-panel');
+  if(!container || !panel || !followOutput.value)return;
+  const outer=container.getBoundingClientRect(),box=panel.getBoundingClientRect();
+  if(box.top<outer.top || box.top>outer.top+24 || box.bottom>outer.bottom)container.scrollTo({top:container.scrollTop+box.top-outer.top-12,behavior:'instant'});
 }
 async function deleteHistory(id: string) {
   await api.request(`/agent/conversations/${id}`, "DELETE");
@@ -154,7 +164,9 @@ async function loadConversation(id: string) {
   const plans=currentEvents.value.filter(e=>e.type==='plan');plan.value=plans.at(-1)?.data.steps || [];
   await router.replace({ path: "/", query: { conversation: id } });
   if (run.value && ['queued','running'].includes(run.value.status)) void connect();
+  executionOpen.value=!!active.value && totalCalls.value>0;
   await bottom(true);
+  if(active.value)void revealExecution();
 }
 function hydrateQuestion(){
   question.value=run.value?.question?.question || (run.value?.completion_required ? '这份方案尚未生成配置单，请选择优先方向继续。' : '');
@@ -185,8 +197,7 @@ async function connect() {
         if (type === "text_delta" && !run.value.answer) live.value += data.text;
         if (type === "conversation_title") {conversationTitle.value=data.title;void loadHistory();}
         if (type === "plan") plan.value = data.steps;
-        if (type === "tool_started")
-          step.value = toolNames[data.name] || "处理任务";
+        if (type === "tool_started") {step.value = toolNames[data.name] || "处理任务";executionOpen.value=true;void revealExecution();}
         if (type === "build_updated") run.value.draft = data;
         if (type === "references") run.value.references = data.items;
         if (
@@ -209,7 +220,7 @@ async function connect() {
           run.value.answer = data.answer;
           if(data.conversation_title) conversationTitle.value=data.conversation_title;
         }
-        void bottom();
+        // Keep the active work summary visible; streaming must not drag the viewport to the end.
       },
       controller.signal,
     );
@@ -346,6 +357,7 @@ onMounted(() => {
     });
   }
 });
+watch(()=>run.value?.id,()=>{executionOpen.value=false;},{flush:'sync'});
 watch(newChatVersion,()=>fresh());
 watch(conversation,id=>{if(id)lastChatConversation.value=id;});
 onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);selectionVersion++;controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
@@ -461,28 +473,24 @@ onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);s
             /><MessageAttachments :attachments="m.attachments" /><MessageActions v-if="m.role==='assistant'" :content="m.content" :disabled="!!active" @retry="regenerateMessage(m.id)" @share="shareMessage(m.id)" />
           </article>
           <section v-if="run" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
-            <details :key="run.id" class="execution-details">
-              <summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">思考过程</span></summary>
+            <AnimatedDisclosure :key="run.id" v-model="executionOpen" class="execution-details">
+              <template #summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">思考过程</span></template>
               <div class="execution-detail-body">
                 <ol v-if="plan.length"><li v-for="p in plan" :key="p">{{p}}</li></ol>
                 <div v-for="(summary,i) in workSummaries" :key="i" class="markdown execution-summary" v-html="markdown(summary)" />
 
                 <p v-if="!plan.length && !live && !workSummaries.length" class="muted">正在准备处理步骤。</p>
               </div>
-            </details>
+            </AnimatedDisclosure>
             <div v-if="active || totalCalls" class="execution-progress" role="progressbar" aria-label="工具执行进度" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{width: progress + '%'}" /></div>
-            <p v-if="active" class="execution-hint">{{progressHint}}<span class="execution-elapsed"> · {{elapsed}} 秒</span></p>
+            <p v-if="active" class="execution-hint">{{progressHint}}<span class="execution-elapsed"> · {{elapsedLabel(elapsed)}}</span></p>
             <p v-if="run.error" class="execution-error">{{ run.error }}</p>
             <p v-if="question" class="content-text">{{ question }}</p><div v-if="(run.status==='needs_input' || run.completion_required) && questionOptions.length" class="decision-options" role="group" :aria-label="question"><button v-for="option in questionOptions" :key="option" :disabled="busy" @click="submit(option)">{{option}}</button></div>
             <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" class="stop-task-button" :icon="VideoPause" round @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
           </section>
           <article v-if="live && !run?.answer" class="message assistant streaming-answer" aria-live="polite"><p v-if="!active" class="partial-label">已保存的生成内容 · 尚未完成</p><div class="message-body markdown" v-html="markdown(live)" /><span v-if="active" class="streaming-cursor" /></article>
-          <article v-if="run?.answer && !run.completion_required" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
-          <DraftCard
-            v-if="run?.draft"
-            :key="run.id + JSON.stringify(run.draft.partIds)"
-            :draft="run.draft"
-          /><el-collapse v-if="run?.references?.length"
+          <article v-if="run?.answer && !run.completion_required" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><DraftAttachment v-if="run.status==='completed' && run.draft" :draft="run.draft"/><p v-if="!active && run.draft && !quotedDraft(run.draft)" class="unquoted-notice">部分商品尚未取得有效报价，完整配置暂不展示。</p><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
+          <el-collapse v-if="run?.references?.length"
             ><el-collapse-item title="参考资料"
               ><article
                 v-for="r in run.references"

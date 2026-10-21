@@ -16,7 +16,7 @@ watch(() => route.params.id, () => perform(load),{immediate:true});
 <template>
   <div class="space-page"><el-alert v-if="error" :title="error" type="error" />
     <template v-if="space">
-      <section class="space-hero" :style="space.backgroundUrl ? {backgroundImage:`linear-gradient(#ffffffbb,#ffffffed),url(${space.backgroundUrl})`} : {}">
+      <section class="space-hero" :style="space.backgroundUrl ? {backgroundImage:`linear-gradient(var(--space-veil-start,#ffffffbb),var(--space-veil-end,#ffffffed)),url(${space.backgroundUrl})`} : {}">
         <div class="space-identity"><el-avatar :size="64" :src="space.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar><div><h1>{{space.nickname || space.username}}</h1><span>@{{space.username}}</span></div></div>
         <p class="space-bio">{{space.bio || '这个人还没有写简介。'}}</p>
         <div class="space-stats"><button @click="perform(() => follows('following'))"><strong>{{space.followingCount}}</strong>关注</button><button @click="perform(() => follows('followers'))"><strong>{{space.followerCount}}</strong>粉丝</button><span><strong>{{space.posts.length}}</strong>动态</span></div>

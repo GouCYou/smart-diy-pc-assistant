@@ -11,9 +11,11 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AnimatedDisclosure: typeof import('./components/AnimatedDisclosure.vue')['default']
     ContentPreviews: typeof import('./components/ContentPreviews.vue')['default']
     ConversationHistory: typeof import('./components/ConversationHistory.vue')['default']
     DialogHeading: typeof import('./components/DialogHeading.vue')['default']
+    DraftAttachment: typeof import('./components/DraftAttachment.vue')['default']
     DraftCard: typeof import('./components/DraftCard.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']
@@ -52,6 +54,7 @@ declare module 'vue' {
     Requirements: typeof import('./components/Requirements.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ThemeControl: typeof import('./components/ThemeControl.vue')['default']
     ToolTimeline: typeof import('./components/ToolTimeline.vue')['default']
   }
   export interface GlobalDirectives {

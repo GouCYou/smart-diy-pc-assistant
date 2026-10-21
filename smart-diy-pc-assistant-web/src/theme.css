@@ -1,0 +1,51 @@
+/* Smart DIY keeps its slate palette in both appearances. */
+html {color-scheme:light;}
+html.dark {color-scheme:dark;--theme-page:#111720;--theme-surface:#1a222e;--theme-soft:#232d3b;--theme-text:#e5ecf5;--theme-muted:#b0bed0;--theme-subtle:#91a2b9;--theme-border:#344255;--theme-action:#dce6f3;--theme-on-action:#172130;--el-bg-color:#1a222e;--el-bg-color-page:#111720;--el-bg-color-overlay:#202a38;--el-fill-color-blank:#1a222e;--el-fill-color-light:#263243;--el-fill-color-lighter:#222d3b;--el-fill-color-dark:#303d50;--el-text-color-primary:#e5ecf5;--el-text-color-regular:#c2cede;--el-text-color-secondary:#9aabc2;--el-border-color:#3a485c;--el-border-color-light:#303e52;--el-border-color-lighter:#2b3749;--el-color-primary:#dce6f3;--el-color-primary-light-3:#b5c7e0;--el-color-primary-light-5:#65788f;--el-color-primary-light-7:#3f5067;--el-color-primary-light-8:#303f54;--el-color-primary-light-9:#263244;--el-color-primary-dark-2:#f1f5fa;--el-mask-color:rgba(6,10,18,.72);background:var(--theme-page);color:var(--theme-text);}
+html.dark body,.dark .web-shell,.dark .web-main,.dark .web-content {background:var(--theme-page);color:var(--theme-text);}
+.dark .web-sidebar {background:#171f2b;}
+.dark .el-button--primary {--el-button-text-color:#172130;--el-button-hover-text-color:#172130;--el-button-active-text-color:#172130;}
+.dark .content-text,.dark .markdown {color:var(--theme-text)!important;}
+.dark .el-overlay {background-color:rgba(5,10,18,.64);}
+.dark .el-loading-mask {background-color:rgba(17,23,32,.8);}
+.theme-control {display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px;color:var(--theme-muted,#667085);}
+.theme-label {font-size:12px;}
+.theme-switch {position:relative;display:grid;grid-template-columns:1fr 1fr;align-items:center;justify-items:center;width:52px;height:29px;padding:3px;border:1px solid var(--theme-border,#e0e5ee);border-radius:999px;background:var(--theme-soft,#edf0f5);flex:0 0 52px;color:var(--theme-muted,#748198);}
+.theme-switch .el-icon {position:relative;z-index:1;font-size:14px;}
+.theme-switch .el-icon:nth-child(2){color:#8b6725;}
+.theme-switch.is-dark .el-icon:nth-child(3){color:#d9e8ff;}
+.theme-thumb {position:absolute;left:3px;top:3px;width:21px;height:21px;border-radius:50%;background:var(--theme-surface,#fff);box-shadow:0 1px 4px #10182820;transform:translateX(0);transition:transform .34s cubic-bezier(.22,1,.36,1),background-color .2s;}
+.theme-switch.is-dark .theme-thumb {transform:translateX(23px);background:#4b6382;}
+.theme-system {display:grid;place-items:center;width:27px;height:27px;flex:0 0 27px;border:1px solid transparent;border-radius:9px;background:transparent;color:inherit;}
+.theme-system.is-selected {background:var(--theme-soft,#edf0f5);border-color:var(--theme-border,#dde3ee);color:var(--theme-text,#263346);}
+.sidebar-collapsed .theme-control {flex-direction:column;justify-content:center;gap:6px;}
+.sidebar-collapsed .theme-label {display:none;}
+.settings-group .theme-control {margin:0;padding:16px;justify-content:flex-start;}
+.settings-group .theme-label {margin-right:auto;font-size:14px;}
+.animated-disclosure .disclosure-trigger {appearance:none;width:100%;border:0;background:transparent;text-align:left;font:inherit;cursor:pointer;color:inherit;}
+.disclosure-grid {display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .28s cubic-bezier(.22,.8,.24,1),opacity .2s;}
+.disclosure-content {min-height:0;overflow:hidden;}
+.animated-disclosure.is-open>.disclosure-grid {grid-template-rows:1fr;opacity:1;}
+.execution-panel.is-active {position:sticky;top:12px;z-index:4;box-shadow:0 6px 20px #1018280c;}
+.execution-detail-body {max-height:min(30dvh,320px);overflow:auto;overscroll-behavior:contain;padding-top:12px;}
+.compatibility-details .disclosure-trigger {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;font-size:13px;font-weight:550;color:var(--theme-muted,#52617a);}
+.compatibility-details .disclosure-trigger::after{content:'⌄';transition:transform .28s;}
+.compatibility-details.is-open .disclosure-trigger::after{transform:rotate(180deg);}
+.draft-attachment {display:flex;align-items:center;gap:14px;width:100%;max-width:660px;text-align:left;margin:16px 0 10px;padding:15px 16px;border:1px solid var(--theme-border,#e2e8f1);border-radius:18px;background:var(--theme-surface,#fff);color:var(--theme-text,#273448);box-shadow:0 3px 12px #14223b05;transition:background-color .2s,border-color .2s,transform .2s;}
+.draft-attachment:hover {background:var(--theme-soft,#f6f8fb);transform:translateY(-1px);}
+.draft-attachment-images {display:grid;grid-template-columns:repeat(2,28px);gap:3px;flex-shrink:0;}
+.draft-attachment-images img {width:28px;height:28px;object-fit:contain;border-radius:6px;background:white;}
+.draft-attachment-main {display:flex;flex:1;min-width:0;flex-direction:column;gap:6px;}
+.draft-attachment-main strong {font-size:14px;line-height:1.5;}
+.draft-attachment-main>span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--theme-muted,#78859a);}
+.draft-attachment-main small {font-size:12px;color:var(--theme-muted,#65758d);}
+.draft-attachment-arrow {font-size:12px;white-space:nowrap;color:var(--theme-muted,#65758d);}
+.draft-preview-dialog .configuration-card {margin:0;}
+.unquoted-notice {font-size:12px;color:var(--theme-subtle,#7e8b9e);margin:14px 0;}
+@media(max-width:760px){.execution-panel.is-active{top:4px;}.execution-detail-body{max-height:25dvh;}.draft-attachment{gap:10px;padding:12px;}.draft-attachment-arrow{font-size:0;}.draft-attachment-arrow::after{content:'↗';font-size:16px;}}
+@media(prefers-reduced-motion:reduce){.theme-thumb,.disclosure-grid,.draft-attachment,.compatibility-details .disclosure-trigger::after {transition:none!important;}}
+
+.dark .mobile-nav{--slider-color:#34465e;}.dark .space-hero{--space-veil-start:#111720bb;--space-veil-end:#111720ed;}.dark .prompt-setup-image{filter:invert(.85);}
+
+.theme-switch.is-dark>.el-icon:nth-child(2){color:#a9b7cc;}
+.dark .primary-nav {--slider-color:#2c394b;}
+.dark .chat-history,.dark .chat-activity,.dark .tool-timeline,.dark .mobile-history-drawer .el-drawer__body {background:var(--theme-surface);}
