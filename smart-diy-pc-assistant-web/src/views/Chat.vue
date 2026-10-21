@@ -57,6 +57,12 @@ const route = useRoute(),
   activity = ref<ActivityEvent[]>([]),
   showRequirements = ref(false),
   scroll = ref<HTMLElement | null>(null);
+const mobileViewport=window.matchMedia("(max-width:760px)");
+const isMobile=ref(mobileViewport.matches);
+function updateViewport(){
+  isMobile.value=mobileViewport.matches;
+  if(!isMobile.value)mobileHistoryOpen.value=false;
+}
 const currentAnswerMessage = computed(()=>[...messages.value].reverse().find(m=>m.role==='assistant' && m.content===run.value?.answer));
 const active = computed(
     () => run.value && ["queued", "running"].includes(run.value.status),
@@ -326,6 +332,8 @@ async function retry() {
   });
 }
 onMounted(() => {
+  mobileViewport.addEventListener("change",updateViewport);
+  updateViewport();
   historyTimer=setInterval(()=>{if(user.value && !document.hidden)void loadHistory().catch(()=>{});},5000);
   elapsedTimer=setInterval(()=>{elapsed.value=run.value ? Math.max(0,Math.floor((Date.now()-new Date(run.value.created_at).getTime())/1000)) : 0;},1000);
   if (user.value) {
@@ -340,7 +348,7 @@ onMounted(() => {
 });
 watch(newChatVersion,()=>fresh());
 watch(conversation,id=>{if(id)lastChatConversation.value=id;});
-onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
+onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);selectionVersion++;controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
 </script>
 <template>
   <div class="chat-layout agent-workspace" :class="{ 'has-conversation': messages.length, 'history-collapsed':!historyOpen, 'activity-collapsed':!activityOpen }">
@@ -356,7 +364,7 @@ onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyT
         >
           <el-icon><Fold /></el-icon>
         </button>
-        <button class="chat-icon-button mobile-only mobile-history-toggle" aria-label="历史对话" @click="mobileHistoryOpen=true;perform(loadHistory)"><el-icon><Fold /></el-icon></button>
+        <button v-if="isMobile" class="chat-icon-button mobile-only mobile-history-toggle" aria-label="历史对话" @click="mobileHistoryOpen=true;perform(loadHistory)"><el-icon><Fold /></el-icon></button>
         <div class="chat-heading">
           <h1>
             <span class="conversation-title" :title="conversationTitle">{{conversationTitle}}</span>
@@ -373,7 +381,7 @@ onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyT
           <el-icon><Plus /></el-icon><span>新对话</span>
         </button>
       </header>
-      <el-drawer v-model="mobileHistoryOpen" direction="ltr" size="100%" :with-header="false" class="mobile-history-drawer"><div class="mobile-history-heading"><strong>历史对话</strong><button class="chat-icon-button" aria-label="关闭历史对话" @click="mobileHistoryOpen=false"><el-icon><Close /></el-icon></button></div><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="mobileHistoryOpen=false" @select="id=>{mobileHistoryOpen=false;perform(()=>loadConversation(id));}" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /><button class="mobile-history-new" @click="mobileHistoryOpen=false;fresh()"><el-icon><Plus /></el-icon>新对话</button></el-drawer>
+      <el-drawer v-if="isMobile" v-model="mobileHistoryOpen" direction="ltr" size="100%" :with-header="false" class="mobile-history-drawer"><div class="mobile-history-heading"><strong>历史对话</strong><button class="chat-icon-button" aria-label="关闭历史对话" @click="mobileHistoryOpen=false"><el-icon><Close /></el-icon></button></div><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="mobileHistoryOpen=false" @select="id=>{mobileHistoryOpen=false;perform(()=>loadConversation(id));}" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /><button class="mobile-history-new" @click="mobileHistoryOpen=false;fresh()"><el-icon><Plus /></el-icon>新对话</button></el-drawer>
       <div ref="scroll" class="chat-scroll" @scroll="trackChatScroll">
         <el-alert v-if="error" :title="error" type="error" show-icon />
         <section v-if="!messages.length" class="welcome">
