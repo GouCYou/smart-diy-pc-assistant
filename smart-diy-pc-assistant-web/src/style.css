@@ -1200,3 +1200,7 @@ button.feedback-mine {border:0;background:transparent;padding:4px 0;}
 .detail-content-enter-from {opacity:0;transform:translateX(16px);}.detail-content-leave-to {opacity:0;transform:translateX(8px);}
 @media(max-width:760px){.social-workspace{display:block;}.social-detail-pane{display:none;}}
 @media(prefers-reduced-motion:reduce){.social-workspace,.social-detail-pane,.social-list-pane,.detail-content-enter-active,.detail-content-leave-active{transition:none;}}
+.profile-actions {display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;padding-top:8px;}
+.profile-actions .background-upload {margin:0 auto 0 0;display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 15px;border:1px solid #dce2ec;border-radius:12px;white-space:nowrap;}
+.profile-actions .el-button+.el-button {margin-left:0;}
+@media(max-width:760px){.profile-actions .background-upload{margin-right:auto;}.profile-actions{gap:10px;}.profile-actions .background-upload{font-size:13px;padding-inline:12px;}}

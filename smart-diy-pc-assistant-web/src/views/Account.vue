@@ -19,6 +19,7 @@ const { busy, error, perform } = useTask(),
 async function load() {
   if (!user.value) return;
   Object.assign(form, await api.request("/api/user/profile"));
+  form.gender=({MALE:"男",FEMALE:"女",UNKNOWN:"不透露",SECRET:"不透露",OTHER:"不透露"} as Record<string,string>)[String(form.gender).toUpperCase()] || (["男","女","不透露"].includes(form.gender) ? form.gender : "不透露");
   try {
     preferences.value = (await api.request("/agent/preferences")).content;
   } catch {
@@ -32,7 +33,7 @@ async function savePreferences() {
 }
 async function save() {
   if(form.countryOrRegion && !COUNTRY_OPTIONS.includes(form.countryOrRegion))throw Error("请从列表选择国家或地区");
-  if(form.province && !provinces.value.includes(form.province))throw Error("请从列表重新选择省份");
+  if(form.province && !provinces.value.includes(form.province))throw Error("请从列表重新选择省份或直辖市");
   if(form.city && !cities.value.includes(form.city))throw Error("请从列表重新选择城市");
   await api.request("/api/user/profile", "PUT", form);
   user.value = await api.request("/api/auth/me");
@@ -96,15 +97,15 @@ onMounted(() => perform(load));
               value-format="YYYY-MM-DD"
               style="width: 100%" /></el-form-item
           ><el-form-item label="国家或地区"><el-select v-model="form.countryOrRegion" aria-label="国家或地区" @change="changeCountry"><el-option v-for="v in COUNTRY_OPTIONS" :key="v" :value="v" :label="v" /></el-select></el-form-item>
-          <el-form-item label="省份"><el-select v-model="form.province" aria-label="省份" :disabled="!provinces.length" placeholder="不适用" @change="changeProvince"><el-option v-for="v in provinces" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+          <el-form-item label="省份或直辖市"><el-select v-model="form.province" aria-label="省份或直辖市" :disabled="!provinces.length" placeholder="不适用" @change="changeProvince"><el-option v-for="v in provinces" :key="v" :value="v" :label="v" /></el-select></el-form-item>
           <el-form-item label="城市"><el-select v-model="form.city" aria-label="城市" :disabled="!cities.length" placeholder="不适用"><el-option v-for="v in cities" :key="v" :value="v" :label="v" /></el-select></el-form-item>
           </el-form
-        ><div class="profile-actions"><el-button :disabled="busy" @click="cancel">取消</el-button><el-button
+        ><div class="profile-actions"><label class="file-button background-upload"><input hidden type="file" accept="image/*" @change="perform(() => upload($event, 'background'))" />更换个人空间背景</label><el-button :disabled="busy" @click="cancel">取消</el-button><el-button
           type="primary"
           :loading="busy"
           @click="perform(save, '个人资料已保存')"
           class="desktop-only">保存资料</el-button></div>
-        <label class="file-button background-upload"><input hidden type="file" accept="image/*" @change="perform(() => upload($event, 'background'))" />更换个人空间背景</label>
+
       </section>
       <div v-if="props.section === 'preferences'">
         <section class="panel">

@@ -1,4 +1,10 @@
-export const COUNTRY_OPTIONS = ['中国大陆', '中国香港', '中国澳门', '中国台湾', '美国', '日本', '韩国', '新加坡', '加拿大', '英国', '澳大利亚', '德国', '法国', '其他']
+// ISO 3166-1 countries/regions, localized with the browser's standard Chinese names.
+const REGION_CODES='AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(' ');
+const regionNames=new Intl.DisplayNames(['zh-Hans'],{type:'region'});
+const regionAliases:Record<string,string>={CN:'中国大陆',HK:'中国香港',MO:'中国澳门',TW:'中国台湾'};
+const preferred=['CN','HK','MO','TW','US','JP','KR','SG','CA','GB','AU','DE','FR'];
+export const COUNTRY_OPTIONS=[...preferred,...REGION_CODES.filter(c=>!preferred.includes(c))].map(code=>regionAliases[code] || regionNames.of(code) || code).concat('其他');
+
 
 export const TAIWAN_CITY_OPTIONS = ['台北市', '新北市', '桃园市', '台中市', '台南市', '高雄市', '基隆市', '新竹市', '嘉义市']
 
