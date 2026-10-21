@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ContentPreviews: typeof import('./components/ContentPreviews.vue')['default']
     ConversationHistory: typeof import('./components/ConversationHistory.vue')['default']
     DialogHeading: typeof import('./components/DialogHeading.vue')['default']
     DraftCard: typeof import('./components/DraftCard.vue')['default']
@@ -30,6 +31,7 @@ declare module 'vue' {
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
     ElIcon: typeof import('element-plus/es')['ElIcon']
     ElImage: typeof import('element-plus/es')['ElImage']
+    ElImageViewer: typeof import('element-plus/es')['ElImageViewer']
     ElInput: typeof import('element-plus/es')['ElInput']
     ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
     ElOption: typeof import('element-plus/es')['ElOption']

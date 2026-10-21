@@ -18,7 +18,7 @@ const route = useRoute(),
   { busy, error, perform, confirm } = useTask(),
   rows = ref<Build[]>([]),
   hardware = ref<Hardware[]>([]),
-  segment = ref("mine"),
+  segment = ref("all"),
   detail = ref<Build | null>(null),
   open = ref(false),
   validation = ref<any>(null),
@@ -158,10 +158,7 @@ onMounted(() =>
   </section>
   <template v-else
     ><div v-slider class="segmented build-segments">
-      <button :class="{selected:segment === 'mine'}" @click="segment = 'mine'; perform(load)">自定义</button>
-      <button :class="{selected:segment === 'ai'}" @click="segment = 'ai'; perform(load)">AI 生成</button>
-      <button :class="{selected:segment === 'favorite'}" @click="segment = 'favorite'; perform(load)">收藏</button>
-      <button class="desktop-only" :class="{selected:segment === 'all'}" @click="segment = 'all'; perform(load)">全部</button>
+      <button v-for="[key,label] in [['all','全部'],['ai','AI 生成'],['mine','自定义'],['favorite','收藏']]" :key="key" :class="{selected:segment===key}" @click="segment=key!;perform(load)">{{label}}</button>
     </div>
     <div class="feed-grid">
       <article v-for="b in rows" :key="b.id" class="card build-preview-card">
@@ -169,9 +166,9 @@ onMounted(() =>
           <span class="tag">{{
             b.source === "AI" ? "AI 方案" : "手动搭配"
           }}</span
-          ><span class="muted">{{ b.serialNumber }}</span>
+          ><span class="build-card-corner"><span v-if="b.favorite" class="favorite-badge">★ 已收藏</span><span class="muted">{{ b.serialNumber }}</span></span>
         </div>
-        <h2>{{ b.title }} <span v-if="b.favorite" class="favorite-badge">★ 已收藏</span></h2>
+        <h2>{{ b.title }}</h2>
         <div class="build-score-chip" v-if="b.performanceScore">综合性能 <b>{{b.performanceScore}} 分</b></div>
         <ProductParts :parts="b.parts.slice(0,3)" compact />
         <button class="build-more-parts" @click="detail=b">查看全部 {{b.parts.length}} 件配件 →</button>

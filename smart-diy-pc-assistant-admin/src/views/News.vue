@@ -13,6 +13,8 @@ const { busy, error, perform, confirm } = useTask(),
   open = ref(false),
   preview = ref(false),
   form = reactive<any>({});
+const syncStatus=ref<any>();
+async function syncNow(){await api.request("/agent/admin/news-sync","POST",{});syncStatus.value=await api.request("/agent/admin/news-sync");}
 const filtered = computed(() =>
     rows.value.filter(
       (r) =>
@@ -27,6 +29,7 @@ const filtered = computed(() =>
   );
 async function load() {
   rows.value = await api.request("/api/admin/news");
+  syncStatus.value=await api.request("/agent/admin/news-sync");
 }
 function edit(row?: News) {
   Object.keys(form).forEach((k) => delete form[k]);
@@ -77,9 +80,10 @@ onMounted(() => perform(load));
       <h1>资讯管理</h1>
       <p>清晰编辑、预览并发布内容。</p>
     </div>
-    <el-button type="primary" @click="edit()">新建资讯</el-button>
+    <div class="action-row"><el-button @click="perform(syncNow,'已安排资讯同步')">立即同步 IT之家</el-button><el-button type="primary" @click="edit()">新建资讯</el-button></div>
   </div>
   <el-alert v-if="error" :title="error" type="error" />
+  <el-alert v-if="syncStatus" :title="syncStatus.enabled ? '自动采集已启用：每日检查新文章，保留一个月，手动资讯保留' : '自动采集尚未配置'" type="info" :closable="false"/><p v-if="syncStatus?.report" class="muted">最近同步 {{syncStatus.report.finishedAt}} · 新增 {{syncStatus.report.added}} · 失败 {{syncStatus.report.failed}} · 清理 {{syncStatus.report.cleanup?.deleted || 0}}</p>
   <section class="panel">
     <div class="toolbar">
       <el-input

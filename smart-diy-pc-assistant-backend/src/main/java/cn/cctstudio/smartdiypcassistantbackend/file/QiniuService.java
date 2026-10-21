@@ -95,6 +95,19 @@ public class QiniuService {
         }
     }
 
+    public FileUploadResponse uploadNewsImage(byte[] bytes,String mime) {
+        if(!hasQiniuConfig() || bytes.length==0 || bytes.length>5000000 || !mime.matches("image/(jpeg|jpg|png|gif|webp|avif)"))throw new BusinessException("资讯图片无效或对象存储未配置");
+        String key="news-import/"+UUID.randomUUID()+"."+mime.substring(6).replace("jpeg","jpg");
+        String token=Auth.create(properties.accessKey(),properties.secretKey()).uploadToken(properties.bucket(),key,3600,null);
+        try { Response response=new UploadManager(new Configuration(Region.autoRegion())).put(bytes,key,token);if(!response.isOK())throw new BusinessException("资讯图片上传失败");return new FileUploadResponse(mediaUrlService.toPublicUrl(key),key,properties.domain()); }
+        catch(QiniuException e){throw new BusinessException("资讯图片上传失败");}
+    }
+    public void deleteNewsImage(String key) {
+        if(!key.matches("news-import/[a-zA-Z0-9.-]+"))throw new BusinessException("非资讯专属对象不能自动删除");
+        try {new com.qiniu.storage.BucketManager(Auth.create(properties.accessKey(),properties.secretKey()),new Configuration(Region.autoRegion())).delete(properties.bucket(),key);}
+        catch(QiniuException e){if(e.response==null || e.response.statusCode!=612)throw new BusinessException("资讯对象删除失败，稍后重试");}
+    }
+
     private boolean hasQiniuConfig() {
         return StringUtils.hasText(properties.accessKey())
                 && StringUtils.hasText(properties.secretKey())

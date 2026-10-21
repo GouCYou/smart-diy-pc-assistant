@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { previewBuildId,openImages } from "../lib/previews";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -7,7 +8,7 @@ import { api } from "../lib/api";
 import { user, authenticated } from "../lib/session";
 import { markdown } from "../lib/markdown";
 import { useTask } from "../lib/task";
-const props = defineProps<{ kind: string; embedded?:boolean }>(),
+const props = defineProps<{ kind: string; embedded?:boolean; id?:number }>(),
   route = useRoute(),
   router = useRouter(),
   { busy, error, perform, confirm } = useTask(),
@@ -28,8 +29,8 @@ const emit=defineEmits<{close:[];updated:[item:any];removed:[id:number]}>();
 function close(){if(props.embedded)emit("close");else void router.push("/"+props.kind);}
 const base = computed(() =>
   props.kind === "news"
-    ? `/api/news/${route.params.id}`
-    : `/api/community/posts/${route.params.id}`,
+    ? `/api/news/${props.id || route.params.id}`
+    : `/api/community/posts/${props.id || route.params.id}`,
 );
 async function load() {
   item.value = await api.request(base.value);
@@ -106,9 +107,9 @@ onMounted(() => perform(load));
         <img
           v-if="item.coverUrl"
           :src="item.coverUrl"
-          alt="资讯封面"
+          alt="资讯封面" @click="openImages([item.coverUrl])"
           class="cover" />
-        <div class="markdown" v-html="markdown(item.content)" /></template
+        <div class="markdown" @click="event=>{const el=event.target as HTMLElement;if(el.tagName==='IMG')openImages([(el as HTMLImageElement).src]);}" v-html="markdown(item.content)" /></template
       ><template v-else
         ><router-link :to="`/users/${item.author.id}`" class="post-author"
           ><el-avatar :src="item.author.avatarUrl" /><strong>{{
@@ -121,17 +122,17 @@ onMounted(() => perform(load));
             v-for="img in item.imageUrls"
             :key="img"
             :src="img"
-            :preview-src-list="item.imageUrls"
+            :preview-src-list="item.imageUrls" preview-teleported
             fit="cover"
           />
         </div>
-        <router-link
+        <button
           v-if="item.buildConfig"
-          :to="`/builds?public=${item.buildConfig.id}`"
+          @click="previewBuildId=item.buildConfig.id"
           class="reference"
           >▦ {{ item.buildConfig.title }} · ¥{{
             item.buildConfig.totalPrice
-          }}</router-link
+          }}</button
         ></template
       >
       <div class="post-reactions"><button class="comment-reaction" :class="{liked:item.liked}" :aria-label="item.liked ? '取消点赞' : '点赞动态'" :aria-pressed="item.liked" @click="perform(()=>toggle('like'))"><span aria-hidden="true">♥</span>{{item.likeCount}}</button><button class="comment-reaction favorite-reaction" :class="{favorited:item.favorite}" :aria-label="item.favorite ? '取消收藏' : '收藏动态'" :aria-pressed="item.favorite" @click="perform(()=>toggle('favorite'))"><el-icon><StarFilled v-if="item.favorite"/><Star v-else/></el-icon>{{item.favoriteCount}}</button><button v-if="kind==='community' && user?.userId===item.author.id" class="comment-delete-button" @click="confirm('删除这条动态？',deletePost)">删除</button></div>
@@ -151,13 +152,13 @@ onMounted(() => perform(load));
       <article v-for="c in comments" :key="c.id" class="comment">
         <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><el-avatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
         <p v-if="c.parentCommentId" class="comment-reply-context">回复 {{c.replyTo?.nickname || c.replyTo?.username || '一条评论'}}</p>
-        <p>{{ c.content }}</p><router-link v-if="c.buildConfig" :to="`/builds?public=${c.buildConfig.id}`" class="reference">▦ {{c.buildConfig.title}}</router-link>
+        <p>{{ c.content }}</p><button v-if="c.buildConfig" @click="previewBuildId=c.buildConfig.id" class="reference">▦ {{c.buildConfig.title}}</button>
         <div class="image-grid">
           <el-image
             v-for="img in c.imageUrls"
             :key="img"
             :src="img"
-            :preview-src-list="c.imageUrls"
+            :preview-src-list="c.imageUrls" preview-teleported
             fit="cover"
           />
         </div>

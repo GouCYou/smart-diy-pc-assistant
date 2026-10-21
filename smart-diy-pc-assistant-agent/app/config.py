@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT_", env_file=".env", extra="ignore")
+    news_sync_key: str = ""
     java_url: str = "http://127.0.0.1:8080"
     data_dir: Path = Path("data")
     cors_origins: str = "http://localhost:5173,http://localhost:5174"

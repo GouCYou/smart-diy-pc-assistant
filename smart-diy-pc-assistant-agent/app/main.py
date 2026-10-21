@@ -13,6 +13,7 @@ from pypdf import PdfReader
 from .business import Business
 from .config import settings
 from .crawler import Crawler
+from .news_sync import NewsSync
 from .knowledge import Knowledge
 from .runtime import Runtime, requires_build, complete_draft
 from .store import Store, now, uid
@@ -31,9 +32,13 @@ async def lifespan(app):
         await runtime.start()
         app.state.store, app.state.client = store, client
         app.state.runtime, app.state.knowledge, app.state.crawler = runtime, knowledge, crawler
+        app.state.news_sync=NewsSync(store,client,settings.news_sync_key)
+        news_task=asyncio.create_task(app.state.news_sync.loop())
         try:
             yield
         finally:
+            news_task.cancel()
+            await asyncio.gather(news_task,return_exceptions=True)
             await runtime.close()
             await crawler.close()
             await store.close()
@@ -461,3 +466,14 @@ async def reindex(document_id: str, request: Request):
 @app.get("/agent/admin/search", dependencies=[Depends(administrator)])
 async def preview_search(request: Request, q: str = ""):
     return await request.app.state.knowledge.search(q[:1000])
+
+@app.get("/agent/admin/news-sync",dependencies=[Depends(administrator)])
+async def news_sync_status(request:Request):
+    row=await request.app.state.store.one("SELECT value FROM settings WHERE key='news_sync_report'")
+    return {"enabled":bool(settings.news_sync_key),"report":json.loads(row['value']) if row else None}
+
+@app.post("/agent/admin/news-sync",dependencies=[Depends(administrator)])
+async def sync_news_now(request:Request):
+    if not settings.news_sync_key:raise HTTPException(503,"资讯同步服务尚未配置")
+    asyncio.create_task(request.app.state.news_sync.run())
+    return {"scheduled":True}

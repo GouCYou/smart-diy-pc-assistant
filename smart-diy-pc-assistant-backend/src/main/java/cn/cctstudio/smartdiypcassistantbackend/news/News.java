@@ -72,6 +72,8 @@ public class News {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void setPublishedAt(LocalDateTime value) { this.createdAt=value; }
+
     public Long getId() {
         return id;
     }

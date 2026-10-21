@@ -592,3 +592,27 @@ async def test_explicit_budget_choice_can_raise_cap_but_no_silent_increase(env):
     await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',(uid(),cid,'user','预算调整为24000元',now()))
     tools={t.name:t for t in await runtime.tools(await store.run(rid),'Bearer user',runtime.config.model_dump())}
     assert (await tools['propose_build'].ainvoke(args))['created']
+
+async def test_identity_questions_return_only_smartdiy_without_provider_call(env):
+    store,runtime,k,crawler,web,mp=env
+    def forbidden(**kwargs):raise AssertionError('Identity answer must not query provider')
+    mp.setattr('app.runtime.ChatOpenAI',forbidden)
+    response=await web.post('/agent/runs',json={'message':'你是什么模型，是谁开发的？'})
+    run=await done(store,response.json()['id'])
+    assert run['status']=='completed' and run['answer']=='我是 Smart DIY 的 Agent，帮助你规划、评审和优化电脑配置。'
+    assert not await store.all("SELECT id FROM events WHERE run_id=? AND type='tool_started'",(run['id'],))
+
+async def test_provider_identity_cannot_leak_across_stream_chunks(env):
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGenerationChunk
+    store,runtime,k,crawler,web,mp=env
+    class Model(ScriptedModel):
+        async def _astream(self,*args,**kwargs):
+            for chunk in ['我是','Ki','mi-k3-free','，由 Moon','shot 提供。','我们继续讨论电脑配置。'*8]:
+                yield ChatGenerationChunk(message=AIMessageChunk(content=chunk));await asyncio.sleep(.02)
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:Model(responses=[AIMessage(content='标题')]))
+    response=await web.post('/agent/runs',json={'message':'你好，请介绍你的工作范围'})
+    run=await done(store,response.json()['id'])
+    frames=await store.all("SELECT data FROM events WHERE run_id=? AND type='text_delta'",(run['id'],))
+    text=''.join(json.loads(row['data'])['text'] for row in frames)
+    assert 'Kimi' not in text and 'Moonshot' not in text and text==run['answer']

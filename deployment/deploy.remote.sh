@@ -87,6 +87,16 @@ for file in compose.yaml nginx-web.conf nginx-admin.conf; do cp -p "$incoming/$f
 cp -p "$incoming/nginx-ipv6.conf.template" "$root/nginx-ipv6.conf.template"
 # Host-specific package mirror is a non-secret deployment preference.
 export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+# Share a private, narrowly scoped credential for Python news imports into Java.
+python3 - "$root" <<'PYNEWSKEY'
+from pathlib import Path
+import secrets,sys,os
+root=Path(sys.argv[1]);backend=root/'secrets/backend.env';agent=root/'secrets/agent.env'
+def read(p):return dict(l.split('=',1) for l in p.read_text().splitlines() if '=' in l and not l.startswith('#'))
+b,a=read(backend),read(agent);key=b.get('APP_AGENT_NEWS_SYNC_KEY') or a.get('AGENT_NEWS_SYNC_KEY') or secrets.token_hex(32)
+for path,name in [(backend,'APP_AGENT_NEWS_SYNC_KEY'),(agent,'AGENT_NEWS_SYNC_KEY')]:
+ lines=[l for l in path.read_text().splitlines() if not l.startswith(name+'=')];lines.append(name+'='+key);path.write_text('\n'.join(lines)+'\n');os.chmod(path,0o600)
+PYNEWSKEY
 docker compose build
 docker compose up -d --force-recreate --wait --wait-timeout 120
 if [[ -f "$root/ipv6-hostname" ]]; then

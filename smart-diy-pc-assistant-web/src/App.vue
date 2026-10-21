@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ContentPreviews from "./components/ContentPreviews.vue";
 import { feedbackOpen,feedbackView } from "./lib/feedback";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
@@ -56,7 +57,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
 </script>
 <template>
   <el-config-provider size="large" :locale="zhCn"
-    ><div class="web-shell" :class="{ 'is-chat': route.path === '/', 'is-auth': route.path === '/auth', 'is-subpage': !rootPage, 'sidebar-collapsed': sidebarCollapsed }">
+    ><ContentPreviews /><div class="web-shell" :class="{ 'is-chat': route.path === '/', 'is-auth': route.path === '/auth', 'is-subpage': !rootPage, 'sidebar-collapsed': sidebarCollapsed }">
       <aside class="web-sidebar">
         <a href="/" class="brand" @click.prevent="newConversation"
           ><img src="/logo.png" alt="" /><span
@@ -96,7 +97,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
         </div>
       </aside>
       <div class="web-main">
-        <NavigationToggle v-if="!rootPage" class="subpage-navigation-toggle" />
+        <div v-if="!rootPage" class="desktop-subpage-controls"><NavigationToggle/><button class="chat-icon-button desktop-only" aria-label="返回上一级" @click="back"><el-icon><ArrowLeft/></el-icon></button></div>
         <header v-if="!rootPage && route.path !== '/auth'" class="mobile-page-bar">
           <button aria-label="返回" @click="back"><el-icon><ArrowLeft /></el-icon></button><strong>{{ pageTitle }}</strong><span id="mobile-page-action" />
         </header>
