@@ -1,0 +1,81 @@
+[
+  {
+    "composerBottom": 740,
+    "composerVisible": true,
+    "height": 768,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": false,
+    "width": 1366
+  },
+  {
+    "composerBottom": 872,
+    "composerVisible": true,
+    "height": 900,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": false,
+    "width": 1440
+  },
+  {
+    "composerBottom": 622,
+    "composerVisible": true,
+    "height": 640,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": false,
+    "width": 1280
+  },
+  {
+    "composerBottom": 582,
+    "composerVisible": true,
+    "height": 600,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": false,
+    "width": 1024,
+    "settledGridColumns": "228px 720px 0px",
+    "note": "Rechecked after responsive grid transition completed"
+  },
+  {
+    "composerBottom": 832,
+    "composerVisible": true,
+    "height": 932,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": false,
+    "width": 430
+  },
+  {
+    "composerBottom": 567,
+    "composerVisible": true,
+    "height": 667,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": true,
+    "width": 375
+  },
+  {
+    "composerBottom": 540,
+    "composerVisible": true,
+    "height": 640,
+    "historyOpen": true,
+    "mobileNavVisible": true,
+    "pageOverflowX": false,
+    "pageOverflowY": false,
+    "welcomeNeedsScroll": true,
+    "width": 320
+  }
+]

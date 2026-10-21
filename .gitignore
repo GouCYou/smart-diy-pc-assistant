@@ -61,3 +61,22 @@ Thumbs.db
 .env.*
 application-local.yaml
 application-local.yml
+
+# Python Agent runtime
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+smart-diy-pc-assistant-agent/data/
+!**/.env.example
+
+# Local task files and production configuration
+.codex_tmp/
+secrets/
+release/
+agent-data/
+last-backup
+
+# Intermediate visual QA frames
+docs/qa/revision/*.png

@@ -25,11 +25,9 @@ import java.util.List;
 public class BuildConfigController {
 
     private final BuildConfigService buildConfigService;
-    private final BuildConfigAiReviewService buildConfigAiReviewService;
 
-    public BuildConfigController(BuildConfigService buildConfigService, BuildConfigAiReviewService buildConfigAiReviewService) {
+    public BuildConfigController(BuildConfigService buildConfigService) {
         this.buildConfigService = buildConfigService;
-        this.buildConfigAiReviewService = buildConfigAiReviewService;
     }
 
     @GetMapping
@@ -57,6 +55,13 @@ public class BuildConfigController {
         return ApiResponse.ok(buildConfigService.get(principal.userId(), id));
     }
 
+    public record ValidateRequest(List<Long> partIds) {}
+
+    @PostMapping("/validate")
+    public ApiResponse<BuildConfigService.CompatibilityResult> validate(@RequestBody ValidateRequest request) {
+        return ApiResponse.ok(buildConfigService.validate(request.partIds()));
+    }
+
     @PostMapping
     public ApiResponse<BuildConfigResponse> create(
             @AuthenticationPrincipal UserPrincipal principal,
@@ -81,14 +86,6 @@ public class BuildConfigController {
             @RequestBody FavoriteRequest request
     ) {
         return ApiResponse.ok(buildConfigService.updateFavorite(principal.userId(), id, request.favorite()));
-    }
-
-    @PostMapping("/{id}/ai-review")
-    public ApiResponse<BuildConfigResponse> aiReview(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @PathVariable Long id
-    ) {
-        return ApiResponse.ok(buildConfigAiReviewService.generate(principal.userId(), id));
     }
 
     @DeleteMapping("/{id}")

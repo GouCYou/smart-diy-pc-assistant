@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "app.schema-initializer.enabled", havingValue = "true", matchIfMissing = true)
 @Component
 public class DatabaseSchemaInitializer implements ApplicationRunner {
 
@@ -25,27 +26,6 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS ai_runtime_setting (
-                    id bigint NOT NULL,
-                    api_key varchar(256) NULL,
-                    auto_build_enabled bit(1) NOT NULL,
-                    base_url varchar(500) NULL,
-                    build_trigger_mode enum('CONSERVATIVE','BALANCED','SENSITIVE') NULL,
-                    color_match_mode enum('STRICT','PREFER','FLEXIBLE') NULL,
-                    context_message_limit int NULL,
-                    extra_system_prompt text NULL,
-                    model_name varchar(120) NULL,
-                    reply_max_chars int NULL,
-                    reply_min_chars int NULL,
-                    require_purchasable_products bit(1) NOT NULL,
-                    timeout_seconds int NULL,
-                    updated_at datetime(6) NOT NULL,
-                    PRIMARY KEY (id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
-        executeIgnoring("ALTER TABLE ai_chat_message MODIFY content LONGTEXT NOT NULL");
-        ensureAiBuildTaskSchema();
         executeIgnoring("""
                 ALTER TABLE user_notification MODIFY type ENUM(
                     'SYSTEM',
@@ -56,72 +36,17 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     'COMMUNITY_COMMENT_MENTION',
                     'NEWS_COMMENT_MENTION',
                     'NEWS_COMMENT_REPLY',
-                    'FEEDBACK_RESOLVED',
-                    'PRICE_ALERT'
+                    'FEEDBACK_RESOLVED'
                 ) NOT NULL
                 """);
-        ensureUserMemorySchema();
         ensureBuildConfigSchema();
-        ensureBuildConfigAiReviewSchema();
         ensureFeedbackSchema();
-        ensureMarketSchema();
         cleanLegacyUserData();
-    }
-
-    private void ensureAiBuildTaskSchema() {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS ai_build_task (
-                    id bigint NOT NULL AUTO_INCREMENT,
-                    user_id bigint NOT NULL,
-                    conversation_id bigint NOT NULL,
-                    attached_build_id bigint NULL,
-                    request_message LONGTEXT NOT NULL,
-                    status enum('QUEUED','RUNNING','SUCCEEDED','FAILED') NOT NULL,
-                    progress int NOT NULL,
-                    stage_title varchar(40) NOT NULL,
-                    stage_description varchar(160) NOT NULL,
-                    user_facing_message varchar(240) NOT NULL,
-                    build_config_id bigint NULL,
-                    build_config_title varchar(80) NULL,
-                    build_config_serial_number varchar(20) NULL,
-                    error_message text NULL,
-                    created_at datetime(6) NOT NULL,
-                    updated_at datetime(6) NOT NULL,
-                    finished_at datetime(6) NULL,
-                    PRIMARY KEY (id),
-                    KEY idx_ai_build_task_user_conversation (user_id, conversation_id, status, updated_at),
-                    KEY idx_ai_build_task_user_status (user_id, status, updated_at)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
-    }
-
-    private void ensureUserMemorySchema() {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS user_memory (
-                    id bigint NOT NULL AUTO_INCREMENT,
-                    user_id bigint NOT NULL,
-                    budget_preference varchar(120) NULL,
-                    usage_preference varchar(240) NULL,
-                    cpu_platform_preference varchar(160) NULL,
-                    gpu_platform_preference varchar(160) NULL,
-                    preferred_brands varchar(240) NULL,
-                    rejected_brands varchar(240) NULL,
-                    appearance_preference varchar(180) NULL,
-                    noise_preference varchar(160) NULL,
-                    upgrade_plan varchar(240) NULL,
-                    created_at datetime(6) NOT NULL,
-                    updated_at datetime(6) NOT NULL,
-                    PRIMARY KEY (id),
-                    UNIQUE KEY uk_user_memory_user_id (user_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
     }
 
     private void ensureBuildConfigSchema() {
         executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN serial_number varchar(9) DEFAULT NULL AFTER user_id");
         executeIgnoring("ALTER TABLE pc_build_config ADD UNIQUE KEY uk_build_config_serial_number (serial_number)");
-        executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN ai_review LONGTEXT NULL AFTER part_selections");
-        executeIgnoring("ALTER TABLE pc_build_config ADD COLUMN ai_review_updated_at datetime(6) NULL AFTER ai_review");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS pc_build_config_favorite (
                     id bigint NOT NULL AUTO_INCREMENT,
@@ -143,32 +68,6 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
         backfillBuildConfigSerialNumbers();
     }
 
-    private void ensureBuildConfigAiReviewSchema() {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS pc_build_config_ai_review (
-                    id bigint NOT NULL AUTO_INCREMENT,
-                    build_config_id bigint NOT NULL,
-                    user_id bigint NOT NULL,
-                    review_content LONGTEXT NOT NULL,
-                    created_at datetime(6) NOT NULL,
-                    updated_at datetime(6) NOT NULL,
-                    PRIMARY KEY (id),
-                    UNIQUE KEY uk_build_ai_review_build_user (build_config_id, user_id),
-                    KEY idx_build_ai_review_user (user_id, updated_at),
-                    KEY idx_build_ai_review_build (build_config_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
-        executeIgnoring("""
-                INSERT IGNORE INTO pc_build_config_ai_review
-                    (build_config_id, user_id, review_content, created_at, updated_at)
-                SELECT id, user_id, ai_review,
-                       COALESCE(ai_review_updated_at, updated_at, NOW(6)),
-                       COALESCE(ai_review_updated_at, updated_at, NOW(6))
-                FROM pc_build_config
-                WHERE ai_review IS NOT NULL AND TRIM(ai_review) <> ''
-                """);
-    }
-
     private void ensureFeedbackSchema() {
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS user_feedback (
@@ -184,46 +83,6 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
                     PRIMARY KEY (id),
                     KEY idx_user_feedback_user_created (user_id, created_at),
                     KEY idx_user_feedback_status (status, created_at)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
-    }
-
-    private void ensureMarketSchema() {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS jd_product_snapshot (
-                    id bigint NOT NULL AUTO_INCREMENT,
-                    hardware_part_id bigint NULL,
-                    type varchar(30) NULL,
-                    sku_id varchar(80) NOT NULL,
-                    title varchar(240) NOT NULL,
-                    price int NOT NULL,
-                    image varchar(500) NULL,
-                    link varchar(500) NULL,
-                    shop_name varchar(120) NULL,
-                    matched_model varchar(120) NULL,
-                    available bit(1) NOT NULL,
-                    source varchar(30) NOT NULL,
-                    raw_keyword TEXT NULL,
-                    captured_at datetime(6) NOT NULL,
-                    PRIMARY KEY (id),
-                    KEY idx_jd_snapshot_sku_time (sku_id, captured_at),
-                    KEY idx_jd_snapshot_part_time (hardware_part_id, captured_at),
-                    KEY idx_jd_snapshot_time (captured_at)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-                """);
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS build_optimization_log (
-                    id bigint NOT NULL AUTO_INCREMENT,
-                    user_id bigint NOT NULL,
-                    title varchar(120) NOT NULL,
-                    reason TEXT NOT NULL,
-                    before_total_price int NULL,
-                    after_total_price int NULL,
-                    performance_change int NULL,
-                    suggestion TEXT NOT NULL,
-                    created_at datetime(6) NOT NULL,
-                    PRIMARY KEY (id),
-                    KEY idx_build_optimization_user_created (user_id, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
                 """);
     }

@@ -1,0 +1,13 @@
+# Deployment acceptance — 2026-10-21
+
+- Production uses Docker Compose on `192.168.1.6` (SSH user `gouc`), reusing the existing MySQL/Redis/Qiniu settings. No business database replacement.
+- Canonical user entry: https://smartdiy.cctstudio.cn/ ; admin entry: https://smartdiy.cctstudio.cn/admin/ . The admin build uses `/admin/` for static assets and Vue Router history, with SPA fallback behind Nginx.
+- All four application images built on the server; backend/agent bind loopback; frontends call a single Java entry for business, Agent and uploads. Proxy preserves raw multipart and flushes SSE without buffering, with HTTP/1.1 to Python.
+- Pre-change MySQL dump: 1,750,190 bytes, private backup in `/www/smartdiy-backups/20261021-130426`. Old JAR/config, Tunnel and DNS records backed up. Original MySQL AI rows remain; 78 conversations and 250 messages imported into persistent Agent SQLite.
+- Java tests: 8 passed, including auth/business tests and multipart/query/header/SSE proxy coverage. Python tests: 24 passed, including persisted RAG limits/chunking and invalid overlap validation. Both TypeScript/Vue production builds passed.
+- Authenticated production smoke: settings GET/PUT; 5 MB-capable document upload through Java; keyword retrieval hit and cleanup; JD query returned 2 products; a real model run completed with 24 SSE events in 10.3 s and 8 activity events. Temporary document and smoke conversation cleaned up.
+- Browser verified desktop collapse toggle below personal-center navigation, history fold/unfold without close-X, default avatar, and orbit animation. Mobile 390×844 verified `agent-orbit` animation and no document overflow. Screenshots `desktop.jpg` and `mobile.jpg` are from the public user domain; `admin-rag.jpg` is from the isolated local admin with the same production UI, showing actual settings save success.
+- Production embedding model is currently blank: keyword RAG is active. Embeddings/hybrid search can be configured by the administrator, followed by document reindexing. SMTP delivery and an actual Qiniu upload are not claimed as validated by these checks.
+
+- Public `/admin/` and `/admin/knowledge` load the administration login page in the browser; refreshing the nested route remains on the admin app. `admin-public.jpg` records that public-domain check. All `/admin/assets/...` references use the admin base path. Public user-origin `/api/health` and `/agent/health` both return HTTP 200. The existing Cloudflare rules rejected Python urllib automation with 1010; protections were left unchanged, and actual browser loading plus curl health checks succeeded.
+- Existing Qiniu configuration generated a signed upload token for `https://oss.cctstudio.cn`; no production profile/object was modified.

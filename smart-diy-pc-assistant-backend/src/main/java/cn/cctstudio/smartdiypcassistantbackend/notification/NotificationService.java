@@ -231,22 +231,6 @@ public class NotificationService {
         );
     }
 
-    @Transactional
-    public void notifyPriceAlert(Long recipientId, String title, String content) {
-        if (recipientId == null || !userRepository.existsById(recipientId)) {
-            return;
-        }
-        saveUserNotification(
-                recipientId,
-                null,
-                NotificationType.PRICE_ALERT,
-                title,
-                content,
-                null,
-                null,
-                null
-        );
-    }
 
     private void saveUserNotification(
             Long recipientId,

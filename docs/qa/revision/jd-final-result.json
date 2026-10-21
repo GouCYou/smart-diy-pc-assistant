@@ -1,0 +1,26 @@
+{
+  "products": [
+    {
+      "skuId": "10209721617315",
+      "title": "AMD锐龙5 5600处理器(r5)7nm 6核12线程 加速频率至高4.4GHz AM4盒装CPU AMD R5 9600X盒装 睿频5.4Ghz 【游戏性价比首选】",
+      "price": 1329.0,
+      "image": "https://img10.360buyimg.com/n1/jfs/t1/388669/2/8689/50096/6970a0b1Fb2a44dc2/0083320320338c3c.jpg",
+      "link": "https://item.jd.com/10209721617315.html",
+      "shopName": "AMD锐龙旗舰店",
+      "capturedAt": "2026-10-21T04:42:06.253423+00:00",
+      "source": "jd",
+      "keyword": "Ryzen 5 9600X",
+      "availability": "unknown",
+      "priceType": "page"
+    }
+  ],
+  "warning": "",
+  "cached": false,
+  "diagnostics": [
+    {
+      "endpoint": "https://re.jd.com/search",
+      "status": "ok",
+      "httpStatus": 200
+    }
+  ]
+}

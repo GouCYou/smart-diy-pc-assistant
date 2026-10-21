@@ -1,5 +1,11 @@
-# Vue 3 + TypeScript + Vite
+# Smart DIY 管理控制台
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + TypeScript + Vite + Element Plus。用户、硬件、资讯、社区、反馈、通知、Agent 配置、知识库、运行记录分别拆页。默认字号 15–16px，表格、筛选、分页、确认框、编辑弹窗和错误状态统一。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+```bash
+npm ci
+npm run dev
+npm run build
+```
+
+默认端口 5174。同域 `/api`、`/media`、`/agent` 统一代理 Java，Agent 请求由 Java 内部转发到 Python；Agent 配置页使用 `/assistant` 路由，避免与 API 前缀冲突。开发代理与部署说明见根目录 README。模型配置需要 Python 服务运行；其他业务页面使用 Java 服务。

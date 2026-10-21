@@ -1,0 +1,22 @@
+[project]
+name = "smart-diy-pc-agent"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "httpx>=0.28,<1",
+  "pydantic-settings>=2.8,<3", "aiosqlite>=0.21,<1", "beautifulsoup4>=4.13,<5",
+  "langchain>=1.0,<2", "langchain-openai>=1.0,<2", "langgraph>=1.0,<2",
+  "langgraph-checkpoint-sqlite>=3.0,<4", "langchain-text-splitters>=1.0,<2",
+  "python-multipart>=0.0.20", "pypdf>=6,<7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "pytest-asyncio>=1,<2"]
+migration = ["pymysql>=1.1,<2"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]

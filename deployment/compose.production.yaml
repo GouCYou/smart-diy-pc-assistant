@@ -1,0 +1,77 @@
+# Linux production: reuse host MySQL/Redis and existing Qiniu configuration.
+name: smartdiy
+services:
+  backend:
+    image: smartdiy-backend:current
+    build:
+      context: ./release
+      dockerfile: backend.Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    env_file: ./secrets/backend.env
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms256m -Xmx1536m
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application-server.yaml
+      SERVER_ADDRESS: 127.0.0.1
+      APP_AGENT_URL: http://127.0.0.1:8000
+    volumes:
+      - ./secrets/application-server.yaml:/config/application-server.yaml:ro
+      - ./uploads:/app/uploads
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fsS http://127.0.0.1:8080/api/health >/dev/null']
+      interval: 15s
+      timeout: 5s
+      retries: 12
+  agent:
+    image: smartdiy-agent:current
+    build:
+      context: ./release/agent
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    network_mode: host
+    restart: unless-stopped
+    env_file: ./secrets/agent.env
+    environment:
+      AGENT_JAVA_URL: http://127.0.0.1:8080
+      AGENT_DATA_DIR: /app/data
+    depends_on:
+      backend: {condition: service_healthy}
+    command: [uvicorn, app.main:app, --host, 127.0.0.1, --port, '8000']
+    volumes:
+      - ./agent-data:/app/data
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/agent/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+  web:
+    image: smartdiy-web:current
+    build:
+      context: ./release
+      dockerfile: frontend.Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:18088/"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    command: [nginx, -g, 'daemon off;']
+    volumes:
+      - ./nginx-web.conf:/etc/nginx/conf.d/default.conf:ro
+  admin:
+    image: smartdiy-admin:current
+    build:
+      context: ./release
+      dockerfile: frontend.Dockerfile
+      args:
+        FRONTEND: admin
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./nginx-admin.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:18089/"]
+      interval: 15s
+      timeout: 5s
+      retries: 8

@@ -48,8 +48,8 @@ app:
     jwt-expiration-minutes: 10080
   cors:
     allowed-origins:
-      - http://localhost:5173
-      - http://localhost:5174
+      - ${WEB_ORIGIN:http://localhost:5173}
+      - ${ADMIN_ORIGIN:http://localhost:5174}
       - http://127.0.0.1:5173
       - http://127.0.0.1:5174
   qiniu:
@@ -58,11 +58,6 @@ app:
     bucket: ${QINIU_BUCKET:}
     domain: ${QINIU_DOMAIN:}
     upload-url: ${QINIU_UPLOAD_URL:https://upload-z2.qiniup.com}
-  ai:
-    base-url: ${AI_BASE_URL:}
-    api-key: ${AI_API_KEY:}
-    model-name: ${AI_MODEL_NAME:}
-    timeout-seconds: 60
   verification-code:
     expire-minutes: 10
     resend-seconds: 120

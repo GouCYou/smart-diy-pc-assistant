@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/dist
+**/target
+**/.venv
+**/__pycache__
+**/.env
+**/.env.*
+**/application-local.yaml
+**/application-local.yml
+**/data
+.codex_tmp
+*.sql
+*.dump

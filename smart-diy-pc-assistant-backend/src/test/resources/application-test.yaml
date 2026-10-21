@@ -1,0 +1,22 @@
+spring:
+  config:
+    import: ""
+  datasource:
+    url: jdbc:h2:mem:smartdiy;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+app:
+  schema-initializer:
+    enabled: false
+  security:
+    jwt-secret: isolated-integration-test-secret-at-least-32-bytes
+  cors:
+    allowed-origins:
+      - http://127.0.0.1:5273
+      - http://127.0.0.1:5274
+      - http://localhost:5173
+      - http://localhost:5174

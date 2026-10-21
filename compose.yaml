@@ -1,0 +1,61 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: smart_diy_pc_assistant
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'mysqladmin ping -h localhost -p"$$MYSQL_ROOT_PASSWORD"']
+      interval: 5s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+  backend:
+    build: smart-diy-pc-assistant-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/smart_diy_pc_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      APP_AGENT_URL: http://agent:8000
+      SPRING_DATA_REDIS_HOST: redis
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8088}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:8089}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      MAIL_HOST: ${MAIL_HOST:-smtp.163.com}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      QINIU_ACCESS_KEY: ${QINIU_ACCESS_KEY:-}
+      QINIU_SECRET_KEY: ${QINIU_SECRET_KEY:-}
+      QINIU_BUCKET: ${QINIU_BUCKET:-}
+      QINIU_DOMAIN: ${QINIU_DOMAIN:-}
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_started}
+  agent:
+    build: smart-diy-pc-assistant-agent
+    environment:
+      AGENT_JAVA_URL: http://backend:8080
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-https://api.openai.com/v1}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_EMBEDDING_MODEL: ${AGENT_EMBEDDING_MODEL:-}
+    volumes: [agent-data:/app/data]
+    depends_on: [backend]
+  web:
+    build:
+      context: .
+      dockerfile: deployment/frontend.Dockerfile
+      args: {FRONTEND: smart-diy-pc-assistant-web}
+    ports: ["8088:80"]
+    depends_on: [backend,agent]
+  admin:
+    build:
+      context: .
+      dockerfile: deployment/frontend.Dockerfile
+      args: {FRONTEND: smart-diy-pc-assistant-admin, PUBLIC_BASE: /admin/}
+    ports: ["8089:80"]
+    depends_on: [backend,agent]
+volumes:
+  mysql-data:
+  agent-data:

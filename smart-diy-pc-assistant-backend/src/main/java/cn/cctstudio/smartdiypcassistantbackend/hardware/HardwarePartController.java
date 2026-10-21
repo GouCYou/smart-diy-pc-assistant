@@ -21,7 +21,7 @@ public class HardwarePartController {
 
     @GetMapping
     public ApiResponse<List<HardwarePartResponse>> list(
-            @RequestParam HardwarePartType type,
+            @RequestParam(required = false) HardwarePartType type,
             @RequestParam(required = false) String keyword
     ) {
         return ApiResponse.ok(hardwarePartService.list(type, keyword));

@@ -25,7 +25,7 @@ public class HardwarePartService {
     public List<HardwarePartResponse> list(HardwarePartType type, String keyword) {
         List<HardwarePart> parts;
         if (type == null) {
-            parts = hardwarePartRepository.findAll();
+            parts = hardwarePartRepository.findByEnabledTrue();
         } else if (!StringUtils.hasText(keyword)) {
             parts = hardwarePartRepository.findByTypeAndEnabledTrueOrderByPriceAsc(type);
         } else {
@@ -94,8 +94,8 @@ public class HardwarePartService {
                 request.memoryType(),
                 request.formFactor(),
                 request.wattage(),
-                0,
-                0,
+                safeNumber(request.gpuLengthMm()),
+                safeNumber(request.coolerHeightMm()),
                 supportedFormFactors,
                 request.specs(),
                 request.enabled() == null || request.enabled()

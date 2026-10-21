@@ -3,8 +3,6 @@ package cn.cctstudio.smartdiypcassistantbackend.buildconfig;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigRequest;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildConfigResponse;
 import cn.cctstudio.smartdiypcassistantbackend.buildconfig.dto.BuildPartSelectionRequest;
-import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProduct;
-import cn.cctstudio.smartdiypcassistantbackend.commerce.JdProductSearchService;
 import cn.cctstudio.smartdiypcassistantbackend.exception.BusinessException;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePart;
 import cn.cctstudio.smartdiypcassistantbackend.hardware.HardwarePartRepository;
@@ -36,27 +34,21 @@ public class BuildConfigService {
 
     private final BuildConfigRepository buildConfigRepository;
     private final BuildConfigFavoriteRepository buildConfigFavoriteRepository;
-    private final BuildConfigAiReviewRepository buildConfigAiReviewRepository;
     private final HardwarePartRepository hardwarePartRepository;
     private final UserAccessService userAccessService;
-    private final JdProductSearchService jdProductSearchService;
     private final ObjectMapper objectMapper;
 
     public BuildConfigService(
             BuildConfigRepository buildConfigRepository,
             BuildConfigFavoriteRepository buildConfigFavoriteRepository,
-            BuildConfigAiReviewRepository buildConfigAiReviewRepository,
             HardwarePartRepository hardwarePartRepository,
             UserAccessService userAccessService,
-            JdProductSearchService jdProductSearchService,
             ObjectMapper objectMapper
     ) {
         this.buildConfigRepository = buildConfigRepository;
         this.buildConfigFavoriteRepository = buildConfigFavoriteRepository;
-        this.buildConfigAiReviewRepository = buildConfigAiReviewRepository;
         this.hardwarePartRepository = hardwarePartRepository;
         this.userAccessService = userAccessService;
-        this.jdProductSearchService = jdProductSearchService;
         this.objectMapper = objectMapper;
     }
 
@@ -138,7 +130,6 @@ public class BuildConfigService {
         userAccessService.requireAvailable(userId);
         BuildConfig config = findOwned(id, userId);
         applyConfig(config, request);
-        buildConfigAiReviewRepository.deleteByBuildConfigId(id);
         return toResponse(config, userId);
     }
 
@@ -193,7 +184,6 @@ public class BuildConfigService {
     public void delete(Long userId, Long id) {
         BuildConfig config = findOwned(id, userId);
         buildConfigFavoriteRepository.deleteByBuildConfigId(id);
-        buildConfigAiReviewRepository.deleteByBuildConfigId(id);
         buildConfigRepository.delete(config);
     }
 
@@ -209,16 +199,11 @@ public class BuildConfigService {
             favorite = buildConfigFavoriteRepository.existsByUserIdAndBuildConfigId(viewerUserId, config.getId())
                     || (Objects.equals(config.getUserId(), viewerUserId) && config.isFavorite());
         }
-        Optional<BuildConfigAiReview> aiReview = viewerUserId == null
-                ? Optional.empty()
-                : buildConfigAiReviewRepository.findByBuildConfigIdAndUserId(config.getId(), viewerUserId);
         return BuildConfigResponse.from(
                 config,
                 parts,
                 selections,
-                favorite,
-                aiReview.map(BuildConfigAiReview::getReviewContent).orElse(""),
-                aiReview.map(BuildConfigAiReview::getUpdatedAt).orElse(null)
+                favorite
         );
     }
 
@@ -291,58 +276,22 @@ public class BuildConfigService {
     }
 
     private List<BuildPartSelection> fillMissingProductSnapshots(List<HardwarePart> parts, List<BuildPartSelection> selections) {
-        Map<Long, BuildPartSelection> selectionMap = selections.stream()
-                .filter(item -> item.hardwarePartId() != null)
-                .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (left, right) -> left, LinkedHashMap::new));
-        List<BuildPartSelection> filled = new ArrayList<>();
-        for (HardwarePart part : parts) {
-            BuildPartSelection current = selectionMap.get(part.getId());
-            if (isIncludedInCpuBundle(current)) {
-                filled.add(current);
-                continue;
-            }
-            if (hasCompleteProductSnapshot(current)) {
-                filled.add(current);
-                continue;
-            }
-            JdProduct product = jdProductSearchService.bestForPart(part);
-            if (!StringUtils.hasText(product.title()) && current != null) {
-                filled.add(current);
-                continue;
-            }
-            filled.add(new BuildPartSelection(
-                    part.getId(),
-                    firstSnapshotText(product.title(), current == null ? "" : current.title()),
-                    product.price() != null && product.price() > 0 ? product.price() : current == null ? 0 : current.price(),
-                    firstSnapshotText(product.image(), current == null ? "" : current.image()),
-                    firstSnapshotText(product.link(), current == null ? "" : current.link()),
-                    firstSnapshotText(product.skuId(), current == null ? "" : current.skuId()),
-                    firstSnapshotText(product.matchedModel(), current == null ? part.getModel() : current.matchedModel())
-            ));
-        }
-        return filled;
+        // Product snapshots are supplied by the Python service or the user. Reading a
+        // configuration never performs network calls or mutates historical prices.
+        Map<Long, BuildPartSelection> snapshots = selections.stream()
+                .collect(Collectors.toMap(BuildPartSelection::hardwarePartId, item -> item, (a, b) -> a));
+        return parts.stream().map(part -> snapshots.getOrDefault(part.getId(),
+                new BuildPartSelection(part.getId(), "", 0, "", "", "", part.getModel()))).toList();
     }
 
     private boolean isIncludedInCpuBundle(BuildPartSelection selection) {
-        return selection != null
-                && selection.price() != null
-                && selection.price() == 0
-                && StringUtils.hasText(selection.title())
-                && selection.title().contains("已包含在 CPU 板U套装中");
+        return selection != null && selection.price() != null && selection.price() == 0
+                && selection.title() != null && selection.title().contains("已包含在 CPU 板U套装中");
     }
 
-    private boolean hasCompleteProductSnapshot(BuildPartSelection selection) {
-        return selection != null
-                && selection.price() != null
-                && selection.price() > 0
-                && StringUtils.hasText(selection.title())
-                && StringUtils.hasText(selection.image())
-                && StringUtils.hasText(selection.link())
-                && StringUtils.hasText(selection.skuId());
-    }
-
-    private String firstSnapshotText(String primary, String fallback) {
-        return StringUtils.hasText(primary) ? primary : fallback == null ? "" : fallback;
+    @Transactional(readOnly = true)
+    public CompatibilityResult validate(List<Long> ids) {
+        return checkCompatibility(resolveParts(ids));
     }
 
     private List<BuildPartSelection> parseSelections(String value) {
@@ -405,6 +354,8 @@ public class BuildConfigService {
         return Math.round((float) weighted / weight);
     }
 
+    private boolean positive(Integer value) { return value != null && value > 0; }
+
     private int score(Map<HardwarePartType, HardwarePart> typed, HardwarePartType type, int weight) {
         HardwarePart part = typed.get(type);
         return part == null ? 0 : part.getPerformanceScore() * weight;
@@ -414,6 +365,10 @@ public class BuildConfigService {
         Map<HardwarePartType, HardwarePart> typed = firstByType(parts);
         List<String> messages = new ArrayList<>();
         boolean blocked = false;
+        if (typed.size() != parts.size()) {
+            messages.add("同一配置中每种硬件类别只能选择一个型号。");
+            blocked = true;
+        }
 
         Optional.ofNullable(typed.get(HardwarePartType.CPU)).ifPresentOrElse(cpu -> {
         }, () -> messages.add("建议补充 CPU。"));
@@ -445,7 +400,7 @@ public class BuildConfigService {
         if (psu != null) {
             int estimatedWattage = parts.stream()
                     .filter(part -> part.getType() != HardwarePartType.PSU)
-                    .mapToInt(HardwarePart::getWattage)
+                    .mapToInt(part -> part.getWattage() == null ? 0 : part.getWattage())
                     .sum() + 120;
             if (psu.getWattage() > 0 && psu.getWattage() < estimatedWattage) {
                 messages.add("电源额定功率建议至少 " + estimatedWattage + "W，当前为 " + psu.getWattage() + "W。");
@@ -453,10 +408,24 @@ public class BuildConfigService {
             }
         }
         if (motherboard != null && pcCase != null && bothPresent(motherboard.getFormFactor(), pcCase.getSupportedFormFactors())
-                && !pcCase.getSupportedFormFactors().toUpperCase().contains(motherboard.getFormFactor().toUpperCase())) {
+                && !java.util.Arrays.asList(pcCase.getSupportedFormFactors().toUpperCase().split("[,，;/、\\s]+" )).contains(motherboard.getFormFactor().toUpperCase())) {
             messages.add("主板版型 " + motherboard.getFormFactor() + " 不在机箱支持范围内。");
             blocked = true;
         }
+
+        HardwarePart gpu = typed.get(HardwarePartType.GPU);
+        HardwarePart cooler = typed.get(HardwarePartType.COOLER);
+        if (gpu != null && pcCase != null && positive(gpu.getGpuLengthMm()) && positive(pcCase.getGpuLengthMm())
+                && gpu.getGpuLengthMm() > pcCase.getGpuLengthMm()) {
+            messages.add("显卡长度超过机箱限长。");
+            blocked = true;
+        }
+        if (cooler != null && pcCase != null && positive(cooler.getCoolerHeightMm()) && positive(pcCase.getCoolerHeightMm())
+                && cooler.getCoolerHeightMm() > pcCase.getCoolerHeightMm()) {
+            messages.add("散热器高度超过机箱限高。");
+            blocked = true;
+        }
+        messages.add("BIOS、QVL、接头及缺失的尺寸参数需结合厂商资料核实。");
 
         if (messages.isEmpty()) {
             messages.add("当前选择未发现明显兼容性问题。");
@@ -581,6 +550,6 @@ public class BuildConfigService {
         return builder.toString();
     }
 
-    private record CompatibilityResult(String status, List<String> messages) {
+    public record CompatibilityResult(String status, List<String> messages) {
     }
 }

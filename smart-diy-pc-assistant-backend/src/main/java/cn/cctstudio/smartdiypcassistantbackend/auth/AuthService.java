@@ -117,6 +117,7 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public CurrentUserResponse currentUser(Long userId) {
+        userAccessService.requireAvailable(userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(401, "登录状态已过期，请重新登录"));
         return new CurrentUserResponse(
