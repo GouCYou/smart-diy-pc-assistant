@@ -34,6 +34,21 @@ rollback() {
   exit "$status"
 }
 trap rollback ERR
+# A disabled systemd unit can still be active/retrying and steal the host port.
+if systemctl cat cct-smartdiy.service >/dev/null 2>&1; then
+  systemctl stop cct-smartdiy.service
+  systemctl disable cct-smartdiy.service
+  echo 'PASS legacy direct Java service stopped and disabled'
+fi
+python3 - <<'PYPORT'
+import json,re,subprocess
+raw=subprocess.run(['docker','inspect','smartdiy-backend-1'],capture_output=True,text=True)
+expected=json.loads(raw.stdout)[0]['State']['Pid'] if raw.returncode==0 else 0
+listeners=subprocess.check_output(['ss','-ltnp','sport = :8080'],text=True)
+pids={int(p) for p in re.findall(r'pid=(\d+)',listeners)}
+if pids-{expected}:raise SystemExit('Port 8080 is occupied outside the application backend container; resolve the conflict before deployment.')
+print('PASS backend port ownership')
+PYPORT
 # Do not interrupt an in-flight user task during a routine release.
 for attempt in $(seq 1 60); do
   active="$(python3 - "$root" <<'PY'
