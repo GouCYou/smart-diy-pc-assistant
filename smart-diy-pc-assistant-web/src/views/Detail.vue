@@ -24,7 +24,7 @@ const props = defineProps<{ kind: string; embedded?:boolean }>(),
   reply = ref(""),
   builds = ref<any[]>([]),
   showCommentTools = ref(false);
-const emit=defineEmits<{close:[]}>();
+const emit=defineEmits<{close:[];updated:[item:any];removed:[id:number]}>();
 function close(){if(props.embedded)emit("close");else void router.push("/"+props.kind);}
 const base = computed(() =>
   props.kind === "news"
@@ -33,6 +33,7 @@ const base = computed(() =>
 );
 async function load() {
   item.value = await api.request(base.value);
+  emit("updated",item.value);
   await loadComments();
   if (user.value)
     builds.value = await api.request("/api/build-configs?segment=all");
@@ -45,6 +46,7 @@ async function loadComments() {
 async function toggle(action: string) {
   authenticated();
   item.value = await api.request(`${base.value}/${action}`, "POST");
+  emit("updated",item.value);
 }
 async function upload(event: Event) {
   for (const file of Array.from(
@@ -62,6 +64,7 @@ async function deleteComment(id: number) {
 }
 async function deletePost() {
   await api.request(base.value, "DELETE");
+  emit("removed",item.value.id);
   close();
 }
 async function likeComment(id: number) {
@@ -131,22 +134,7 @@ onMounted(() => perform(load));
           }}</router-link
         ></template
       >
-      <div class="action-row">
-        <el-button
-          :type="item.liked ? 'primary' : 'default'"
-          @click="perform(() => toggle('like'))"
-          >♡ {{ item.likeCount }} 赞</el-button
-        ><el-button :class="{'is-favorited':item.favorite}" @click="perform(() => toggle('favorite'))"
-          ><el-icon><StarFilled v-if="item.favorite" /><Star v-else /></el-icon>{{ item.favorite ? "已收藏" : "收藏" }} ·
-          {{ item.favoriteCount }}</el-button
-        ><el-button
-          v-if="kind === 'community' && user?.userId === item.author.id"
-          type="danger"
-          text
-          @click="confirm('删除这条动态？', deletePost)"
-          >删除动态</el-button
-        >
-      </div>
+      <div class="post-reactions"><button class="comment-reaction" :class="{liked:item.liked}" :aria-label="item.liked ? '取消点赞' : '点赞动态'" :aria-pressed="item.liked" @click="perform(()=>toggle('like'))"><span aria-hidden="true">♥</span>{{item.likeCount}}</button><button class="comment-reaction favorite-reaction" :class="{favorited:item.favorite}" :aria-label="item.favorite ? '取消收藏' : '收藏动态'" :aria-pressed="item.favorite" @click="perform(()=>toggle('favorite'))"><el-icon><StarFilled v-if="item.favorite"/><Star v-else/></el-icon>{{item.favoriteCount}}</button><button v-if="kind==='community' && user?.userId===item.author.id" class="comment-delete-button" @click="confirm('删除这条动态？',deletePost)">删除</button></div>
     </article>
     <section v-if="item" class="panel">
       <div class="page-heading">
@@ -161,7 +149,7 @@ onMounted(() => perform(load));
         /></el-select>
       </div>
       <article v-for="c in comments" :key="c.id" class="comment">
-        <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><el-avatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
+        <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><el-avatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
         <p v-if="c.parentCommentId" class="comment-reply-context">回复 {{c.replyTo?.nickname || c.replyTo?.username || '一条评论'}}</p>
         <p>{{ c.content }}</p><router-link v-if="c.buildConfig" :to="`/builds?public=${c.buildConfig.id}`" class="reference">▦ {{c.buildConfig.title}}</router-link>
         <div class="image-grid">
@@ -173,7 +161,7 @@ onMounted(() => perform(load));
             fit="cover"
           />
         </div>
-        <button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button>
+
       </article>
       <EmptyState
         v-if="!comments.length"

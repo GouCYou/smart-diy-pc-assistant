@@ -430,3 +430,8 @@ a {
 .el-popover.el-popper {border-radius:18px!important;}
 .el-message-box {border-radius:20px!important;}
 .el-message {border-radius:12px!important;}
+
+/* Hide visual tracks while preserving native scrolling. */
+html,body,* {scrollbar-width:none!important;scrollbar-gutter:auto!important;-ms-overflow-style:none!important;}
+*::-webkit-scrollbar {display:none!important;width:0!important;height:0!important;}
+.el-scrollbar__bar {display:none!important;}

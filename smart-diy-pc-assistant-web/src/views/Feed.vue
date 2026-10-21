@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import NavigationToggle from "../components/NavigationToggle.vue";
 import DialogHeading from "../components/DialogHeading.vue";
+import MasonryFeed from "../components/MasonryFeed.vue";
 import Detail from "./Detail.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, reactive, ref, watch, onMounted, onUnmounted } from "vue";
@@ -17,7 +18,10 @@ const desktopMedia=window.matchMedia("(min-width:761px)");
 function updateDesktop(){desktop.value=desktopMedia.matches;}
 onMounted(()=>desktopMedia.addEventListener("change",updateDesktop));
 onUnmounted(()=>desktopMedia.removeEventListener("change",updateDesktop));
-function closeDetail(){void router.replace("/"+props.kind);void perform(load);}
+function closeDetail(){void router.replace("/"+props.kind);}
+function openPost(event:MouseEvent,id:number){if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(String(route.params.id)===String(id))closeDetail();else void router.push(`/${props.kind}/${id}`);}
+function updatePost(item:any){rows.value=rows.value.map(r=>r.id===item.id ? {...r,...item} : r);}
+function removePost(id:number){rows.value=rows.value.filter(r=>r.id!==id);}
 const props = defineProps<{ kind: string }>(),
   { busy, error, perform } = useTask(),
   rows = ref<any[]>([]),
@@ -32,11 +36,12 @@ const props = defineProps<{ kind: string }>(),
     buildConfigId: null as number | null,
   }),
   images = ref<string[]>([]);
-const feedElement=ref<HTMLElement>(),columnCount=ref(2);
+const workspaceElement=ref<HTMLElement>(),workspaceWidth=ref(1140);
 let resizeObserver:ResizeObserver;
-onMounted(()=>{resizeObserver=new ResizeObserver(entries=>{columnCount.value=window.matchMedia("(max-width:760px)").matches ? 1 : entries[0]!.contentRect.width>=1050 ? 3 : entries[0]!.contentRect.width>=650 ? 2 : 1;});if(feedElement.value)resizeObserver.observe(feedElement.value);});
+onMounted(()=>{resizeObserver=new ResizeObserver(entries=>{workspaceWidth.value=entries[0]!.contentRect.width;});if(workspaceElement.value)resizeObserver.observe(workspaceElement.value);});
 onUnmounted(()=>resizeObserver?.disconnect());
-const columns=computed(()=>{const result:any[][]=Array.from({length:columnCount.value},()=>[]);filtered.value.slice((page.value-1)*size,page.value*size).forEach((r,i)=>result[i%columnCount.value]!.push(r));return result;});
+const cardWidth=computed(()=>desktop.value ? Math.max(0,(workspaceWidth.value-72)/4) : workspaceWidth.value);
+const columnCount=computed(()=>desktop.value ? detailOpen.value ? 2 : 4 : 1);
 const filtered = computed(() =>
     rows.value.filter((r) =>
       `${r.title || ""} ${r.content || ""} ${r.summary || ""} ${r.tag || ""} ${r.author?.nickname || ""}`.includes(query.value),
@@ -90,7 +95,7 @@ watch(
 );
 </script>
 <template>
-  <div class="social-workspace" :class="{'detail-open':desktop && detailOpen}"><section class="social-list-pane">
+  <div ref="workspaceElement" class="social-workspace" :class="{'detail-open':desktop && detailOpen}"><section class="social-list-pane">
   <div class="page-heading feed-heading">
     <div class="page-title-controls"><NavigationToggle />
       <h1><span class="desktop-only">{{ kind === "news" ? "硬件资讯" : "装机社区" }}</span><span class="mobile-only">{{kind === 'news' ? '热点' : '发现'}}</span></h1>
@@ -106,13 +111,8 @@ watch(
     </div>
     <div v-if="kind === 'news'" v-slider class="segmented feed-segments"><button :class="{selected:sort==='latest'}" @click="sort='latest';perform(load)">最新</button><button :class="{selected:sort==='hot'}" @click="sort='hot';perform(load)">热度</button></div>
   </div>
-  <div ref="feedElement" :class="['feed-grid', kind === 'news' ? 'news-feed' : 'community-feed']" :style="{'--feed-columns':columnCount}" v-loading="busy"><div v-for="(column,index) in columns" :key="index" class="feed-column">
-    <article
-      v-for="r in column"
-      :key="r.id"
-      class="feed-card"
-    >
-      <router-link :to="`/${kind}/${r.id}`"
+  <MasonryFeed :class="[kind === 'news' ? 'news-feed' : 'community-feed']" :items="filtered.slice((page-1)*size,page*size)" :columns="columnCount" :card-width="cardWidth" :gap="24" v-loading="busy"><template #default="{item:r}">
+      <a :href="`/${kind}/${r.id}`" @click="event=>openPost(event,r.id)"
         ><img
           v-if="r.coverUrl"
           class="cover"
@@ -143,10 +143,9 @@ watch(
             <span>{{ r.createdAt?.replace("T", " ").slice(0, 10) }}</span
             ><span class="feed-counts"><span><el-icon><Pointer /></el-icon>{{r.likeCount}}</span><span :class="{'is-favorited':r.favorite}"><el-icon><Star /></el-icon>{{r.favoriteCount}}</span><span><el-icon><ChatDotRound /></el-icon>{{r.commentCount}}</span></span>
           </div>
-        </div></router-link
+        </div></a
       >
-    </article>
-  </div></div>
+    </template></MasonryFeed>
   <EmptyState
     v-if="!filtered.length && !busy"
     description="还没有相关内容"
@@ -156,8 +155,8 @@ watch(
     :total="filtered.length"
     :page-size="size"
     layout="prev,pager,next"
-  /></section><aside class="social-detail-pane" :aria-hidden="!detailOpen || !desktop" :inert="!detailOpen || !desktop"><div class="social-detail-panel"><header class="social-detail-header"><strong>{{kind==='news' ? '硬件资讯' : '动态详情'}}</strong><button class="chat-icon-button" aria-label="关闭详情" @click="closeDetail"><el-icon><Close /></el-icon></button></header><div class="social-detail-body"><Transition name="detail-content" mode="out-in"><Detail v-if="desktop && detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></Transition></div></div></aside></div>
-  <el-drawer v-if="!desktop" :model-value="detailOpen" direction="rtl" size="100%" class="social-detail-drawer" :title="kind==='news' ? '硬件资讯' : '动态详情'" destroy-on-close @close="closeDetail"><Detail v-if="detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></el-drawer><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
+  /></section><aside class="social-detail-pane" :aria-hidden="!detailOpen || !desktop" :inert="!detailOpen || !desktop"><div class="social-detail-panel"><header class="social-detail-header"><strong>{{kind==='news' ? '硬件资讯' : '动态详情'}}</strong><button class="chat-icon-button" aria-label="关闭详情" @click="closeDetail"><el-icon><Close /></el-icon></button></header><div class="social-detail-body"><Transition name="detail-content" mode="out-in"><Detail v-if="desktop && detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @updated="updatePost" @removed="removePost" @close="closeDetail" /></Transition></div></div></aside></div>
+  <el-drawer v-if="!desktop" :model-value="detailOpen" direction="rtl" size="100%" class="social-detail-drawer" :title="kind==='news' ? '硬件资讯' : '动态详情'" destroy-on-close @close="closeDetail"><Detail v-if="detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @updated="updatePost" @removed="removePost" @close="closeDetail" /></el-drawer><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
     ><template #header><DialogHeading title="发布动态" @close="open = false" /></template><el-input
       v-model="form.content"
       type="textarea"

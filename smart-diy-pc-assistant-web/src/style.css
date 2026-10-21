@@ -1204,3 +1204,23 @@ button.feedback-mine {border:0;background:transparent;padding:4px 0;}
 .profile-actions .background-upload {margin:0 auto 0 0;display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 15px;border:1px solid #dce2ec;border-radius:12px;white-space:nowrap;}
 .profile-actions .el-button+.el-button {margin-left:0;}
 @media(max-width:760px){.profile-actions .background-upload{margin-right:auto;}.profile-actions{gap:10px;}.profile-actions .background-upload{font-size:13px;padding-inline:12px;}}
+/* Stable card identities and dimensions across split transitions. */
+.stable-masonry.community-feed,.stable-masonry.news-feed {display:block;columns:auto;}
+.stable-masonry .feed-card{border:1px solid #e8ecf3;border-radius:22px;overflow:hidden;background:white;}
+.stable-masonry .feed-card:hover{box-shadow:0 10px 28px #26334c0b;}
+.social-list-pane{height:calc(100dvh - 64px);overflow:auto;}
+.social-workspace.detail-open .social-list-pane{padding-right:0;}
+.social-workspace .feed-heading {flex-wrap:wrap;gap:16px;}
+.social-workspace .feed-heading-actions {width:100%;}
+.social-workspace .feed-heading-actions .el-input{flex:1;min-width:0;width:auto;}
+.feed-counts .is-favorited{color:#d8a11f!important;background:transparent!important;border-color:transparent!important;}
+.post-reactions {display:flex;align-items:center;gap:8px;margin-top:18px;}
+.post-reactions .comment-reaction{height:32px;min-width:48px;}
+.favorite-reaction.favorited{color:#c99410;background:#fff7df;}.favorite-reaction.favorited .el-icon{color:#d8a11f;}
+.comment-reactions .comment-reply-button {padding:6px 10px;background:#f6f7fb;border-radius:18px;margin:0;min-height:32px;}
+.comment-reactions {flex-wrap:wrap;justify-content:flex-end;}
+@media(max-width:760px){.social-list-pane{height:auto;overflow:visible;}.stable-masonry .feed-card{border-radius:20px;}.comment-reactions{gap:4px;}.comment-reactions .comment-reply-button{padding-inline:8px;}}
+/* Hide tracks everywhere without disabling wheel, touch or keyboard scrolling. */
+html,body,* {scrollbar-width:none!important;scrollbar-gutter:auto!important;-ms-overflow-style:none!important;}
+*::-webkit-scrollbar {display:none!important;width:0!important;height:0!important;}
+.el-scrollbar__bar {display:none!important;}

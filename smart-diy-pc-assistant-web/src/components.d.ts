@@ -42,6 +42,7 @@ declare module 'vue' {
     ElSwitch: typeof import('element-plus/es')['ElSwitch']
     ElTag: typeof import('element-plus/es')['ElTag']
     EmptyState: typeof import('./components/EmptyState.vue')['default']
+    MasonryFeed: typeof import('./components/MasonryFeed.vue')['default']
     MessageActions: typeof import('./components/MessageActions.vue')['default']
     MessageAttachments: typeof import('./components/MessageAttachments.vue')['default']
     NavigationToggle: typeof import('./components/NavigationToggle.vue')['default']
