@@ -2,7 +2,7 @@
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowRight, Plus, Star, StarFilled, Picture, Grid } from "@element-plus/icons-vue";
+import { ArrowRight, Plus, Star, StarFilled, Picture, Grid, ChatLineRound } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user, authenticated } from "../lib/session";
 import { markdown } from "../lib/markdown";
@@ -161,14 +161,8 @@ onMounted(() => perform(load));
         /></el-select>
       </div>
       <article v-for="c in comments" :key="c.id" class="comment">
-        <router-link :to="`/users/${c.author.id}`" class="post-author"
-          ><el-avatar :size="32" :src="c.author.avatarUrl" /><strong>{{
-            c.author.nickname || c.author.username
-          }}</strong></router-link
-        >
-        <p v-if="c.parentCommentId" class="muted">
-          回复 {{ c.replyToNickname || "一条评论" }}
-        </p>
+        <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><el-avatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
+        <p v-if="c.parentCommentId" class="comment-reply-context">回复 {{c.replyTo?.nickname || c.replyTo?.username || '一条评论'}}</p>
         <p>{{ c.content }}</p><router-link v-if="c.buildConfig" :to="`/builds?public=${c.buildConfig.id}`" class="reference">▦ {{c.buildConfig.title}}</router-link>
         <div class="image-grid">
           <el-image
@@ -179,27 +173,7 @@ onMounted(() => perform(load));
             fit="cover"
           />
         </div>
-        <div class="action-row">
-          <small class="muted">{{
-            c.createdAt?.replace("T", " ").slice(0, 16)
-          }}</small
-          ><el-button
-            v-if="kind === 'community' && c.author.id === user?.userId"
-            text
-            type="danger"
-            @click="confirm('删除这条评论？', () => deleteComment(c.id))"
-            >删除</el-button
-          ><el-button
-            text
-            @click="
-              form.parentCommentId = c.id;
-              reply = c.author.nickname || c.author.username;
-            "
-            >回复</el-button
-          ><el-button text @click="perform(() => likeComment(c.id))"
-            >♡ {{ c.likeCount }}</el-button
-          >
-        </div>
+        <button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button>
       </article>
       <EmptyState
         v-if="!comments.length"

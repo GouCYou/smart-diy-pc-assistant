@@ -5,6 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Fold,
+  Close,
   Plus,
   ArrowRight,
   Setting,
@@ -49,6 +50,7 @@ const route = useRoute(),
   shareUrl = ref(""),
   sharingId = ref(""),
   historyOpen = ref(true),
+  mobileHistoryOpen=ref(false),
   activityOpen = ref(true),
   showActivityMobile = ref(false),
   activity = ref<ActivityEvent[]>([]),
@@ -284,6 +286,7 @@ async function submit(text = draft.value) {
   });
 }
 function fresh() {
+  mobileHistoryOpen.value=false;
   selectionVersion++;
   controller?.abort();
   conversation.value = "";
@@ -345,13 +348,14 @@ onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyT
       <header class="chat-toolbar">
         <NavigationToggle />
         <button
-          v-if="!historyOpen" class="chat-icon-button history-toggle"
+          v-if="!historyOpen" class="chat-icon-button history-toggle desktop-only"
           :aria-label="historyOpen ? '收起历史侧栏' : '展开历史侧栏'"
           :aria-expanded="historyOpen"
           @click="historyOpen = !historyOpen; if(historyOpen) perform(loadHistory)"
         >
           <el-icon><Fold /></el-icon>
         </button>
+        <button class="chat-icon-button mobile-only mobile-history-toggle" aria-label="历史对话" @click="mobileHistoryOpen=true;perform(loadHistory)"><el-icon><Fold /></el-icon></button>
         <div class="chat-heading">
           <h1>
             <span class="conversation-title" :title="conversationTitle">{{conversationTitle}}</span>
@@ -368,7 +372,7 @@ onUnmounted(() => {selectionVersion++;controller?.abort();clearInterval(historyT
           <el-icon><Plus /></el-icon><span>新对话</span>
         </button>
       </header>
-      <div class="mobile-history-wrap" :class="{'is-hidden':!historyOpen}" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></div>
+      <el-drawer v-model="mobileHistoryOpen" direction="ltr" size="100%" :with-header="false" class="mobile-history-drawer"><div class="mobile-history-heading"><strong>历史对话</strong><button class="chat-icon-button" aria-label="关闭历史对话" @click="mobileHistoryOpen=false"><el-icon><Close /></el-icon></button></div><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="mobileHistoryOpen=false" @select="id=>{mobileHistoryOpen=false;perform(()=>loadConversation(id));}" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /><button class="mobile-history-new" @click="mobileHistoryOpen=false;fresh()"><el-icon><Plus /></el-icon>新对话</button></el-drawer>
       <div ref="scroll" class="chat-scroll" @scroll="trackChatScroll">
         <el-alert v-if="error" :title="error" type="error" show-icon />
         <section v-if="!messages.length" class="welcome">
