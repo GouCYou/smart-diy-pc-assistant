@@ -97,7 +97,6 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
         </div>
       </aside>
       <div class="web-main">
-        <div v-if="!rootPage" class="desktop-subpage-controls"><NavigationToggle/><button class="chat-icon-button desktop-only" aria-label="返回上一级" @click="back"><el-icon><ArrowLeft/></el-icon></button></div>
         <header v-if="!rootPage && route.path !== '/auth'" class="mobile-page-bar">
           <button aria-label="返回" @click="back"><el-icon><ArrowLeft /></el-icon></button><strong>{{ pageTitle }}</strong><span id="mobile-page-action" />
         </header>
@@ -106,6 +105,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
           class="web-content"
           :class="{ 'chat-content': route.path === '/' }"
         >
+          <div v-if="!rootPage && route.path !== '/auth'" class="desktop-subpage-controls"><NavigationToggle/><button class="chat-icon-button" aria-label="返回上一级" title="返回上一级" @click="back"><el-icon><ArrowLeft/></el-icon></button></div>
           <router-view v-slot="{ Component }"><Transition name="page-fade" mode="out-in"><div :key="/^\/(community|news)(\/|$)/.test(route.path) ? route.path.split('/')[1] : route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
         </main>
         <div v-else class="startup">正在恢复会话…</div>
