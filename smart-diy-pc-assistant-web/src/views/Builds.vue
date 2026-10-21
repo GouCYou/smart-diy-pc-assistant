@@ -171,7 +171,7 @@ onMounted(() =>
           }}</span
           ><span class="muted">{{ b.serialNumber }}</span>
         </div>
-        <h2>{{ b.title }}</h2>
+        <h2>{{ b.title }} <span v-if="b.favorite" class="favorite-badge">★ 已收藏</span></h2>
         <div class="build-score-chip" v-if="b.performanceScore">综合性能 <b>{{b.performanceScore}} 分</b></div>
         <ProductParts :parts="b.parts.slice(0,3)" compact />
         <button class="build-more-parts" @click="detail=b">查看全部 {{b.parts.length}} 件配件 →</button>
@@ -207,7 +207,7 @@ onMounted(() =>
           v-if="detail.ownerUserId === user?.userId"
           @click="perform(() => edit(detail!))"
           >编辑配置</el-button
-        ><el-button @click="perform(toggleFavorite)">{{
+        ><el-button :class="{'is-favorited':detail.favorite}" @click="perform(toggleFavorite)">{{
           detail.favorite ? "取消收藏" : "收藏"
         }}</el-button
         ><el-button @click="share(detail)">分享</el-button

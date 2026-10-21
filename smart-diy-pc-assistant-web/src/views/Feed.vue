@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import NavigationToggle from "../components/NavigationToggle.vue";
 import DialogHeading from "../components/DialogHeading.vue";
+import Detail from "./Detail.vue";
 import EmptyState from "../components/EmptyState.vue";
-import { computed, reactive, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { computed, reactive, ref, watch, onMounted, onUnmounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { Search, ChatDotRound, Star, Pointer } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { authenticated } from "../lib/session";
 import { useTask } from "../lib/task";
 import type { Build } from "../../../shared/types";
-const route = useRoute();
+const route = useRoute(), router=useRouter();
+const detailOpen=computed(()=>!!route.params.id);
+function closeDetail(){void router.replace("/"+props.kind);void perform(load);}
 const props = defineProps<{ kind: string }>(),
   { busy, error, perform } = useTask(),
   rows = ref<any[]>([]),
@@ -24,6 +27,11 @@ const props = defineProps<{ kind: string }>(),
     buildConfigId: null as number | null,
   }),
   images = ref<string[]>([]);
+const feedElement=ref<HTMLElement>(),columnCount=ref(2);
+let resizeObserver:ResizeObserver;
+onMounted(()=>{resizeObserver=new ResizeObserver(entries=>{columnCount.value=window.matchMedia("(max-width:760px)").matches ? 1 : entries[0]!.contentRect.width>=1050 ? 3 : 2;});if(feedElement.value)resizeObserver.observe(feedElement.value);});
+onUnmounted(()=>resizeObserver?.disconnect());
+const columns=computed(()=>{const result:any[][]=Array.from({length:columnCount.value},()=>[]);filtered.value.slice((page.value-1)*size,page.value*size).forEach((r,i)=>result[i%columnCount.value]!.push(r));return result;});
 const filtered = computed(() =>
     rows.value.filter((r) =>
       `${r.title || ""} ${r.content || ""} ${r.summary || ""} ${r.tag || ""} ${r.author?.nickname || ""}`.includes(query.value),
@@ -77,30 +85,24 @@ watch(
 );
 </script>
 <template>
-  <div class="page-heading">
+  <div class="page-heading feed-heading">
     <div class="page-title-controls"><NavigationToggle />
       <h1><span class="desktop-only">{{ kind === "news" ? "硬件资讯" : "装机社区" }}</span><span class="mobile-only">{{kind === 'news' ? '热点' : '发现'}}</span></h1>
     </div>
-    <div v-if="kind === 'news'" v-slider class="segmented news-sort"><button :class="{selected:sort === 'latest'}" @click="sort = 'latest'; perform(load)">最新</button><button :class="{selected:sort === 'hot'}" @click="sort = 'hot'; perform(load)">热度</button></div>
-    <el-button
-      v-if="kind === 'community'"
-      type="primary"
-      @click="perform(compose)"
-      >发动态</el-button
-    >
+    <div class="feed-heading-actions"><el-input v-model="query" aria-label="搜索内容" :prefix-icon="Search" clearable :placeholder="kind === 'news' ? '搜索资讯' : '搜索动态、作者或配置'" @input="page = 1" /><el-button v-if="kind === 'community'" type="primary" @click="perform(compose)">发动态</el-button></div>
   </div>
   <el-alert v-if="error" :title="error" type="error" />
   <div class="feed-toolbar">
     <div v-if="kind === 'community'" v-slider class="segmented feed-segments">
       <button :class="{selected:sort === 'latest'}" @click="sort = 'latest'; perform(load)">推荐</button>
       <button :class="{selected:sort === 'following'}" @click="sort = 'following'; perform(load)">我的关注</button>
-      <button class="desktop-only" :class="{selected:sort === 'hot'}" @click="sort = 'hot'; perform(load)">热门</button>
+      <button :class="{selected:sort === 'hot'}" @click="sort = 'hot'; perform(load)">热门</button>
     </div>
-    <el-input v-model="query" aria-label="搜索内容" :prefix-icon="Search" clearable :placeholder="kind === 'news' ? '搜索新闻标题、标签或内容' : '搜索动态内容、作者或配置'" @input="page = 1" />
+    <div v-if="kind === 'news'" v-slider class="segmented feed-segments"><button :class="{selected:sort==='latest'}" @click="sort='latest';perform(load)">最新</button><button :class="{selected:sort==='hot'}" @click="sort='hot';perform(load)">热度</button></div>
   </div>
-  <div :class="['feed-grid', kind === 'news' ? 'news-feed' : 'community-feed']" v-loading="busy">
+  <div ref="feedElement" :class="['feed-grid', kind === 'news' ? 'news-feed' : 'community-feed']" :style="{'--feed-columns':columnCount}" v-loading="busy"><div v-for="(column,index) in columns" :key="index" class="feed-column">
     <article
-      v-for="r in filtered.slice((page - 1) * size, page * size)"
+      v-for="r in column"
       :key="r.id"
       class="feed-card"
     >
@@ -112,6 +114,7 @@ watch(
           :alt="r.title"
         />
         <div class="body">
+          <div v-if="kind==='community' && r.imageUrls?.length" class="post-cover"><img :src="r.imageUrls[0]" alt="动态配图" loading="lazy" /><span v-if="r.imageUrls.length>1">{{r.imageUrls.length}} 张</span></div>
           <template v-if="kind === 'news'"
             ><span class="tag">{{ r.tag || "硬件资讯" }}</span>
             <h2>{{ r.title }}</h2>
@@ -124,28 +127,20 @@ watch(
               ><div><strong>{{ r.author.nickname || r.author.username }}</strong><small class="author-time">{{r.createdAt?.slice(0,10)}}</small></div>
             </div>
             <p class="content-text" style="color: #45516a">
-              {{ r.content.slice(0, 350) }}
+              {{ r.content }}
             </p>
-            <div v-if="r.imageUrls?.length" class="image-grid">
-              <el-image
-                v-for="img in r.imageUrls.slice(0, 3)"
-                :key="img"
-                :src="img"
-                fit="cover"
-              />
-            </div>
             <span v-if="r.buildConfig" class="tag"
               >▦ {{ r.buildConfig.title }}</span
             ></template
           >
           <div class="card-meta">
             <span>{{ r.createdAt?.replace("T", " ").slice(0, 10) }}</span
-            ><span class="feed-counts"><span><el-icon><Pointer /></el-icon>{{r.likeCount}}</span><span><el-icon><Star /></el-icon>{{r.favoriteCount}}</span><span><el-icon><ChatDotRound /></el-icon>{{r.commentCount}}</span></span>
+            ><span class="feed-counts"><span><el-icon><Pointer /></el-icon>{{r.likeCount}}</span><span :class="{'is-favorited':r.favorite}"><el-icon><Star /></el-icon>{{r.favoriteCount}}</span><span><el-icon><ChatDotRound /></el-icon>{{r.commentCount}}</span></span>
           </div>
         </div></router-link
       >
     </article>
-  </div>
+  </div></div>
   <EmptyState
     v-if="!filtered.length && !busy"
     description="还没有相关内容"
@@ -155,7 +150,7 @@ watch(
     :total="filtered.length"
     :page-size="size"
     layout="prev,pager,next"
-  /><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
+  /><el-drawer :model-value="detailOpen" direction="rtl" size="min(860px,100vw)" class="social-detail-drawer" :title="kind==='news' ? '硬件资讯' : '动态详情'" destroy-on-close @close="closeDetail"><Detail v-if="detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></el-drawer><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
     ><template #header><DialogHeading title="发布动态" @close="open = false" /></template><el-input
       v-model="form.content"
       type="textarea"

@@ -2,12 +2,12 @@
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowRight, Plus } from "@element-plus/icons-vue";
+import { ArrowRight, Plus, Star, StarFilled, Picture, Grid } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user, authenticated } from "../lib/session";
 import { markdown } from "../lib/markdown";
 import { useTask } from "../lib/task";
-const props = defineProps<{ kind: string }>(),
+const props = defineProps<{ kind: string; embedded?:boolean }>(),
   route = useRoute(),
   router = useRouter(),
   { busy, error, perform, confirm } = useTask(),
@@ -24,6 +24,8 @@ const props = defineProps<{ kind: string }>(),
   reply = ref(""),
   builds = ref<any[]>([]),
   showCommentTools = ref(false);
+const emit=defineEmits<{close:[]}>();
+function close(){if(props.embedded)emit("close");else void router.push("/"+props.kind);}
 const base = computed(() =>
   props.kind === "news"
     ? `/api/news/${route.params.id}`
@@ -60,7 +62,7 @@ async function deleteComment(id: number) {
 }
 async function deletePost() {
   await api.request(base.value, "DELETE");
-  await router.push("/community");
+  close();
 }
 async function likeComment(id: number) {
   authenticated();
@@ -86,8 +88,8 @@ async function send() {
 onMounted(() => perform(load));
 </script>
 <template>
-  <div class="article">
-    <el-button text @click="router.push('/' + kind)"
+  <div class="article social-detail" :class="{'is-embedded':embedded}">
+    <el-button v-if="!embedded" text @click="close"
       >← 返回{{ kind === "news" ? "资讯" : "社区" }}</el-button
     ><el-alert v-if="error" :title="error" type="error" />
     <article v-if="item" class="panel">
@@ -110,7 +112,7 @@ onMounted(() => perform(load));
             item.author.nickname || item.author.username
           }}</strong></router-link
         >
-        <p class="content-text">{{ item.content }}</p>
+        <p class="muted post-detail-date">{{item.createdAt?.replace("T"," ").slice(0,16)}}</p><p class="content-text">{{ item.content }}</p>
         <div class="image-grid">
           <el-image
             v-for="img in item.imageUrls"
@@ -134,8 +136,8 @@ onMounted(() => perform(load));
           :type="item.liked ? 'primary' : 'default'"
           @click="perform(() => toggle('like'))"
           >♡ {{ item.likeCount }} 赞</el-button
-        ><el-button @click="perform(() => toggle('favorite'))"
-          >{{ item.favorite ? "已收藏" : "收藏" }} ·
+        ><el-button :class="{'is-favorited':item.favorite}" @click="perform(() => toggle('favorite'))"
+          ><el-icon><StarFilled v-if="item.favorite" /><Star v-else /></el-icon>{{ item.favorite ? "已收藏" : "收藏" }} ·
           {{ item.favoriteCount }}</el-button
         ><el-button
           v-if="kind === 'community' && user?.userId === item.author.id"
@@ -167,7 +169,7 @@ onMounted(() => perform(load));
         <p v-if="c.parentCommentId" class="muted">
           回复 {{ c.replyToNickname || "一条评论" }}
         </p>
-        <p>{{ c.content }}</p>
+        <p>{{ c.content }}</p><router-link v-if="c.buildConfig" :to="`/builds?public=${c.buildConfig.id}`" class="reference">▦ {{c.buildConfig.title}}</router-link>
         <div class="image-grid">
           <el-image
             v-for="img in c.imageUrls"
@@ -205,8 +207,8 @@ onMounted(() => perform(load));
       />
       <div class="comment-composer">
         <el-alert v-if="reply" :title="`回复 ${reply}`" @close="reply = ''; form.parentCommentId = null" />
-        <div class="comment-input-row"><button type="button" class="comment-tool" aria-label="评论附件" @click="showCommentTools = !showCommentTools"><el-icon><Plus /></el-icon></button><el-input v-model="form.content" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="1000" :placeholder="reply ? '回复 '+reply : '说点什么…'" aria-label="评论内容" /><button class="comment-send" aria-label="发送评论" :disabled="busy || !form.content.trim()" @click="perform(send,'评论已发布')"><el-icon><ArrowRight /></el-icon></button></div>
-        <div v-if="showCommentTools" class="action-row"><label class="file-button"><input hidden type="file" multiple accept="image/*" @change="perform(() => upload($event))" />添加图片</label><el-select v-if="kind === 'community'" v-model="form.buildConfigId" clearable style="width:190px" placeholder="关联配置"><el-option v-for="b in builds" :key="b.id" :label="b.title" :value="b.id" /></el-select></div>
+        <div class="comment-input-row"><el-popover v-model:visible="showCommentTools" trigger="click" placement="top-start" :width="260" popper-class="comment-attachment-popover"><template #reference><button type="button" class="comment-tool" aria-label="评论附件" :aria-expanded="showCommentTools"><el-icon><Plus /></el-icon></button></template><div class="comment-attachment-menu"><label class="attachment-choice"><el-icon><Picture /></el-icon>添加图片<input hidden type="file" multiple accept="image/*" @change="showCommentTools=false;perform(() => upload($event))" /></label><template v-if="kind==='community'"><label class="attachment-choice"><el-icon><Grid /></el-icon>关联配置</label><el-select v-model="form.buildConfigId" clearable placeholder="选择一套配置" @change="showCommentTools=false"><el-option v-for="b in builds" :key="b.id" :label="b.title" :value="b.id" /></el-select></template></div></el-popover><el-input v-model="form.content" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="1000" :placeholder="reply ? '回复 '+reply : '说点什么…'" aria-label="评论内容" /><button class="comment-send" aria-label="发送评论" :disabled="busy || !form.content.trim()" @click="perform(send,'评论已发布')"><el-icon><ArrowRight /></el-icon></button></div>
+
         <div v-if="images.length" class="image-grid"><div v-for="(img,i) in images" :key="img"><el-image :src="img" fit="cover" /><el-button text @click="images.splice(i,1); form.imageKeys.splice(i,1)">移除</el-button></div></div>
       </div>
     </section>

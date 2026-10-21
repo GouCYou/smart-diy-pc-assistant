@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
+import { COUNTRY_OPTIONS,CHINA_PROVINCES,CHINA_CITY_OPTIONS,TAIWAN_CITY_OPTIONS } from "../lib/regions";
 import { UserFilled } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user } from "../lib/session";
 import { useTask } from "../lib/task";
+const router=useRouter();
+function cancel(){if(window.history.state.back)router.back();else void router.push("/account");}
+const provinces=computed(()=>form.countryOrRegion==="中国大陆" ? CHINA_PROVINCES : []);
+const cities=computed(()=>form.countryOrRegion==="中国台湾" ? TAIWAN_CITY_OPTIONS : CHINA_CITY_OPTIONS[form.province] || []);
+function changeCountry(){form.province=provinces.value[0] || "";form.city=cities.value[0] || "";}
+function changeProvince(){form.city=cities.value[0] || "";}
 const props = defineProps<{ section: string }>();
 const { busy, error, perform } = useTask(),
   form = reactive<any>({}),
@@ -23,8 +31,12 @@ async function savePreferences() {
   });
 }
 async function save() {
+  if(form.countryOrRegion && !COUNTRY_OPTIONS.includes(form.countryOrRegion))throw Error("请从列表选择国家或地区");
+  if(form.province && !provinces.value.includes(form.province))throw Error("请从列表重新选择省份");
+  if(form.city && !cities.value.includes(form.city))throw Error("请从列表重新选择城市");
   await api.request("/api/user/profile", "PUT", form);
   user.value = await api.request("/api/auth/me");
+  cancel();
 }
 async function upload(event: Event, kind: string) {
   const file = (event.target as HTMLInputElement).files?.[0];
@@ -83,22 +95,15 @@ onMounted(() => perform(load));
               type="date"
               value-format="YYYY-MM-DD"
               style="width: 100%" /></el-form-item
-          ><el-form-item
-            v-for="[key, label] in [
-              ['countryOrRegion', '国家或地区'],
-              ['province', '省份'],
-              ['city', '城市'],
-            ]"
-            :key="key"
-            :label="label"
-            ><el-input v-model="form[key!]" /></el-form-item
-          ></el-form
-        ><el-button
+          ><el-form-item label="国家或地区"><el-select v-model="form.countryOrRegion" aria-label="国家或地区" @change="changeCountry"><el-option v-for="v in COUNTRY_OPTIONS" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+          <el-form-item label="省份"><el-select v-model="form.province" aria-label="省份" :disabled="!provinces.length" placeholder="不适用" @change="changeProvince"><el-option v-for="v in provinces" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+          <el-form-item label="城市"><el-select v-model="form.city" aria-label="城市" :disabled="!cities.length" placeholder="不适用"><el-option v-for="v in cities" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+          </el-form
+        ><div class="profile-actions"><el-button :disabled="busy" @click="cancel">取消</el-button><el-button
           type="primary"
           :loading="busy"
           @click="perform(save, '个人资料已保存')"
-          class="desktop-only">保存资料</el-button
-        >
+          class="desktop-only">保存资料</el-button></div>
         <label class="file-button background-upload"><input hidden type="file" accept="image/*" @change="perform(() => upload($event, 'background'))" />更换个人空间背景</label>
       </section>
       <div v-if="props.section === 'preferences'">

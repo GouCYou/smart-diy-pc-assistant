@@ -31,7 +31,7 @@ const nav = [
   { path: "/account", label: "我的", icon: User },
 ];
 const rootPaths = ["/", "/builds", "/community", "/news", "/account"];
-const rootPage = computed(() => rootPaths.includes(route.path));
+const rootPage = computed(() => rootPaths.includes(route.path) || /^\/(community|news)\/[^/]+$/.test(route.path));
 const pageTitle = computed(() => ({"/auth":"登录 / 注册", "/profile":"个人资料", "/settings":"设置", "/preferences":"装机偏好", "/notifications":"消息通知", "/feedback":"反馈", "/feedback/mine":"我的反馈"}[route.path] || (route.path.startsWith("/shared/") ? "分享的对话" : route.path.startsWith("/users/") ? "个人空间" : route.path.startsWith("/news/") ? "新闻详情" : "动态详情")));
 function newConversation(){newChatVersion.value++;if(route.path!=='/')void router.push('/');}
 async function goChat(){
@@ -105,7 +105,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
           class="web-content"
           :class="{ 'chat-content': route.path === '/' }"
         >
-          <router-view v-slot="{ Component }"><Transition name="page-fade" mode="out-in"><div :key="route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
+          <router-view v-slot="{ Component }"><Transition name="page-fade" mode="out-in"><div :key="/^\/(community|news)(\/|$)/.test(route.path) ? route.path.split('/')[1] : route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
         </main>
         <div v-else class="startup">正在恢复会话…</div>
       </div>

@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { feedbackOpen,feedbackView } from "./lib/feedback";
 const router=createRouter({
   history: createWebHistory(),
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to,from,saved) => /^\/(community|news)(\/|$)/.test(to.path) && to.path.split("/")[1]===from.path.split("/")[1] ? false : saved || { top: 0 },
   routes: [
     { path: "/shared/:token", component: () => import("./views/SharedConversation.vue") },
     { path: "/", component: () => import("./views/Chat.vue") },
@@ -15,7 +15,7 @@ const router=createRouter({
     },
     {
       path: "/community/:id",
-      component: () => import("./views/Detail.vue"),
+      component: () => import("./views/Feed.vue"),
       props: { kind: "community" },
     },
     {
@@ -25,7 +25,7 @@ const router=createRouter({
     },
     {
       path: "/news/:id",
-      component: () => import("./views/Detail.vue"),
+      component: () => import("./views/Feed.vue"),
       props: { kind: "news" },
     },
     { path: "/account", component: () => import("./views/AccountHome.vue") },
