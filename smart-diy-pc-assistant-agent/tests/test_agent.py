@@ -308,3 +308,59 @@ async def test_model_work_summary_is_separate_from_final_answer(env):
     assert final['answer']=='这是最终回答。'
     summaries=await store.all("SELECT data FROM events WHERE run_id=? AND type='work_summary'",(run['id'],))
     assert len(summaries)==1 and '正在查询' in json.loads(summaries[0]['data'])['text']
+
+
+async def test_conversation_menu_ownership_archive_pin_and_sharing(env):
+    store,runtime,k,crawler,web,mp=env
+    for id,title in [('first','第一条对话'),('second','第二条对话')]:
+        await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(id,1,title,now()))
+        await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',(id+'-m',id,'user','测试对话',now()))
+    denied=await web.patch('/agent/conversations/first',json={'title':'越权'},headers={'Authorization':'Bearer other'})
+    assert denied.status_code==404
+    assert (await web.patch('/agent/conversations/first',json={'title':'重命名测试','pinned':True})).status_code==200
+    rows=(await web.get('/agent/conversations')).json()
+    assert rows[0]['id']=='first' and rows[0]['pinned']==1
+    assert (await web.patch('/agent/conversations/first',json={'archived':True})).status_code==200
+    assert [x['id'] for x in (await web.get('/agent/conversations')).json()]==['second']
+    assert (await web.get('/agent/conversations?archived=true')).json()[0]['title']=='重命名测试'
+    assert (await web.post('/agent/conversations/first/share',headers={'Authorization':'Bearer other'})).status_code==404
+    token=(await web.post('/agent/conversations/first/share')).json()['token']
+    await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',('future-private','first','user','分享之后的新消息',now()))
+    public=await web.get('/agent/shared/'+token,headers={'Authorization':''})
+    assert public.status_code==200
+    assert set(public.json())=={'title','messages'}
+    assert len(public.json()['messages'])==1 and '分享之后的新消息' not in public.text
+    assert 'user_id' not in public.text
+    assert (await web.delete('/agent/conversations/first/share')).status_code==200
+    assert (await web.get('/agent/shared/'+token)).status_code==404
+
+
+async def test_legacy_message_attachments_preserve_source_and_render_as_metadata(env):
+    store,runtime,k,crawler,web,mp=env
+    from app.conversation_view import message_view,short_title
+    content='**方案已生成**\n\n关联配置：游戏电脑（ID 59）\n\n历史新闻引用：'+json.dumps([{'id':1,'title':'硬件新闻','summary':'摘要','coverUrl':'https://example.com/news.jpg'}],ensure_ascii=False)
+    await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',('legacy-ui',1,'预算 29500 元，主要用于游戏，品牌不限等等长标题',now()))
+    await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',('legacy-message','legacy-ui','assistant',content,now()))
+    result=(await web.get('/agent/conversations/legacy-ui')).json()
+    assert result['title']=='29500 元游戏装机'
+    m=result['messages'][0]
+    assert m['content']=='**方案已生成**'
+    assert m['attachments']['build']=={'id':59,'title':'游戏电脑'}
+    assert m['attachments']['news'][0]['id']==1
+    assert (await store.one('SELECT content FROM messages WHERE id=?',('legacy-message',)))['content']==content
+    malformed=message_view({'content':'文本\n\n历史新闻引用：[invalid json]'})
+    assert '[invalid json]' in malformed['content']
+    assert short_title('帮我规划一套装机方案。预算 18000 元，用途游戏')=='18000 元游戏装机'
+
+
+async def test_model_plan_title_and_manual_title_protection(env):
+    store,runtime,k,crawler,web,mp=env
+    model=ScriptedModel(responses=[call('record_plan',{'steps':['查询资料'],'title':'游戏装机方案'}),AIMessage(content='## 建议\n\n**检查兼容性**。')])
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
+    run=(await web.post('/agent/runs',json={'message':'帮我配一台游戏电脑'})).json()
+    assert (await done(store,run['id']))['status']=='completed'
+    assert (await web.get('/agent/conversations/'+run['conversation_id'])).json()['title']=='游戏装机方案'
+    await web.patch('/agent/conversations/'+run['conversation_id'],json={'title':'我自己起的标题'})
+    tools={t.name:t for t in await runtime.tools(await store.run(run['id']),'Bearer user',runtime.config.model_dump())}
+    await tools['record_plan'].ainvoke({'steps':['再次查询'],'title':'不能覆盖手动标题'})
+    assert (await web.get('/agent/conversations/'+run['conversation_id'])).json()['title']=='我自己起的标题'

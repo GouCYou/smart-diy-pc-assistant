@@ -25,6 +25,8 @@ class Store:
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL,title TEXT NOT NULL,updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS conversation_settings(conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,pinned INTEGER NOT NULL DEFAULT 0,archived INTEGER NOT NULL DEFAULT 0,title_manual INTEGER NOT NULL DEFAULT 0,title_generated INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS conversation_shares(token TEXT PRIMARY KEY,conversation_id TEXT UNIQUE NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,created_at TEXT NOT NULL,snapshot TEXT);
         CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,role TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,status TEXT NOT NULL,payload TEXT NOT NULL,answer TEXT NOT NULL DEFAULT '',draft TEXT,references_json TEXT NOT NULL DEFAULT '[]',error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,type TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL);
@@ -36,6 +38,12 @@ class Store:
         CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY,title TEXT NOT NULL,source TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chunks(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,text TEXT NOT NULL,embedding TEXT);
         """)
+        columns={row[1] for row in await (await self.db.execute("PRAGMA table_info(conversation_settings)")).fetchall()}
+        if 'title_generated' not in columns:
+            await self.db.execute("ALTER TABLE conversation_settings ADD COLUMN title_generated INTEGER NOT NULL DEFAULT 0")
+        share_columns={row[1] for row in await (await self.db.execute("PRAGMA table_info(conversation_shares)")).fetchall()}
+        if 'snapshot' not in share_columns:
+            await self.db.execute("ALTER TABLE conversation_shares ADD COLUMN snapshot TEXT")
         await self.db.execute("UPDATE runs SET status='interrupted',error='服务重启，点击重试继续任务' WHERE status IN ('queued','running')")
         await self.db.commit()
 

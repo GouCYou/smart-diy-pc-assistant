@@ -15,11 +15,13 @@ from pydantic import BaseModel, Field
 from .business import Business
 from .compatibility import check
 from .store import now, uid
+from .conversation_view import short_title
 
 log = logging.getLogger(__name__)
 
 SYSTEM = """你是 Smart DIY 装机 Agent，负责咨询、整机规划、升级、配置评审和故障排查。用简体中文回答。
-先理解需求，复杂任务先用 record_plan 给出简短执行计划。缺少关键预算、用途等条件时使用 ask_user 等待补充。
+使用 Markdown 排版：适当使用小标题、列表、加粗或表格，链接用标准 Markdown；不要把整篇回答包进代码块，不要转义用于排版的星号。
+先理解需求，复杂任务先用 record_plan 给出简短执行计划，并在 title 参数中概括一个最多16字的对话标题。缺少关键预算、用途等条件时使用 ask_user 等待补充。
 所有硬件 ID 来自 search_hardware，价格和商品链接来自 search_products；严禁编造报价、商品、FPS 或测试结果。
 商品查询返回的是抓取时的页面报价，不代表库存、在售状态或可发货，也不是最终成交价。没有库存证据时只能说“匹配商品”，不得声称“有货”“在售”或“可发货”。
 知识性结论用 search_knowledge 获取资料，引用资料标题；检索无结果时说明依据不足。
@@ -92,9 +94,17 @@ class Runtime:
             await self.store.event(run["id"], "tool_started", {"name": name})
 
         @tool
-        async def record_plan(steps: list[str]) -> dict:
+        async def record_plan(steps: list[str], title: str = "") -> dict:
             """Record a short user-visible task plan, at most 8 concrete steps."""
             await guard("record_plan")
+            if title.strip():
+                clean_title=re.sub(r'^[#*`\s]+','',title.strip())[:24] or short_title(request_text)
+                await self.store.execute("INSERT OR IGNORE INTO conversation_settings(conversation_id) VALUES(?)",(run["conversation_id"],))
+                meta=await self.store.one("SELECT title_manual FROM conversation_settings WHERE conversation_id=?",(run["conversation_id"],))
+                if not meta["title_manual"]:
+                    await self.store.execute("UPDATE conversations SET title=? WHERE id=?",(clean_title,run["conversation_id"]))
+                    await self.store.execute("UPDATE conversation_settings SET title_generated=1 WHERE conversation_id=?",(run["conversation_id"],))
+                    await self.store.event(run["id"],"conversation_title",{"title":clean_title})
             await self.store.event(run["id"], "plan", {"steps": steps[:8]})
             return {"recorded": True, "available_hardware_types": {kind: sum(p["type"] == kind for p in catalog.values()) for kind in ("CPU", "MOTHERBOARD", "GPU", "MEMORY", "STORAGE", "PSU", "CASE", "COOLER")}}
 
@@ -252,9 +262,21 @@ class Runtime:
                 messages = state.values.get("messages", [])
                 final = next((m for m in reversed(messages) if m.type == "ai" and not m.tool_calls), None)
                 answer = final.content if final and isinstance(final.content, str) else "任务已完成，请查看配置草稿和工具结果。"
-                await self.store.execute("UPDATE runs SET status='completed',answer=?,updated_at=? WHERE id=?", (answer, now(), run_id))
+                await self.store.execute("UPDATE runs SET answer=?,updated_at=? WHERE id=?", (answer, now(), run_id))
                 await self.store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), run["conversation_id"], "assistant", answer, now()))
-                await self.store.event(run_id, "run_completed", {"answer": answer})
+                title_row = await self.store.one("SELECT c.title,COALESCE(s.title_manual,0) AS manual,COALESCE(s.title_generated,0) AS generated FROM conversations c LEFT JOIN conversation_settings s ON s.conversation_id=c.id WHERE c.id=?",(run["conversation_id"],))
+                if title_row and not title_row["manual"] and not title_row["generated"]:
+                    try:
+                        title_model=ChatOpenAI(model=cfg["model"],api_key=cfg["api_key"],base_url=cfg["base_url"],timeout=8,max_retries=0,max_tokens=60)
+                        result=await asyncio.wait_for(title_model.ainvoke([{"role":"system","content":"为下列对话拟一个简体中文标题，最多16个汉字，只返回标题，不加引号或标点，不回答其中的问题。"},{"role":"user","content":run["payload"]["message"][:500]+"\n回答概要："+answer[:500]}]),timeout=8)
+                        title=result.content.strip().strip('"“”').splitlines()[0][:24] if isinstance(result.content,str) and result.content.strip() else ''
+                        if title:
+                            await self.store.execute("UPDATE conversations SET title=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_settings WHERE conversation_id=? AND title_manual=1)",(title,run["conversation_id"],run["conversation_id"]))
+                    except Exception:
+                        pass  # Title generation must never turn a successful answer into a failed task.
+                title_row=await self.store.one("SELECT title FROM conversations WHERE id=?",(run["conversation_id"],))
+                await self.store.execute("UPDATE runs SET status='completed',updated_at=? WHERE id=?",(now(),run_id))
+                await self.store.event(run_id, "run_completed", {"answer": answer,"conversation_title":title_row["title"] if title_row else ""})
         except asyncio.CancelledError:
             await self.store.execute("UPDATE runs SET status='cancelled',updated_at=? WHERE id=?", (now(), run_id))
             await self.store.event(run_id, "status", {"status": "cancelled"})

@@ -29,7 +29,7 @@ const nav = [
 ];
 const rootPaths = ["/", "/builds", "/community", "/news", "/account"];
 const rootPage = computed(() => rootPaths.includes(route.path));
-const pageTitle = computed(() => ({"/auth":"登录 / 注册", "/profile":"个人资料", "/settings":"设置", "/preferences":"装机偏好", "/notifications":"消息通知", "/feedback":"反馈", "/feedback/mine":"我的反馈"}[route.path] || (route.path.startsWith("/users/") ? "个人空间" : route.path.startsWith("/news/") ? "新闻详情" : "动态详情")));
+const pageTitle = computed(() => ({"/auth":"登录 / 注册", "/profile":"个人资料", "/settings":"设置", "/preferences":"装机偏好", "/notifications":"消息通知", "/feedback":"反馈", "/feedback/mine":"我的反馈"}[route.path] || (route.path.startsWith("/shared/") ? "分享的对话" : route.path.startsWith("/users/") ? "个人空间" : route.path.startsWith("/news/") ? "新闻详情" : "动态详情")));
 function back() { if (window.history.state.back) router.back(); else router.push('/account'); }
 function expired(e: Event) {
   if ((e as CustomEvent).detail === "smartdiy_token") logout();
@@ -78,42 +78,10 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
         <button class="sidebar-toggle" :aria-label="sidebarCollapsed ? '展开导航' : '收起导航'" :title="sidebarCollapsed ? '展开导航' : '收起导航'" :aria-expanded="!sidebarCollapsed" @click="sidebarCollapsed = !sidebarCollapsed"><el-icon><DArrowRight v-if="sidebarCollapsed" /><DArrowLeft v-else /></el-icon></button>
         <div class="sidebar-bottom">
           <router-link to="/feedback" title="帮助与反馈" aria-label="帮助与反馈" class="sidebar-help"><el-icon><QuestionFilled /></el-icon><span>帮助与反馈</span></router-link
-          ><router-link :to="user ? '/account' : '/auth'" class="account-link" :title="user?.nickname || user?.username || '登录你的账户'"
-            ><el-avatar :size="36" :src="user?.avatarUrl"><span v-if="user">{{(user.nickname || user.username).slice(0,1)}}</span><el-icon v-else><User /></el-icon></el-avatar
-            ><span
-              >{{ user?.nickname || user?.username || "登录你的账户"
-              }}</span
-            ><el-icon><ArrowRight /></el-icon
-          ></router-link>
+          ><div class="account-link"><router-link :to="user ? '/account' : '/auth'" class="account-avatar" :aria-label="user?.nickname || '登录你的账户'"><el-avatar :size="36" :src="user?.avatarUrl"><span v-if="user">{{(user.nickname || user.username).slice(0,1)}}</span><el-icon v-else><User /></el-icon></el-avatar></router-link><router-link :to="user ? '/account' : '/auth'" class="account-name">{{user?.nickname || user?.username || '登录你的账户'}}</router-link><router-link to="/notifications" class="sidebar-notification" aria-label="消息通知" title="消息通知"><el-icon><Bell /></el-icon></router-link><router-link :to="user ? '/account' : '/auth'" class="account-arrow" aria-label="个人中心"><el-icon><ArrowRight /></el-icon></router-link></div>
         </div>
       </aside>
       <div class="web-main">
-        <header class="web-topbar">
-          <router-link to="/" class="mobile-brand"
-            ><img src="/logo.png" alt="" />Smart DIY</router-link
-          >
-          <div class="desktop-only topbar-crumb">
-            Smart DIY <span>/</span>
-            {{
-              route.path === "/"
-                ? "装机工作区"
-                : nav.find((n) => n.path === route.path)?.label || pageTitle
-            }}
-          </div>
-          <div class="row">
-            <router-link
-              to="/notifications"
-              aria-label="消息通知"
-              class="notice-link"
-              ><el-icon><Bell /></el-icon></router-link
-            ><span class="topbar-divider" /><router-link
-              :to="user ? '/account' : '/auth'"
-              >{{
-                user ? user.nickname || user.username : "登录 / 注册"
-              }}</router-link
-            >
-          </div>
-        </header>
         <header v-if="!rootPage && route.path !== '/auth'" class="mobile-page-bar">
           <button aria-label="返回" @click="back"><el-icon><ArrowLeft /></el-icon></button><strong>{{ pageTitle }}</strong><span id="mobile-page-action" />
         </header>

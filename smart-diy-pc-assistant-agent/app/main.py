@@ -16,6 +16,7 @@ from .crawler import Crawler
 from .knowledge import Knowledge
 from .runtime import Runtime
 from .store import Store, now, uid
+from .conversation_view import message_view, short_title
 
 
 @asynccontextmanager
@@ -39,7 +40,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Smart DIY Agent", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
 
 @app.exception_handler(sqlite3.IntegrityError)
@@ -115,8 +116,11 @@ async def health():
 
 
 @app.get("/agent/conversations")
-async def conversations(request: Request, user=Depends(identity)):
-    return await request.app.state.store.all("SELECT * FROM conversations WHERE user_id=? ORDER BY updated_at DESC", (user["userId"],))
+async def conversations(request: Request, archived: bool = False, user=Depends(identity)):
+    rows = await request.app.state.store.all("SELECT c.*,COALESCE(s.title_manual,0) AS title_manual,COALESCE(s.pinned,0) AS pinned,COALESCE(s.archived,0) AS archived FROM conversations c LEFT JOIN conversation_settings s ON c.id=s.conversation_id WHERE c.user_id=? AND COALESCE(s.archived,0)=? ORDER BY pinned DESC,c.updated_at DESC", (user["userId"], int(archived)))
+    for row in rows:
+        if not row.pop("title_manual") and len(row["title"])>24: row["title"]=short_title(row["title"])
+    return rows
 
 
 @app.get("/agent/conversations/{conversation_id}")
@@ -125,10 +129,60 @@ async def conversation(conversation_id: str, request: Request, user=Depends(iden
     row = await store.one("SELECT * FROM conversations WHERE id=? AND user_id=?", (conversation_id, user["userId"]))
     if not row:
         raise HTTPException(404, "会话不存在")
-    row["messages"] = await store.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id", (conversation_id,))
+    meta=await store.one("SELECT title_manual FROM conversation_settings WHERE conversation_id=?",(conversation_id,))
+    if not (meta and meta["title_manual"]) and len(row["title"])>24: row["title"]=short_title(row["title"])
+    row["messages"] = [message_view(m) for m in await store.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id", (conversation_id,))]
     rows = await store.all("SELECT id FROM runs WHERE conversation_id=? ORDER BY created_at", (conversation_id,))
     row["runs"] = [await store.run(r["id"]) for r in rows]
     return row
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = Field(default=None,min_length=1,max_length=80)
+    pinned: bool | None = None
+    archived: bool | None = None
+
+
+@app.patch("/agent/conversations/{conversation_id}")
+async def update_conversation(conversation_id: str, body: ConversationUpdate, request: Request, user=Depends(identity)):
+    store=request.app.state.store
+    row=await store.one("SELECT id FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["userId"]))
+    if not row: raise HTTPException(404,"会话不存在")
+    if body.title is not None and not body.title.strip(): raise HTTPException(422,"标题不能为空")
+    await store.execute("INSERT OR IGNORE INTO conversation_settings(conversation_id) VALUES(?)",(conversation_id,))
+    if body.title is not None:
+        await store.execute("UPDATE conversations SET title=? WHERE id=?",(body.title.strip(),conversation_id))
+        await store.execute("UPDATE conversation_settings SET title_manual=1 WHERE conversation_id=?",(conversation_id,))
+    for name in ('pinned','archived'):
+        value=getattr(body,name)
+        if value is not None: await store.execute(f"UPDATE conversation_settings SET {name}=? WHERE conversation_id=?",(int(value),conversation_id))
+    return {"updated":True}
+
+
+@app.post("/agent/conversations/{conversation_id}/share")
+async def share_conversation(conversation_id: str, request: Request, user=Depends(identity)):
+    store=request.app.state.store
+    if not await store.one("SELECT id FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["userId"])): raise HTTPException(404,"会话不存在")
+    view=await conversation(conversation_id,request,user)
+    snapshot={"title":view["title"],"messages":[{k:m[k] for k in ('role','content','created_at','attachments')} for m in view["messages"]]}
+    await store.execute("INSERT INTO conversation_shares(token,conversation_id,created_at,snapshot) VALUES(?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET snapshot=excluded.snapshot,created_at=excluded.created_at",(uid(),conversation_id,now(),json.dumps(snapshot,ensure_ascii=False)))
+    return await store.one("SELECT token FROM conversation_shares WHERE conversation_id=?",(conversation_id,))
+
+
+@app.delete("/agent/conversations/{conversation_id}/share")
+async def revoke_share(conversation_id: str, request: Request, user=Depends(identity)):
+    store=request.app.state.store
+    if not await store.one("SELECT id FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["userId"])): raise HTTPException(404,"会话不存在")
+    await store.execute("DELETE FROM conversation_shares WHERE conversation_id=?",(conversation_id,))
+    return {"revoked":True}
+
+
+@app.get("/agent/shared/{token}")
+async def shared_conversation(token: str, request: Request):
+    store=request.app.state.store
+    row=await store.one("SELECT snapshot FROM conversation_shares WHERE token=?",(token,))
+    if not row or not row["snapshot"]: raise HTTPException(404,"分享不存在或已停止分享")
+    return json.loads(row["snapshot"])
 
 
 @app.delete("/agent/conversations/{conversation_id}")
@@ -161,7 +215,7 @@ async def create_run(body: RunRequest, request: Request, user=Depends(identity))
         if active:
             raise HTTPException(409, "请先完成或取消当前任务")
     else:
-        await store.execute("INSERT INTO conversations VALUES(?,?,?,?)", (conversation_id, user["userId"], body.message.strip()[:40], now()))
+        await store.execute("INSERT INTO conversations VALUES(?,?,?,?)", (conversation_id, user["userId"], short_title(body.message), now()))
     message = body.message.strip()
     if body.build_id:
         await Business(request.app.state.client, user["authorization"]).get(f"/api/build-configs/public/{body.build_id}")

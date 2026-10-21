@@ -423,3 +423,10 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+.el-popper {border-radius:14px!important;}
+.el-dropdown-menu {border-radius:14px!important;padding:6px!important;}
+.el-dropdown-menu__item {border-radius:8px;margin:2px 0;}
+.el-popover.el-popper {border-radius:18px!important;}
+.el-message-box {border-radius:20px!important;}
+.el-message {border-radius:12px!important;}

@@ -12,6 +12,8 @@ import {
   Collection,
   Clock,
 } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import MessageAttachments from "../components/MessageAttachments.vue";
 import { api } from "../lib/api";
 import { user } from "../lib/session";
 import { markdown } from "../lib/markdown";
@@ -33,6 +35,11 @@ const route = useRoute(),
   question = ref(""),
   conversation = ref(""),
   history = ref<any[]>([]),
+  showArchived = ref(false),
+  conversationTitle = ref("新对话"),
+  shareOpen = ref(false),
+  shareUrl = ref(""),
+  sharingId = ref(""),
   historyOpen = ref(true),
   activityOpen = ref(true),
   showActivityMobile = ref(false),
@@ -80,8 +87,26 @@ async function deleteHistory(id: string) {
   if (conversation.value === id) fresh();
   await loadHistory();
 }
+async function historyAction(command:string,item:any) {
+  if(command === 'rename') {
+    let value:string;
+    try { ({value}=await ElMessageBox.prompt('输入新的对话标题','重命名',{inputValue:item.title,inputValidator:(v:string)=>!!v.trim() && v.trim().length<=80 || '请输入 1–80 个字符'})); } catch { return; }
+    await perform(async()=>{await api.request(`/agent/conversations/${item.id}`,'PATCH',{title:value.trim()});if(conversation.value===item.id)conversationTitle.value=value.trim();await loadHistory();});
+  } else if(command === 'share') {
+    sharingId.value=item.id;shareUrl.value='';shareOpen.value=true;
+  } else {
+    await perform(async()=>{await api.request(`/agent/conversations/${item.id}`,'PATCH',command==='pin' ? {pinned:!item.pinned} : {archived:!item.archived});await loadHistory();});
+  }
+}
+async function createShare() {
+  await perform(async()=>{const result=await api.request(`/agent/conversations/${sharingId.value}/share`,'POST');shareUrl.value=`${location.origin}/shared/${result.token}`;});
+}
+async function copyShare() {try{await navigator.clipboard.writeText(shareUrl.value);ElMessage.success('分享链接已复制');}catch{ElMessage.info('请手动复制分享链接');}}
+async function revokeShare() {await perform(async()=>{await api.request(`/agent/conversations/${sharingId.value}/share`,'DELETE');shareUrl.value='';shareOpen.value=false;},'已停止分享');}
+function messageDate(value:string) {return new Date(value).toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function showDate(index:number) {return index===0 || new Date(visibleMessages.value[index].created_at).getTime()-new Date(visibleMessages.value[index-1].created_at).getTime()>15*60*1000;}
 async function loadHistory() {
-  if (user.value) history.value = await api.request("/agent/conversations");
+  if (user.value) {history.value = await api.request(`/agent/conversations?archived=${showArchived.value}`);const selected=history.value.find(h=>h.id===conversation.value);if(selected)conversationTitle.value=selected.title;}
 }
 async function loadConversation(id: string) {
   const version = ++selectionVersion;
@@ -89,6 +114,7 @@ async function loadConversation(id: string) {
   const c = await api.request(`/agent/conversations/${id}`);
   if (version !== selectionVersion) return;
   conversation.value = id;
+  conversationTitle.value = c.title;
   messages.value = c.messages;
   run.value = c.runs.at(-1) || null;
   plan.value = [];
@@ -121,6 +147,7 @@ async function connect() {
         if (type === "answer_ready") { run.value.answer = data.answer; live.value = ""; }
         if (type === "work_summary") live.value = "";
         if (type === "text_delta" && !run.value.answer) live.value += data.text;
+        if (type === "conversation_title") {conversationTitle.value=data.title;void loadHistory();}
         if (type === "plan") plan.value = data.steps;
         if (type === "tool_started")
           step.value = toolNames[data.name] || "处理任务";
@@ -141,6 +168,7 @@ async function connect() {
         if (type === "run_completed" && !historical) {
           run.value.status = "completed";
           run.value.answer = data.answer;
+          if(data.conversation_title) conversationTitle.value=data.conversation_title;
         }
         void bottom();
       },
@@ -206,6 +234,7 @@ function fresh() {
   selectionVersion++;
   controller?.abort();
   conversation.value = "";
+  conversationTitle.value = "新对话";
   messages.value = [];
   run.value = null;
   activity.value = [];
@@ -251,7 +280,7 @@ onUnmounted(() => controller?.abort());
 </script>
 <template>
   <div class="chat-layout agent-workspace" :class="{ 'has-conversation': messages.length, 'history-collapsed':!historyOpen, 'activity-collapsed':!activityOpen }">
-    <aside class="chat-history desktop-only" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></aside>
+    <aside class="chat-history desktop-only" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" :archived="showArchived" @action="historyAction" @archive-view="showArchived = !showArchived; perform(loadHistory)" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></aside>
     <section class="chat-main">
       <header class="chat-toolbar">
         <button
@@ -264,8 +293,7 @@ onUnmounted(() => controller?.abort());
         </button>
         <div class="chat-heading">
           <h1>
-            <span class="mobile-chat-title">对话</span
-            ><span class="desktop-chat-title">装机对话</span>
+            <span class="conversation-title" :title="conversationTitle">{{conversationTitle}}</span>
           </h1>
 
         </div>
@@ -279,7 +307,7 @@ onUnmounted(() => controller?.abort());
           <el-icon><Plus /></el-icon><span>新对话</span>
         </button>
       </header>
-      <div class="mobile-history-wrap" :class="{'is-hidden':!historyOpen}" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></div>
+      <div class="mobile-history-wrap" :class="{'is-hidden':!historyOpen}" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" :archived="showArchived" @action="historyAction" @archive-view="showArchived = !showArchived; perform(loadHistory)" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></div>
       <div ref="scroll" class="chat-scroll">
         <el-alert v-if="error" :title="error" type="error" show-icon />
         <section v-if="!messages.length" class="welcome">
@@ -349,14 +377,12 @@ onUnmounted(() => controller?.abort());
         </section>
         <div class="messages">
           <article
-            v-for="m in visibleMessages"
+            v-for="(m,index) in visibleMessages"
             :key="m.id"
             class="message"
             :class="m.role"
           >
-            <div class="message-label">
-              {{ m.role === "user" ? "你" : "Smart DIY" }}
-            </div>
+            <time v-if="showDate(index)" class="message-date" :datetime="m.created_at">{{messageDate(m.created_at)}}</time>
             <div v-if="m.role === 'user'" class="message-body">
               {{ m.content }}
             </div>
@@ -364,7 +390,7 @@ onUnmounted(() => controller?.abort());
               v-else
               class="message-body markdown"
               v-html="markdown(m.content)"
-            />
+            /><MessageAttachments :attachments="m.attachments" />
           </article>
           <section v-if="run" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
             <details :key="run.id" class="execution-details">
@@ -382,7 +408,7 @@ onUnmounted(() => controller?.abort());
             <p v-if="question" class="content-text">{{ question }}</p>
             <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" text @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
           </section>
-          <article v-if="run?.answer" class="message assistant"><div class="message-label">Smart DIY</div><div class="message-body markdown" v-html="markdown(run.answer)" /></article>
+          <article v-if="run?.answer" class="message assistant"><div class="message-body markdown" v-html="markdown(run.answer)" /></article>
           <DraftCard
             v-if="run?.draft"
             :key="run.id + JSON.stringify(run.draft.partIds)"
@@ -410,7 +436,7 @@ onUnmounted(() => controller?.abort());
       </div>
       <footer class="composer-wrap">
         <form class="composer" @submit.prevent="submit()">
-          <el-popover placement="top-start" :width="230" trigger="click"
+          <el-popover popper-class="composer-tools-popover" :show-arrow="false" placement="top-start" :width="230" trigger="click"
             ><template #reference
               ><button
                 type="button"
@@ -449,7 +475,8 @@ onUnmounted(() => controller?.abort());
       </footer>
     </section>
     <aside class="chat-activity desktop-only" :aria-hidden="!activityOpen" :inert="!activityOpen"><ToolTimeline :events="activity" :status="run?.status" @close="activityOpen = false" /></aside>
-  </div>
+  <el-dialog v-model="shareOpen" title="分享对话" width="480px"><p>创建链接后，任何获得链接的人都可以查看当前对话快照；后续消息不会自动加入。你可以随时停止分享。</p><template v-if="shareUrl"><el-input :model-value="shareUrl" readonly /><div class="action-row"><el-button type="primary" @click="copyShare">复制链接</el-button><el-button @click="revokeShare">停止分享</el-button></div></template><el-button v-else type="primary" :loading="busy" @click="createShare">创建分享链接</el-button><el-button v-if="!shareUrl" text @click="revokeShare">停止已有分享</el-button></el-dialog>
+</div>
   <el-drawer v-model="showActivityMobile" title="执行记录" direction="rtl" size="min(360px, 94vw)" :with-header="false" class="activity-drawer"><ToolTimeline :events="activity" :status="run?.status" @close="showActivityMobile = false" /></el-drawer
   ><el-dialog
     v-model="showRequirements"

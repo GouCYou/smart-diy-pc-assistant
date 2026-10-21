@@ -46,6 +46,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
                         .requestMatchers(HttpMethod.GET,
+                                "/agent/shared/*",
                                 "/api/build-configs/public/*",
                                 "/api/community/posts",
                                 "/api/community/posts/*",

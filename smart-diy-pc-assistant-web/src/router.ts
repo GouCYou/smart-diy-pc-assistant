@@ -3,6 +3,7 @@ export default createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
+    { path: "/shared/:token", component: () => import("./views/SharedConversation.vue") },
     { path: "/", component: () => import("./views/Chat.vue") },
     { path: "/auth", component: () => import("./views/Auth.vue") },
     { path: "/builds", component: () => import("./views/Builds.vue") },
