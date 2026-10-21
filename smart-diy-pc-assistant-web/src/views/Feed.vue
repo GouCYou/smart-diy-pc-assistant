@@ -47,7 +47,11 @@ const filtered = computed(() =>
       `${r.title || ""} ${r.content || ""} ${r.summary || ""} ${r.tag || ""} ${r.author?.nickname || ""}`.includes(query.value),
     ),
   ),
-  size = 10;
+  size = computed(() => props.kind === "news" ? 12 : 10),
+  paginated = computed(() => props.kind === "news" || !desktop.value),
+  visibleRows = computed(() => paginated.value ? filtered.value.slice((page.value-1)*size.value,page.value*size.value) : filtered.value);
+watch([desktop,sort],()=>{page.value=1;});
+watch(()=>filtered.value.length, count=>{page.value=Math.min(page.value,Math.max(1,Math.ceil(count/size.value)));});
 async function load() {
   rows.value = await api.request(
     props.kind === "news"
@@ -111,7 +115,7 @@ watch(
     </div>
     <div v-if="kind === 'news'" v-slider class="segmented feed-segments"><button :class="{selected:sort==='latest'}" @click="sort='latest';perform(load)">最新</button><button :class="{selected:sort==='hot'}" @click="sort='hot';perform(load)">热度</button></div>
   </div>
-  <MasonryFeed :class="[kind === 'news' ? 'news-feed' : 'community-feed']" :items="filtered.slice((page-1)*size,page*size)" :columns="columnCount" :card-width="cardWidth" :gap="24" v-loading="busy"><template #default="{item:r}">
+  <MasonryFeed :class="[kind === 'news' ? 'news-feed' : 'community-feed']" :items="visibleRows" :columns="columnCount" :card-width="cardWidth" :gap="24" v-loading="busy"><template #default="{item:r}">
       <a :href="`/${kind}/${r.id}`" @click="event=>openPost(event,r.id)"
         ><img
           v-if="r.coverUrl"
@@ -150,7 +154,7 @@ watch(
     v-if="!filtered.length && !busy"
     description="还没有相关内容"
   /><el-pagination
-    v-if="filtered.length > size"
+    v-if="paginated && filtered.length > size"
     v-model:current-page="page"
     :total="filtered.length"
     :page-size="size"

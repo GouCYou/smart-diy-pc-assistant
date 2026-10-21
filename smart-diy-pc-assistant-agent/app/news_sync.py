@@ -64,7 +64,7 @@ class NewsSync:
                 state=await self.call('/state');known=set(state['urls']);cutoff=datetime.fromisoformat(state['cutoff'])
                 async with httpx.AsyncClient(timeout=30,follow_redirects=False,headers={'User-Agent':'SmartDIY-News/1.0 (+https://smartdiy.cctstudio.cn)'}) as web:
                     r=await web.get(LIST_URL);r.raise_for_status()
-                    for item in parse_list(r.text)[:40]:
+                    for item in parse_list(r.text)[:12]:
                         if item['sourceUrl'] in known or datetime.fromisoformat(item['publishedAt'])<cutoff:report['skipped']+=1;continue
                         try:
                             response=await web.get(item['sourceUrl']);response.raise_for_status();content,images=parse_article(response.text,item['sourceUrl'])
