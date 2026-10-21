@@ -61,6 +61,11 @@ class Crawler:
             variants={re.sub(r"\s+", "", value.lower()) for value in re.findall(r"(?:rtx|gtx|rx)\s*\d{3,4}(?:\s*(?:ti|super|xtx|xt))?", title, re.I)}
             if len(variants)>1:
                 return False
+        if part_type == "CPU":
+            variants={value.lower() for value in re.findall(r"(?<![a-z0-9])(?:[3579]\d{3}(?:x3d2?|[xfg]t?|t)?|1[2345]\d{3}[kft]{0,2}|[23]\d{2}[kf]f?)(?![a-z0-9])",title,re.I)}
+            variants-={'3000','5000','7000','9000'}
+            if len(variants)>1:
+                return False  # A mixed-model title does not establish which processor this quote buys.
         if part_type == "CASE" and re.search(r"\batx\b", keyword, re.I):
             formats=re.sub(r"(?<![a-z])m[\s-]*atx(?![a-z])", "", normalized)
             if re.search(r"(?<![a-z])m[\s-]*atx(?![a-z])",normalized) and not re.search(r"(?<![a-z])atx(?![a-z])",formats):

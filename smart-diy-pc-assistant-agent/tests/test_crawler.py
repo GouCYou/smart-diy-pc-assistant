@@ -110,3 +110,9 @@ async def test_search_enriches_explicit_public_final_price_and_retains_page_pric
         p=(await crawler.search('RTX 5060','GPU'))['products'][0]
         assert p['price']==1999 and p['pagePrice']==2499 and p['priceType']=='final'
     finally: await crawler.close()
+
+
+def test_mixed_cpu_listing_cannot_establish_the_selected_processor():
+    assert not Crawler.matches('AMD Ryzen 5 5600盒装 AMD R5 9600X盒装','Ryzen 5 9600X','CPU')
+    assert not Crawler.matches('AMD 9600X 9700X 9900X 可选 R5 9600X','Ryzen 5 9600X','CPU')
+    assert Crawler.matches('AMD 9600X散片 CPU','Ryzen 5 9600X','CPU')
