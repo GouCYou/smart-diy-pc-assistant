@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NavigationToggle from "../components/NavigationToggle.vue";
 import { computed, onMounted, ref } from 'vue';
 import { UserFilled, ArrowRight } from '@element-plus/icons-vue';
 import { user } from '../lib/session';
@@ -14,7 +15,7 @@ onMounted(() => perform(async () => {
 </script>
 <template>
   <div class="account-home">
-    <h1 class="desktop-only account-heading">我的</h1>
+    <h1 class="desktop-only account-heading page-title-controls"><NavigationToggle />我的</h1>
     <el-alert v-if="error" :title="error" type="error" />
     <router-link :to="user ? '/profile' : '/auth'" class="profile-card">
       <el-avatar :size="64" :src="user?.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar>

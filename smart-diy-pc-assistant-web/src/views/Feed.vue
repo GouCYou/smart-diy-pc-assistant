@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NavigationToggle from "../components/NavigationToggle.vue";
 import DialogHeading from "../components/DialogHeading.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, reactive, ref, watch } from "vue";
@@ -77,7 +78,7 @@ watch(
 </script>
 <template>
   <div class="page-heading">
-    <div>
+    <div class="page-title-controls"><NavigationToggle />
       <h1><span class="desktop-only">{{ kind === "news" ? "硬件资讯" : "装机社区" }}</span><span class="mobile-only">{{kind === 'news' ? '热点' : '发现'}}</span></h1>
     </div>
     <div v-if="kind === 'news'" v-slider class="segmented news-sort"><button :class="{selected:sort === 'latest'}" @click="sort = 'latest'; perform(load)">最新</button><button :class="{selected:sort === 'hot'}" @click="sort = 'hot'; perform(load)">热度</button></div>

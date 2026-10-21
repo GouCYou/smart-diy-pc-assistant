@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
+from openai import APIConnectionError, AuthenticationError, InternalServerError, NotFoundError, RateLimitError
 from .business import Business
 from .compatibility import check
 from .store import now, uid
@@ -314,24 +315,26 @@ class Runtime:
             log.error("Agent run %s failed (%s)", run_id, type(exc).__name__)
             # Never persist provider exceptions: they can contain request headers or API keys.
             message = str(exc) if isinstance(exc, (ValueError, TimeoutError)) else "任务执行失败，请检查模型、工具服务和调用额度后重试"
-            if type(exc).__name__ == "AuthenticationError":
+            if isinstance(exc,AuthenticationError):
                 message = "模型接口认证失败，请管理员检查 API Key"
-            elif type(exc).__name__ == "NotFoundError":
+            elif isinstance(exc,NotFoundError):
                 message = "模型接口或模型名称不存在，请管理员核对服务商的模型 ID"
-            elif type(exc).__name__ == "RateLimitError":
+            elif isinstance(exc,RateLimitError):
                 message = "模型服务触发限流或额度不足，请稍后继续或检查服务商余额"
-            elif type(exc).__name__ in ("APITimeoutError", "APIConnectionError"):
+            elif isinstance(exc,APIConnectionError):
                 message = "模型服务暂时无法连接或请求超时，已保留任务进度，可稍后继续"
+            elif isinstance(exc,InternalServerError):
+                message = "模型服务暂时繁忙或上游异常，已保留任务进度"
             elif isinstance(exc, TimeoutError):
                 message = "本次执行超过时限，已保存已生成文本、商品报价和配置进度"
             elif isinstance(exc, RuntimeError) and "工具调用上限" in str(exc):
                 message = "任务达到工具调用上限，已保留查询结果，可调整执行额度后继续"
             elif type(exc).__name__ == "GraphRecursionError":
                 message = "任务达到执行步骤上限，已保留进度。请缩小需求或调整执行额度后重试"
-            retryable=isinstance(exc,TimeoutError) or type(exc).__name__ in ("APITimeoutError","APIConnectionError","RateLimitError","InternalServerError")
+            retryable=isinstance(exc,(TimeoutError,APIConnectionError,RateLimitError,InternalServerError))
             if retryable and retries_left:
                 await self.store.event(run_id,'attempt_failed',{'message':message[:300],'will_retry':True})
                 return True
             await self.store.execute("UPDATE runs SET status='failed',error=?,updated_at=? WHERE id=?", (message[:300], now(), run_id))
             await self.store.event(run_id, "run_failed", {"message": message[:300]})
-            return isinstance(exc,TimeoutError) or type(exc).__name__ in ("APITimeoutError","APIConnectionError","RateLimitError","InternalServerError")
+            return isinstance(exc,(TimeoutError,APIConnectionError,RateLimitError,InternalServerError))

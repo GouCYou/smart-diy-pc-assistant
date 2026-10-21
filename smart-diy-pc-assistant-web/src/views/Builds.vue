@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NavigationToggle from "../components/NavigationToggle.vue";
 import ProductParts from "../components/ProductParts.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
@@ -140,7 +141,7 @@ onMounted(() =>
 </script>
 <template>
   <div class="page-heading">
-    <div>
+    <div class="page-title-controls"><NavigationToggle />
       <h1><span class="desktop-only">{{title}}</span><span class="mobile-only">配置</span></h1>
     </div>
     <el-button type="primary" @click="perform(() => edit())"

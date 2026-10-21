@@ -687,7 +687,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .brand { gap: 10px; padding: 0 8px; white-space: nowrap; overflow: hidden; }
 .brand img { flex: 0 0 36px; }
 .brand > span { opacity: 1; max-width: 140px; transition: opacity .18s, max-width .3s; }
-.sidebar-toggle { position: relative; align-self: center; margin: 14px auto 0; width: 34px; height: 34px; border: 0; border-radius: 10px; display: grid; place-items: center; color: #7c8798; background: #e7eaf0; font-size: 16px; }
 .primary-nav { margin-top: 28px !important; }
 .primary-nav a { min-height: 48px; padding: 12px 14px !important; white-space: nowrap; overflow: hidden; }
 .primary-nav a .el-icon { flex-shrink: 0; }
@@ -812,13 +811,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .activity-event p, .activity-plan { font-size: 13px; }
 .mobile-nav { isolation: isolate; }
 
-/* Each dot floats vertically in place; the central AI mark remains still. */
+/* Combine orbital motion with each dot floating; counter-rotate the AI core. */
+.welcome-orbit {animation:agent-orbit 9s linear infinite;}
+.orbit-core {top:12px;animation:agent-counter-orbit 9s linear infinite;}
 .orbit-dot {animation:agent-dot-float 2.8s ease-in-out infinite;}
 .orbit-blue {left:30px;top:1px;animation-delay:-.4s;}
 .orbit-green {right:2px;top:43px;animation-delay:-1.3s;}
 .orbit-orange {left:6px;bottom:8px;animation-delay:-2.2s;}
+@keyframes agent-orbit {to{transform:rotate(360deg);}}
+@keyframes agent-counter-orbit {to{transform:rotate(-360deg);}}
 @keyframes agent-dot-float {0%,100%{transform:translateY(-4px);}50%{transform:translateY(4px);}}
-@media (prefers-reduced-motion: reduce) {.orbit-dot {animation:none;}}
+@media (prefers-reduced-motion: reduce) {.welcome-orbit,.orbit-core,.orbit-dot {animation:none;}}
 
 .conversation-history > header button { margin-left: 0; color: #566276; }
 
@@ -1030,3 +1033,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid #94b9ff; outline-offs
 .product-price-kind {font-size:10px;color:#99a4b5;font-weight:400;}
 .picker-price-label {display:block;font-size:10px;color:#99a4b5;line-height:1.7;margin-top:6px;}
 .is-compact .product-price-kind {display:none;}
+
+.main-navigation-toggle {flex:0 0 34px;width:34px;height:34px;border:0;border-radius:10px;display:grid;place-items:center;color:#7c8798;background:#f0f2f6;font-size:16px;}
+.main-navigation-toggle:hover {background:#e5e9f0;color:#273448;}
+.page-title-controls {display:flex;align-items:center;gap:14px;min-width:0;}
+.web-main {position:relative;}
+.subpage-navigation-toggle {position:absolute;top:20px;left:24px;z-index:5;}
+@media(min-width:761px){.web-shell.is-subpage:not(.is-auth) .web-content {padding-top:76px;}}
+@media(max-width:760px){.main-navigation-toggle {display:none;}}

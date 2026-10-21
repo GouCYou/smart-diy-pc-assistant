@@ -5,7 +5,7 @@
 - Both frontends use same-origin `/api`, `/agent`, `/media`. All requests enter Java; Java forwards `/agent/**` to Python using HTTP/1.1 with immediate SSE flushes. Never point a frontend directly at the Python port.
 - Java owns users, permissions, hardware, saved builds, community/news and uploads. Python owns Agent orchestration, crawling, history, RAG and tool events. Do not restore Java AI or the removed market module.
 - Python authenticates each user/admin through Java `/api/auth/me`; do not trust frontend-supplied identity.
-- History is a persistent sidebar with fold controls, default expanded. Global navigation defaults collapsed, its toggle sits below the personal-center item. Keep desktop/mobile slider and route animations consistent. Respect reduced-motion preferences.
+- History is a persistent sidebar with fold controls, default expanded. Global navigation defaults collapsed, its toggle sits in the main content title row, outside both sidebars. Keep desktop/mobile slider and route animations consistent. Respect reduced-motion preferences.
 
 ## Production server (verified 2026-10-21)
 - SSH: `gouc@192.168.1.6`; never log in as root. Obtain credentials from the user/session, never write them in source/docs.
@@ -40,7 +40,7 @@
 - User selected `moonshotai/kimi-k3-free` after trying the proposed DeepSeek replacement. The account model catalog and a real ping tool call verified availability. Keep the user-selected free model; do not silently fall back to paid models. Provider's own page warns of possible free-tier limits/outages.
 
 ## Chat UI and legacy compatibility (2026-10-21)
-- No global breadcrumb/top header. In the expanded desktop navigation footer, order is avatar/nickname, notifications, arrow. The navigation fold button remains below Personal Center and centered in the collapsed rail.
+- No global breadcrumb/top header. In the expanded desktop navigation footer, order is avatar/nickname, notifications, arrow. The global navigation fold button belongs beside the main page/chat title, outside both sidebars. It uses the same shared collapsed state on all routes.
 - User bubbles align right; text inside them aligns left. Neither role has a visible sender label. Render assistant Markdown with sanitization; do not remove legitimate Markdown formatting to hide syntax.
 - Chat heading follows its conversation title. Agent plan tool can generate the title, with a bounded same-model fallback after completion. Manual titles take precedence. History rows omit timestamps; message groups show dates inside the conversation.
 - History menus support rename, pin, share/revoke and delete. Archive was removed at the user's request; old archived rows remain visible, with their stored data preserved. Sharing publishes an explicit read-only snapshot; later messages stay private until the owner explicitly updates that snapshot. Menus/popovers must be rounded on desktop and mobile.
@@ -57,7 +57,7 @@
 - First-time DNS/certificate/DDNS provisioning is separate from routine release. Subsequent releases reuse those settings. `deployed-commit` and `last-release-backup` under the server deployment root identify the current revision and recovery location.
 
 ## Product cards and streaming acceptance (2026-10-21)
-- The welcome AI emblem stays still; its three colored dots float vertically in place with staggered phases on desktop and mobile. Never rotate the group; disable animation for reduced motion.
+- The welcome AI emblem stays still through counter-rotation; its three colored dots orbit around it while also floating up and down with staggered phases on desktop and mobile. Disable all motion for reduced motion.
 - Requirement chips are independent single-choice buttons with a black selected state and no checkmark; never apply the navigation slider directive to them. Keep the numeric budget range control separate.
 - ProductParts renders the same image/title/model/specification/price/JD-link structure for Agent drafts, saved-build previews/details and shared snapshots. Drafts normalize partSelections into the view; do not lose quote metadata when saving or editing. Preserve unknown prices and missing images explicitly rather than inventing replacements. Mixed GPU variant listings and MATX-only cases must not be treated as exact GPU/ATX-case matches; leave old captured snapshots intact.
 - Build detail has a fixed header/footer, a body scrollbar at the right edge, rounded compatibility details and bounded desktop height; mobile remains full screen. The ordinary page scrollbar belongs to the viewport, not a centered max-width content box.
@@ -76,3 +76,5 @@
 - Stream microbatches persist partial text and events together. Final model output also persists an idempotent assistant message immediately, before subsequent checkpoint/title work. Interrupted fragments remain available as public saved content when a new model turn starts; preserve prior work summaries across retries. Never manufacture a final answer from summaries or reveal hidden reasoning.
 - SKU errors return exact queried candidates for that hardware ID; blank SKU only selects automatically when exactly one verified candidate exists. Expensive GPU/RAM/SSD quotes are not mismatches merely because they exceed historical prices; use observed quotes and captured timestamps, adjusting parts to budget rather than inventing lower prices.
 - Prefer explicit public final/after-coupon/subsidy prices, preserving conditions and page-price provenance. JD `lowestPrice=1` is a flag, not one yuan; masked digits and coupon amounts are not usable prices. Public detail pages can require login before showing final price: retain and label the observed page quote in that case. Never bypass risk control or infer a hidden settlement amount. Saved build snapshots retain price type/label/conditions without rewriting older snapshots.
+
+- Production recovery also encountered provider HTTP 502 “Model resources are currently busy”, wrapped by LangChain as `OpenAIAPIError`. Classify provider errors with `isinstance` against SDK base exceptions (including LangChain subclasses), never exact class-name strings. The same bounded retry applies to wrapped 429/502/connection errors; this is not a model-ID mismatch.

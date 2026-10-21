@@ -44,6 +44,7 @@ declare module 'vue' {
     EmptyState: typeof import('./components/EmptyState.vue')['default']
     MessageActions: typeof import('./components/MessageActions.vue')['default']
     MessageAttachments: typeof import('./components/MessageAttachments.vue')['default']
+    NavigationToggle: typeof import('./components/NavigationToggle.vue')['default']
     ProductParts: typeof import('./components/ProductParts.vue')['default']
     Requirements: typeof import('./components/Requirements.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

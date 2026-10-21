@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NavigationToggle from "../components/NavigationToggle.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -322,6 +323,7 @@ onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval
     <aside class="chat-history desktop-only" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></aside>
     <section class="chat-main">
       <header class="chat-toolbar">
+        <NavigationToggle />
         <button
           v-if="!historyOpen" class="chat-icon-button history-toggle"
           :aria-label="historyOpen ? '收起历史侧栏' : '展开历史侧栏'"

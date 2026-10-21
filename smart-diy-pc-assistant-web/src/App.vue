@@ -11,15 +11,14 @@ import {
   Bell,
   ArrowRight,
   ArrowLeft,
-  DArrowLeft,
-  DArrowRight,
   QuestionFilled,
 } from "@element-plus/icons-vue";
+import NavigationToggle from "./components/NavigationToggle.vue";
+import { sidebarCollapsed } from "./lib/navigation";
 import { user, restore, logout } from "./lib/session";
 const router = useRouter();
 const route = useRoute(),
-  ready = ref(false),
-  sidebarCollapsed = ref(true);
+  ready = ref(false);
 const nav = [
   { path: "/", label: "对话", icon: ChatDotRound },
   { path: "/builds", label: "配置", icon: Grid },
@@ -75,13 +74,13 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
                       : "个人中心"
             }}</span></router-link>
         </nav>
-        <button class="sidebar-toggle" :aria-label="sidebarCollapsed ? '展开导航' : '收起导航'" :title="sidebarCollapsed ? '展开导航' : '收起导航'" :aria-expanded="!sidebarCollapsed" @click="sidebarCollapsed = !sidebarCollapsed"><el-icon><DArrowRight v-if="sidebarCollapsed" /><DArrowLeft v-else /></el-icon></button>
         <div class="sidebar-bottom">
           <router-link to="/feedback" title="帮助与反馈" aria-label="帮助与反馈" class="sidebar-help"><el-icon><QuestionFilled /></el-icon><span>帮助与反馈</span></router-link
           ><div class="account-link"><router-link :to="user ? '/account' : '/auth'" class="account-avatar" :aria-label="user?.nickname || '登录你的账户'"><el-avatar :size="36" :src="user?.avatarUrl"><span v-if="user">{{(user.nickname || user.username).slice(0,1)}}</span><el-icon v-else><User /></el-icon></el-avatar></router-link><router-link :to="user ? '/account' : '/auth'" class="account-name">{{user?.nickname || user?.username || '登录你的账户'}}</router-link><router-link to="/notifications" class="sidebar-notification" aria-label="消息通知" title="消息通知"><el-icon><Bell /></el-icon></router-link><router-link :to="user ? '/account' : '/auth'" class="account-arrow" aria-label="个人中心"><el-icon><ArrowRight /></el-icon></router-link></div>
         </div>
       </aside>
       <div class="web-main">
+        <NavigationToggle v-if="!rootPage" class="subpage-navigation-toggle" />
         <header v-if="!rootPage && route.path !== '/auth'" class="mobile-page-bar">
           <button aria-label="返回" @click="back"><el-icon><ArrowLeft /></el-icon></button><strong>{{ pageTitle }}</strong><span id="mobile-page-action" />
         </header>

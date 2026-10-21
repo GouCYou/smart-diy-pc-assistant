@@ -497,13 +497,18 @@ async def test_legacy_short_limits_upgrade_without_lowering_long_limits(tmp_path
     await store.close()
 
 
-async def test_transient_timeout_retries_real_checkpoint_and_finishes_once(env):
+@pytest.mark.parametrize("error_kind",["timeout","server","rate_limit"])
+async def test_transient_timeout_retries_real_checkpoint_and_finishes_once(env,error_kind):
     store,runtime,k,crawler,web,mp=env
     class OnceTimeout(ScriptedModel):
         def _generate(self,messages,stop=None,run_manager=None,**kwargs):
             if self.index==0:
                 self.index+=1
-                raise TimeoutError()
+                if error_kind=="timeout":raise TimeoutError()
+                from langchain_openai.chat_models.base import OpenAIAPIError,OpenAIRateLimitError
+                cls=OpenAIAPIError if error_kind=="server" else OpenAIRateLimitError
+                response=httpx.Response(502 if error_kind=="server" else 429,request=httpx.Request("POST","https://provider.example/chat/completions"))
+                raise cls(message="Model resources are currently busy",response=response,body={"error":{"type":"upstream_error"}})
             return super()._generate(messages,stop,run_manager,**kwargs)
     model=OnceTimeout(responses=[AIMessage(content='恢复后的完整回答')])
     mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
