@@ -116,8 +116,8 @@ async def health():
 
 
 @app.get("/agent/conversations")
-async def conversations(request: Request, archived: bool = False, user=Depends(identity)):
-    rows = await request.app.state.store.all("SELECT c.*,COALESCE(s.title_manual,0) AS title_manual,COALESCE(s.pinned,0) AS pinned,COALESCE(s.archived,0) AS archived FROM conversations c LEFT JOIN conversation_settings s ON c.id=s.conversation_id WHERE c.user_id=? AND COALESCE(s.archived,0)=? ORDER BY pinned DESC,c.updated_at DESC", (user["userId"], int(archived)))
+async def conversations(request: Request, user=Depends(identity)):
+    rows = await request.app.state.store.all("SELECT c.*,COALESCE(s.title_manual,0) AS title_manual,COALESCE(s.pinned,0) AS pinned,(SELECT r.status FROM runs r WHERE r.conversation_id=c.id ORDER BY r.created_at DESC LIMIT 1) AS status FROM conversations c LEFT JOIN conversation_settings s ON c.id=s.conversation_id WHERE c.user_id=? ORDER BY pinned DESC,c.updated_at DESC", (user["userId"],))
     for row in rows:
         if not row.pop("title_manual") and len(row["title"])>24: row["title"]=short_title(row["title"])
     return rows
@@ -134,13 +134,16 @@ async def conversation(conversation_id: str, request: Request, user=Depends(iden
     row["messages"] = [message_view(m) for m in await store.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id", (conversation_id,))]
     rows = await store.all("SELECT id FROM runs WHERE conversation_id=? ORDER BY created_at", (conversation_id,))
     row["runs"] = [await store.run(r["id"]) for r in rows]
+    for run in row['runs']:
+        if run.get('draft') and run.get('answer'):
+            message=next((m for m in reversed(row['messages']) if m['role']=='assistant' and m['content']==run['answer']),None)
+            if message: message['attachments']['draft']=run['draft']
     return row
 
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None,min_length=1,max_length=80)
     pinned: bool | None = None
-    archived: bool | None = None
 
 
 @app.patch("/agent/conversations/{conversation_id}")
@@ -153,17 +156,25 @@ async def update_conversation(conversation_id: str, body: ConversationUpdate, re
     if body.title is not None:
         await store.execute("UPDATE conversations SET title=? WHERE id=?",(body.title.strip(),conversation_id))
         await store.execute("UPDATE conversation_settings SET title_manual=1 WHERE conversation_id=?",(conversation_id,))
-    for name in ('pinned','archived'):
+    for name in ('pinned',):
         value=getattr(body,name)
         if value is not None: await store.execute(f"UPDATE conversation_settings SET {name}=? WHERE conversation_id=?",(int(value),conversation_id))
     return {"updated":True}
 
 
+class ShareRequest(BaseModel):
+    message_id: str | None = None
+
+
 @app.post("/agent/conversations/{conversation_id}/share")
-async def share_conversation(conversation_id: str, request: Request, user=Depends(identity)):
+async def share_conversation(conversation_id: str, request: Request, body: ShareRequest | None = None, user=Depends(identity)):
     store=request.app.state.store
     if not await store.one("SELECT id FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["userId"])): raise HTTPException(404,"会话不存在")
     view=await conversation(conversation_id,request,user)
+    if body and body.message_id:
+        index=next((i for i,m in enumerate(view['messages']) if m['id']==body.message_id and m['role']=='assistant'),None)
+        if index is None: raise HTTPException(404,"消息不存在")
+        view['messages']=view['messages'][:index+1]
     snapshot={"title":view["title"],"messages":[{k:m[k] for k in ('role','content','created_at','attachments')} for m in view["messages"]]}
     await store.execute("INSERT INTO conversation_shares(token,conversation_id,created_at,snapshot) VALUES(?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET snapshot=excluded.snapshot,created_at=excluded.created_at",(uid(),conversation_id,now(),json.dumps(snapshot,ensure_ascii=False)))
     return await store.one("SELECT token FROM conversation_shares WHERE conversation_id=?",(conversation_id,))
@@ -228,6 +239,36 @@ async def create_run(body: RunRequest, request: Request, user=Depends(identity))
     return await store.run(run_id)
 
 
+class RegenerateRequest(BaseModel):
+    message_id: str
+
+
+@app.post("/agent/conversations/{conversation_id}/regenerate", status_code=201)
+async def regenerate(conversation_id: str, body: RegenerateRequest, request: Request, user=Depends(identity)):
+    view=await conversation(conversation_id,request,user)
+    index=next((i for i,m in enumerate(view['messages']) if m['id']==body.message_id and m['role']=='assistant'),None)
+    if index is None: raise HTTPException(404,"消息不存在")
+    prior=view['messages'][:index]
+    if not prior or prior[-1]['role']!='user': raise HTTPException(409,"未找到对应的用户请求")
+    active=await request.app.state.store.one("SELECT count(*) AS n FROM runs WHERE user_id=? AND status IN ('queued','running','needs_input')",(user['userId'],))
+    if active['n']>=3: raise HTTPException(429,"请先完成或取消进行中的任务")
+    # Keep the original conversation and all later messages intact.
+    cid=uid();store=request.app.state.store
+    await store.execute("INSERT INTO conversations VALUES(?,?,?,?)",(cid,user['userId'],view['title'],now()))
+    for m in prior[:-1]:
+        original=await store.one("SELECT content FROM messages WHERE id=?",(m['id'],))
+        await store.execute("INSERT INTO messages VALUES(?,?,?,?,?)",(uid(),cid,m['role'],original['content'],m['created_at']))
+    return await create_run(RunRequest(message=prior[-1]['content'],conversation_id=cid),request,user)
+
+
+@app.get("/agent/products/search")
+async def product_search(request: Request, hardware_id: int, user=Depends(identity)):
+    parts=await Business(request.app.state.client,user['authorization']).hardware()
+    part=next((p for p in parts if p['id']==hardware_id and p.get('enabled',True)),None)
+    if not part: raise HTTPException(404,"硬件不存在")
+    return await request.app.state.crawler.search(part['model'],part['type'])
+
+
 @app.get("/agent/runs/{run_id}")
 async def get_run(run_id: str, request: Request, user=Depends(identity)):
     return await owned_run(request, run_id, user)
@@ -258,9 +299,9 @@ async def events(run_id: str, request: Request, after: int = 0, user=Depends(ide
                 break
             idle += 1
             if idle % 20 == 0:
-                yield ": keepalive\n\n"
+                yield "event: heartbeat\ndata: {}\n\n"
             await asyncio.sleep(0.25)
-    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
 
 
 @app.post("/agent/runs/{run_id}/cancel")

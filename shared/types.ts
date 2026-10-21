@@ -35,6 +35,7 @@ export interface Build {
   note: string;
   serialNumber: string;
   totalPrice: number;
+  performanceScore?: number;
   source: string;
   favorite: boolean;
   parts: Hardware[];
@@ -96,11 +97,14 @@ export interface Reference {
   excerpt: string;
   updatedAt: string;
 }
+export interface ProductSelection {
+  hardwarePartId:number; title:string; price:number; image:string; link:string; skuId:string; matchedModel:string;
+}
 export interface Draft {
   title: string;
   note: string;
   partIds: number[];
-  partSelections: unknown[];
+  partSelections: ProductSelection[];
   source: string;
   parts: (Hardware & { selectedPrice: number })[];
   validation: {

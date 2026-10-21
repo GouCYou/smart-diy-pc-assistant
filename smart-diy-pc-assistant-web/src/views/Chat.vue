@@ -11,11 +11,14 @@ import {
   Cpu,
   Collection,
   Clock,
+  VideoPause,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import MessageActions from "../components/MessageActions.vue";
 import MessageAttachments from "../components/MessageAttachments.vue";
 import { api } from "../lib/api";
 import { user } from "../lib/session";
+import { buildAnswer } from "../lib/buildAnswer";
 import { markdown } from "../lib/markdown";
 import { useTask } from "../lib/task";
 import ConversationHistory from "../components/ConversationHistory.vue";
@@ -35,7 +38,9 @@ const route = useRoute(),
   question = ref(""),
   conversation = ref(""),
   history = ref<any[]>([]),
-  showArchived = ref(false),
+  sharingMessageId = ref(""),
+  elapsed = ref(0),
+  followOutput = ref(true),
   conversationTitle = ref("新对话"),
   shareOpen = ref(false),
   shareUrl = ref(""),
@@ -46,6 +51,7 @@ const route = useRoute(),
   activity = ref<ActivityEvent[]>([]),
   showRequirements = ref(false),
   scroll = ref<HTMLElement | null>(null);
+const currentAnswerMessage = computed(()=>[...messages.value].reverse().find(m=>m.role==='assistant' && m.content===run.value?.answer));
 const active = computed(
     () => run.value && ["queued", "running"].includes(run.value.status),
   ),
@@ -71,15 +77,19 @@ const completedCalls = computed(() => currentEvents.value.filter(e => e.type ===
 const totalCalls = computed(() => currentEvents.value.filter(e => e.type === 'tool_started').length);
 const progress = computed(() => run.value?.status === 'completed' ? 100 : totalCalls.value ? Math.min(100, Math.round(completedCalls.value / totalCalls.value * 100)) : 0);
 const workSummaries = computed(() => currentEvents.value.filter(e => e.type === 'work_summary').map(e => e.data.text));
+const progressHint = computed(()=>live.value.trim() ? live.value.replace(/[#*`]/g,'').split('\n').filter(Boolean).at(-1)?.slice(0,100) : step.value || (totalCalls.value ? '正在整理查询结果' : '正在分析需求，等待模型响应'));
 const executionTitle = computed(() => active.value ? (step.value || '正在理解需求') : run.value?.status === 'completed' ? '处理完成' : runStatuses[run.value?.status || ''] || '执行过程');
 let controller: AbortController | undefined,
   cursor = 0,
   selectionVersion = 0;
-async function bottom() {
+let historyTimer:ReturnType<typeof setInterval>, elapsedTimer:ReturnType<typeof setInterval>;
+function trackChatScroll(){const el=scroll.value;if(el)followOutput.value=el.scrollHeight-el.clientHeight-el.scrollTop<96;}
+async function bottom(force=false) {
   await nextTick();
+  if(!force && !followOutput.value)return;
   scroll.value?.scrollTo({
     top: scroll.value.scrollHeight,
-    behavior: "smooth",
+    behavior: "instant",
   });
 }
 async function deleteHistory(id: string) {
@@ -93,20 +103,22 @@ async function historyAction(command:string,item:any) {
     try { ({value}=await ElMessageBox.prompt('输入新的对话标题','重命名',{inputValue:item.title,inputValidator:(v:string)=>!!v.trim() && v.trim().length<=80 || '请输入 1–80 个字符'})); } catch { return; }
     await perform(async()=>{await api.request(`/agent/conversations/${item.id}`,'PATCH',{title:value.trim()});if(conversation.value===item.id)conversationTitle.value=value.trim();await loadHistory();});
   } else if(command === 'share') {
-    sharingId.value=item.id;shareUrl.value='';shareOpen.value=true;
+    sharingId.value=item.id;sharingMessageId.value='';shareUrl.value='';shareOpen.value=true;
   } else {
-    await perform(async()=>{await api.request(`/agent/conversations/${item.id}`,'PATCH',command==='pin' ? {pinned:!item.pinned} : {archived:!item.archived});await loadHistory();});
+    await perform(async()=>{await api.request(`/agent/conversations/${item.id}`,'PATCH',{pinned:!item.pinned});await loadHistory();});
   }
 }
+function shareMessage(id?:string){if(!id)return;sharingId.value=conversation.value;sharingMessageId.value=id;shareUrl.value='';shareOpen.value=true;}
+async function regenerateMessage(id?:string){if(!id || active.value)return;await perform(async()=>{const next=await api.request(`/agent/conversations/${conversation.value}/regenerate`,'POST',{message_id:id});await loadHistory();await loadConversation(next.conversation_id);});}
 async function createShare() {
-  await perform(async()=>{const result=await api.request(`/agent/conversations/${sharingId.value}/share`,'POST');shareUrl.value=`${location.origin}/shared/${result.token}`;});
+  await perform(async()=>{const result=await api.request(`/agent/conversations/${sharingId.value}/share`,'POST',sharingMessageId.value ? {message_id:sharingMessageId.value} : undefined);shareUrl.value=`${location.origin}/shared/${result.token}`;});
 }
 async function copyShare() {try{await navigator.clipboard.writeText(shareUrl.value);ElMessage.success('分享链接已复制');}catch{ElMessage.info('请手动复制分享链接');}}
 async function revokeShare() {await perform(async()=>{await api.request(`/agent/conversations/${sharingId.value}/share`,'DELETE');shareUrl.value='';shareOpen.value=false;},'已停止分享');}
 function messageDate(value:string) {return new Date(value).toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 function showDate(index:number) {return index===0 || new Date(visibleMessages.value[index].created_at).getTime()-new Date(visibleMessages.value[index-1].created_at).getTime()>15*60*1000;}
 async function loadHistory() {
-  if (user.value) {history.value = await api.request(`/agent/conversations?archived=${showArchived.value}`);const selected=history.value.find(h=>h.id===conversation.value);if(selected)conversationTitle.value=selected.title;}
+  if (user.value) {history.value = await api.request("/agent/conversations");const selected=history.value.find(h=>h.id===conversation.value);if(selected)conversationTitle.value=selected.title;}
 }
 async function loadConversation(id: string) {
   const version = ++selectionVersion;
@@ -126,24 +138,25 @@ async function loadConversation(id: string) {
   activity.value = logs.flat().sort((a:ActivityEvent,b:ActivityEvent) => a.id-b.id);
   await router.replace({ path: "/", query: { conversation: id } });
   if (run.value) await connect();
-  await bottom();
+  await bottom(true);
 }
 async function connect() {
   if (!run.value) return;
   controller?.abort();
   controller = new AbortController();
   const current = run.value.id;
+  elapsed.value=Math.max(0,Math.floor((Date.now()-new Date(run.value.created_at).getTime())/1000));
   const historical = !["queued", "running"].includes(run.value.status);
   try {
     await api.stream(
       `/agent/runs/${current}/events?after=${cursor}`,
       (type, data, id) => {
-        cursor = id;
+        if(id)cursor = id;
         if (!run.value || run.value.id !== current) return;
-        if (!['text_delta','usage','model_turn_started','answer_ready'].includes(type) && !activity.value.some(e => e.id === id)) {
+        if (!['text_delta','usage','model_turn_started','answer_ready','heartbeat'].includes(type) && !activity.value.some(e => e.id === id)) {
           activity.value.push({id,run_id:current,type,data,created_at:data._event_time || run.value.created_at});
         }
-        if (type === "model_turn_started") live.value = "";
+        if (type === "model_turn_started") {live.value = "";step.value=run.value.draft ? "正在整理搭配理由" : "正在分析需求与查询结果";}
         if (type === "answer_ready") { run.value.answer = data.answer; live.value = ""; }
         if (type === "work_summary") live.value = "";
         if (type === "text_delta" && !run.value.answer) live.value += data.text;
@@ -222,10 +235,11 @@ async function submit(text = draft.value) {
       id: crypto.randomUUID(),
       role: "user",
       content: text,
+      created_at:new Date().toISOString(),
     });
     draft.value = "";
     live.value = "";
-    await bottom();
+    await bottom(true);
     void connect();
     void loadHistory();
   });
@@ -255,6 +269,7 @@ async function cancel() {
     );
     question.value = "";
     controller?.abort();
+    await loadHistory();
   });
 }
 async function retry() {
@@ -266,6 +281,8 @@ async function retry() {
   });
 }
 onMounted(() => {
+  historyTimer=setInterval(()=>{if(user.value && !document.hidden)void loadHistory().catch(()=>{});},5000);
+  elapsedTimer=setInterval(()=>{elapsed.value=run.value ? Math.max(0,Math.floor((Date.now()-new Date(run.value.created_at).getTime())/1000)) : 0;},1000);
   if (user.value) {
     perform(async () => {
       await loadHistory();
@@ -276,11 +293,11 @@ onMounted(() => {
     });
   }
 });
-onUnmounted(() => controller?.abort());
+onUnmounted(() => {controller?.abort();clearInterval(historyTimer);clearInterval(elapsedTimer);});
 </script>
 <template>
   <div class="chat-layout agent-workspace" :class="{ 'has-conversation': messages.length, 'history-collapsed':!historyOpen, 'activity-collapsed':!activityOpen }">
-    <aside class="chat-history desktop-only" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" :archived="showArchived" @action="historyAction" @archive-view="showArchived = !showArchived; perform(loadHistory)" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></aside>
+    <aside class="chat-history desktop-only" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></aside>
     <section class="chat-main">
       <header class="chat-toolbar">
         <button
@@ -307,8 +324,8 @@ onUnmounted(() => controller?.abort());
           <el-icon><Plus /></el-icon><span>新对话</span>
         </button>
       </header>
-      <div class="mobile-history-wrap" :class="{'is-hidden':!historyOpen}" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" :archived="showArchived" @action="historyAction" @archive-view="showArchived = !showArchived; perform(loadHistory)" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></div>
-      <div ref="scroll" class="chat-scroll">
+      <div class="mobile-history-wrap" :class="{'is-hidden':!historyOpen}" :aria-hidden="!historyOpen" :inert="!historyOpen"><ConversationHistory :items="history" :current="conversation" :logged-in="!!user" @action="historyAction" @toggle="historyOpen = !historyOpen" @select="id => perform(() => loadConversation(id))" @delete="id => confirm('删除该对话和任务记录？', () => deleteHistory(id))" /></div>
+      <div ref="scroll" class="chat-scroll" @scroll="trackChatScroll">
         <el-alert v-if="error" :title="error" type="error" show-icon />
         <section v-if="!messages.length" class="welcome">
           <div class="welcome-orbit">
@@ -389,26 +406,27 @@ onUnmounted(() => controller?.abort());
             <div
               v-else
               class="message-body markdown"
-              v-html="markdown(m.content)"
-            /><MessageAttachments :attachments="m.attachments" />
+              v-html="markdown(buildAnswer(m.content,!!(m.attachments?.build || m.attachments?.draft)))"
+            /><MessageAttachments :attachments="m.attachments" /><MessageActions v-if="m.role==='assistant'" :content="m.content" :disabled="!!active" @retry="regenerateMessage(m.id)" @share="shareMessage(m.id)" />
           </article>
           <section v-if="run" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
             <details :key="run.id" class="execution-details">
-              <summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">查看过程</span></summary>
+              <summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">思考过程</span></summary>
               <div class="execution-detail-body">
                 <ol v-if="plan.length"><li v-for="p in plan" :key="p">{{p}}</li></ol>
                 <div v-for="(summary,i) in workSummaries" :key="i" class="markdown execution-summary" v-html="markdown(summary)" />
-                <div v-if="live && !run.answer && active" class="markdown execution-summary" v-html="markdown(live)" />
+
                 <p v-if="!plan.length && !live && !workSummaries.length" class="muted">正在准备处理步骤。</p>
               </div>
             </details>
             <div v-if="active || totalCalls" class="execution-progress" role="progressbar" aria-label="工具执行进度" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{width: progress + '%'}" /></div>
-            <p v-if="active" class="execution-hint">正在查询与校验，完成后会在下方给出方案。</p>
+            <p v-if="active" class="execution-hint">{{progressHint}}<span class="execution-elapsed"> · {{elapsed}} 秒</span></p>
             <p v-if="run.error" class="execution-error">{{ run.error }}</p>
             <p v-if="question" class="content-text">{{ question }}</p>
-            <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" text @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
+            <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" class="stop-task-button" :icon="VideoPause" round @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
           </section>
-          <article v-if="run?.answer" class="message assistant"><div class="message-body markdown" v-html="markdown(run.answer)" /></article>
+          <article v-if="active && live && !run?.answer" class="message assistant streaming-answer" aria-live="polite"><div class="message-body markdown" v-html="markdown(live)" /><span class="streaming-cursor" /></article>
+          <article v-if="run?.answer" class="message assistant"><div class="message-body markdown" v-html="markdown(buildAnswer(run.answer,!!run.draft))" /><MessageActions v-if="!active" :content="run.answer" :disabled="!currentAnswerMessage" @retry="regenerateMessage(currentAnswerMessage?.id)" @share="shareMessage(currentAnswerMessage?.id)" /></article>
           <DraftCard
             v-if="run?.draft"
             :key="run.id + JSON.stringify(run.draft.partIds)"

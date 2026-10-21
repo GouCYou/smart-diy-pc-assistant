@@ -36,7 +36,7 @@ if [[ "$requirements_hash" != "$installed_hash" ]]; then
 fi
 "$agent_python" -m pytest smart-diy-pc-assistant-agent/tests -q
 echo 'Building both Vue frontends...'
-(cd smart-diy-pc-assistant-web && npm ci --no-audit --no-fund && npm run build)
+(cd smart-diy-pc-assistant-web && npm ci --no-audit --no-fund && npm test && npm run build)
 (cd smart-diy-pc-assistant-admin && npm ci --no-audit --no-fund && VITE_PUBLIC_BASE=/admin/ npm run build)
 bash deployment/package-release.sh "$staging/bundle"
 cp deployment/deploy.remote.sh deployment/nginx-ipv6.conf.template "$staging/bundle/"

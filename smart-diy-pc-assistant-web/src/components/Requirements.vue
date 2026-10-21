@@ -70,12 +70,13 @@ function submit() {
       class="requirement-section"
     >
       <strong>{{ group.title }}</strong>
-      <div v-slider class="choice-chips">
+      <div class="choice-chips" role="group" :aria-label="group.title">
         <button
           v-for="s in group.items"
           :key="s"
           type="button"
           :class="{ selected: form[group.key] === s }"
+          :aria-pressed="form[group.key] === s"
           @click="form[group.key] = s"
         >
           {{ s }}

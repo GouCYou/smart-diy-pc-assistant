@@ -56,6 +56,15 @@ class Crawler:
     @staticmethod
     def matches(title, keyword, part_type=""):
         normalized = title.lower()
+        if part_type == "GPU":
+            # A mixed-variant listing does not prove which model its page price buys.
+            variants={re.sub(r"\s+", "", value.lower()) for value in re.findall(r"(?:rtx|gtx|rx)\s*\d{3,4}(?:\s*(?:ti|super|xtx|xt))?", title, re.I)}
+            if len(variants)>1:
+                return False
+        if part_type == "CASE" and re.search(r"\batx\b", keyword, re.I):
+            formats=re.sub(r"(?<![a-z])m[\s-]*atx(?![a-z])", "", normalized)
+            if re.search(r"(?<![a-z])m[\s-]*atx(?![a-z])",normalized) and not re.search(r"(?<![a-z])atx(?![a-z])",formats):
+                return False
         for token in re.findall(r"[a-z]*\d[a-z\d-]*", keyword.lower()):
             if token.isdigit() and len(token) == 1:
                 continue  # Ryzen 5 / Core Ultra 7 are families, not exact model IDs.

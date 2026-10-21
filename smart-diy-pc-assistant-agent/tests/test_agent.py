@@ -310,7 +310,7 @@ async def test_model_work_summary_is_separate_from_final_answer(env):
     assert len(summaries)==1 and '正在查询' in json.loads(summaries[0]['data'])['text']
 
 
-async def test_conversation_menu_ownership_archive_pin_and_sharing(env):
+async def test_conversation_menu_ownership_pin_and_sharing(env):
     store,runtime,k,crawler,web,mp=env
     for id,title in [('first','第一条对话'),('second','第二条对话')]:
         await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',(id,1,title,now()))
@@ -320,9 +320,9 @@ async def test_conversation_menu_ownership_archive_pin_and_sharing(env):
     assert (await web.patch('/agent/conversations/first',json={'title':'重命名测试','pinned':True})).status_code==200
     rows=(await web.get('/agent/conversations')).json()
     assert rows[0]['id']=='first' and rows[0]['pinned']==1
-    assert (await web.patch('/agent/conversations/first',json={'archived':True})).status_code==200
-    assert [x['id'] for x in (await web.get('/agent/conversations')).json()]==['second']
-    assert (await web.get('/agent/conversations?archived=true')).json()[0]['title']=='重命名测试'
+    # Old archived conversations remain accessible after archive UI removal.
+    await store.execute('UPDATE conversation_settings SET archived=1 WHERE conversation_id=?',('first',))
+    assert {x['id'] for x in (await web.get('/agent/conversations')).json()}=={'first','second'}
     assert (await web.post('/agent/conversations/first/share',headers={'Authorization':'Bearer other'})).status_code==404
     token=(await web.post('/agent/conversations/first/share')).json()['token']
     await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',('future-private','first','user','分享之后的新消息',now()))
@@ -364,3 +364,67 @@ async def test_model_plan_title_and_manual_title_protection(env):
     tools={t.name:t for t in await runtime.tools(await store.run(run['id']),'Bearer user',runtime.config.model_dump())}
     await tools['record_plan'].ainvoke({'steps':['再次查询'],'title':'不能覆盖手动标题'})
     assert (await web.get('/agent/conversations/'+run['conversation_id'])).json()['title']=='我自己起的标题'
+
+
+async def test_streaming_arrives_before_completion_and_keeps_full_turn(env):
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGenerationChunk
+    store,runtime,k,crawler,web,mp=env
+    chunks=['第一部分：先检查插槽和内存规格。'*3,'第二部分：核对电源余量。'*3,'第三部分：整理建议。'*3]
+    class StreamingModel(ScriptedModel):
+        async def _astream(self,messages,stop=None,run_manager=None,**kwargs):
+            for text in chunks:
+                yield ChatGenerationChunk(message=AIMessageChunk(content=text))
+                await asyncio.sleep(.15)
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:StreamingModel(responses=[AIMessage(content='标题')]))
+    run=(await web.post('/agent/runs',json={'message':'核对装机方案'})).json()
+    for _ in range(100):
+        events=await store.all("SELECT data FROM events WHERE run_id=? AND type='text_delta'",(run['id'],))
+        if events: break
+        await asyncio.sleep(.01)
+    assert events and (await store.run(run['id']))['status']=='running'
+    final=await done(store,run['id'])
+    ready=await store.one("SELECT data FROM events WHERE run_id=? AND type='answer_ready'",(run['id'],))
+    assert json.loads(ready['data'])['answer']==''.join(chunks)
+    assert final['answer']==''.join(chunks)
+
+
+async def test_quote_images_links_reach_draft_and_saved_payload(env):
+    store,runtime,k,crawler,web,mp=env
+    quote={'skuId':'123','title':'CPU 7600 盒装处理器','price':1299,'image':'https://img.example/cpu.jpg','link':'https://item.jd.com/123.html','shopName':'自营店','capturedAt':now()}
+    async def search(*args):return {'products':[quote],'warning':''}
+    mp.setattr(crawler,'search',search)
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[call('search_products',{'hardware_id':1}),call('propose_build',{'title':'商品卡片验收','selections':[{'hardware_id':1,'sku_id':'123'}]}),AIMessage(content='优先选择兼容的平台。')]))
+    run=(await web.post('/agent/runs',json={'message':'查询处理器并创建草稿'})).json()
+    final=await done(store,run['id'])
+    assert final['status']=='completed'
+    draft=final['draft'];assert draft['parts'][0]['productImage']==quote['image']
+    assert draft['partSelections'][0]['link']==quote['link']
+    assert draft['partSelections'][0]['title']==quote['title']
+    view=(await web.get('/agent/conversations/'+run['conversation_id'])).json()
+    answer=next(m for m in view['messages'] if m['role']=='assistant')
+    assert answer['attachments']['draft']['partSelections'][0]['image']==quote['image']
+    token=(await web.post('/agent/conversations/'+run['conversation_id']+'/share',json={'message_id':answer['id']})).json()['token']
+    public=(await web.get('/agent/shared/'+token)).json()
+    assert public['messages'][-1]['attachments']['draft']['parts'][0]['productLink']==quote['link']
+    assert (await web.get('/agent/products/search?hardware_id=1')).json()['products'][0]['image']==quote['image']
+    assert (await web.get('/agent/products/search?hardware_id=999')).status_code==404
+
+
+async def test_reply_regeneration_branches_without_overwriting_history(env):
+    store,runtime,k,crawler,web,mp=env
+    await store.execute('INSERT INTO conversations VALUES(?,?,?,?)',('original',1,'原对话',now()))
+    for i,(role,text) in enumerate([('user','第一个问题'),('assistant','原回答'),('user','后续隐私问题'),('assistant','后续回答')]):
+        await store.execute('INSERT INTO messages VALUES(?,?,?,?,?)',(str(i),'original',role,text,f'2026-10-21T06:00:0{i}+00:00'))
+    assert (await web.post('/agent/conversations/original/regenerate',json={'message_id':'1'},headers={'Authorization':'Bearer other'})).status_code==404
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[AIMessage(content='重新生成的回答')]))
+    run=(await web.post('/agent/conversations/original/regenerate',json={'message_id':'1'})).json()
+    assert run['conversation_id']!='original'
+    assert (await done(store,run['id']))['status']=='completed'
+    original=(await web.get('/agent/conversations/original')).json()['messages']
+    branch=(await web.get('/agent/conversations/'+run['conversation_id'])).json()['messages']
+    assert len(original)==4
+    assert [m['content'] for m in branch]==['第一个问题','重新生成的回答']
+    token=(await web.post('/agent/conversations/original/share',json={'message_id':'1'})).json()['token']
+    public=(await web.get('/agent/shared/'+token)).json()
+    assert [m['content'] for m in public['messages']]==['第一个问题','原回答']

@@ -79,3 +79,10 @@ async def test_risk_redirect_is_reported_without_following_or_inventing_price():
         assert all(d['status']=='blocked' for d in result['diagnostics'])
     finally:
         await crawler.close()
+
+
+def test_ambiguous_gpu_variants_and_matx_only_cases_are_not_exact_matches():
+    assert not Crawler.matches('RTX5060/5070 ti 显卡 三风扇 RTX5070 12G','RTX 5070 Ti','GPU')
+    assert Crawler.matches('RTX5070 Ti 16G OC 显卡','RTX 5070 Ti','GPU')
+    assert not Crawler.matches('微星机箱 支持M-ATX主板','ATX Airflow Case','CASE')
+    assert Crawler.matches('机箱 支持ATX/M-ATX主板','ATX Airflow Case','CASE')

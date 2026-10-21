@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProductParts from "../components/ProductParts.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -22,7 +23,9 @@ const route = useRoute(),
   validation = ref<any>(null),
   form = reactive<any>({}),
   chosen = reactive<Record<string, number | null>>({}),
-  prices = reactive<Record<string, number>>({});
+  prices = reactive<Record<string, number>>({}),
+  selections = reactive<Record<string,any>>({}),
+  productPicker = ref(false), productLoading=ref(false), productOptions=ref<any[]>([]), productWarning=ref(''), productKind=ref('');
 const title = computed(() =>
     segment.value === "favorite" ? "收藏配置" : "我的配置",
   ),
@@ -37,6 +40,7 @@ async function load() {
 }
 async function edit(build?: Build) {
   authenticated();
+  Object.keys(selections).forEach(k=>delete selections[k]);
   hardware.value = await api.request("/api/hardware-parts");
   Object.keys(chosen).forEach((k) => delete chosen[k]);
   Object.keys(prices).forEach((k) => delete prices[k]);
@@ -49,6 +53,7 @@ async function edit(build?: Build) {
   for (const p of build?.parts || []) {
     chosen[p.type] = p.id;
     prices[p.type] = p.productPrice || 0;
+    selections[p.type]={title:p.productTitle || p.model,image:p.productImage,link:p.productLink,skuId:p.skuId};
   }
   validation.value = null;
   open.value = true;
@@ -60,19 +65,25 @@ function payload() {
     partIds: ids,
     partSelections: ids.map((id) => {
       const p = hardware.value.find((p) => p.id === id)!;
-      const old = detail.value?.parts.find((x) => x.id === id);
+      const old = selections[p.type];
       return {
         hardwarePartId: id,
-        title: old?.productTitle || p.model,
+        title: old?.title || p.model,
         price: prices[p.type] || 0,
-        image: old?.productImage || "",
-        link: old?.productLink || "",
+        image: old?.image || "",
+        link: old?.link || "",
         skuId: old?.skuId || "",
         matchedModel: p.model,
       };
     }),
   };
 }
+async function pickProducts(kind:string){
+  if(!chosen[kind])return;
+  productKind.value=kind;productPicker.value=true;productLoading.value=true;productOptions.value=[];productWarning.value='';
+  try{const result=await api.request(`/agent/products/search?hardware_id=${chosen[kind]}`);productOptions.value=result.products;productWarning.value=result.warning;}catch(e){productWarning.value=(e as Error).message;}finally{productLoading.value=false;}
+}
+function selectProduct(p:any){selections[productKind.value]=p;prices[productKind.value]=p.price || 0;productPicker.value=false;validation.value=null;}
 async function validate() {
   validation.value = await api.request("/api/build-configs/validate", "POST", {
     partIds: payload().partIds,
@@ -150,7 +161,7 @@ onMounted(() =>
       <button class="desktop-only" :class="{selected:segment === 'all'}" @click="segment = 'all'; perform(load)">全部</button>
     </div>
     <div class="feed-grid">
-      <article v-for="b in rows" :key="b.id" class="card">
+      <article v-for="b in rows" :key="b.id" class="card build-preview-card">
         <div class="row" style="justify-content: space-between">
           <span class="tag">{{
             b.source === "AI" ? "AI 方案" : "手动搭配"
@@ -158,14 +169,9 @@ onMounted(() =>
           ><span class="muted">{{ b.serialNumber }}</span>
         </div>
         <h2>{{ b.title }}</h2>
-        <p class="muted">
-          {{
-            b.parts
-              .map((p) => p.model)
-              .slice(0, 3)
-              .join(" / ")
-          }}
-        </p>
+        <div class="build-score-chip" v-if="b.performanceScore">综合性能 <b>{{b.performanceScore}} 分</b></div>
+        <ProductParts :parts="b.parts.slice(0,3)" compact />
+        <button class="build-more-parts" @click="detail=b">查看全部 {{b.parts.length}} 件配件 →</button>
         <div class="card-meta">
           <strong class="price"
             >已报价 ¥{{ b.totalPrice.toLocaleString() }}</strong
@@ -180,36 +186,16 @@ onMounted(() =>
     :model-value="!!detail"
     :title="detail?.title"
     width="820px"
-    class="mobile-full-dialog"
+    class="build-detail-dialog mobile-full-dialog"
     @close="detail = null"
     ><template v-if="detail"
       ><p class="muted">{{ detail.note }}</p>
-      <div v-for="p in detail.parts" :key="p.id" class="draft-part">
-        <div>
-          <small>{{ hardwareTypes[p.type] }}</small
-          ><strong>{{ p.model }}</strong
-          ><a
-            v-if="p.productLink && /^https:\/\//.test(p.productLink)"
-            :href="p.productLink"
-            target="_blank"
-            rel="noopener noreferrer"
-            style="display: block; color: #4966e8; margin-top: 6px"
-            >查看商品 ↗</a
-          >
-        </div>
-        <span>{{ p.productPrice ? "¥" + p.productPrice : "待询价" }}</span>
-      </div>
-      <p class="price">
-        已报价合计 ¥{{ detail.totalPrice }}（未报价部件需另行核实）
-      </p>
-      <el-alert
-        v-for="m in detail.compatibilityMessages"
-        :key="m"
-        :title="m"
-        :type="detail.compatibilityStatus === 'BLOCK' ? 'error' : 'info'"
-        :closable="false"
-      />
-      <div class="action-row">
+      <div class="build-detail-overview"><span>{{detail.serialNumber}}</span><strong>¥{{detail.totalPrice.toLocaleString()}}</strong><span>已报价合计</span><span v-if="detail.performanceScore" class="build-score-chip">综合性能 <b>{{detail.performanceScore}} 分</b></span></div>
+      <ProductParts :parts="detail.parts" />
+
+      <details class="compatibility-details"><summary>兼容性与待核实事项<span class="compatibility-badge">{{detail.compatibilityStatus==='BLOCK' ? '需要调整' : '查看检查结果'}}</span></summary><ul><li v-for="m in detail.compatibilityMessages" :key="m">{{m}}</li></ul></details>
+      </template><template #footer><div v-if="detail" class="action-row build-detail-actions">
+
         <el-button
           type="primary"
           @click="router.push({ path: '/', query: { build: detail.id } })"
@@ -241,7 +227,7 @@ onMounted(() =>
     <div class="hardware-edit-list">
       <div v-for="(label,kind) in hardwareTypes" :key="kind" class="hardware-edit-row">
         <strong>{{label}}</strong>
-        <div><el-select v-model="chosen[kind]" :aria-label="label" clearable filterable placeholder="选择型号" @change="validation = null; prices[kind] = 0"><el-option v-for="h in hardware.filter(h => h.type === kind)" :key="h.id" :label="h.model" :value="h.id" /></el-select><el-input-number v-model="prices[kind]" :aria-label="label+'报价（元）'" :min="0" :precision="2" :controls="false" :disabled="!chosen[kind]" placeholder="待询价" /></div>
+        <div><el-select v-model="chosen[kind]" :aria-label="label" clearable filterable placeholder="选择型号" @change="validation = null; prices[kind] = 0; delete selections[kind]"><el-option v-for="h in hardware.filter(h => h.type === kind)" :key="h.id" :label="h.model" :value="h.id" /></el-select><el-input-number v-model="prices[kind]" :aria-label="label+'报价（元）'" :min="0" :precision="2" :controls="false" :disabled="!chosen[kind]" placeholder="待询价" /><el-button :disabled="!chosen[kind]" @click="pickProducts(kind)">选择京东商品</el-button><span v-if="selections[kind]?.title" class="editor-selected-product">{{selections[kind].title}}</span></div>
       </div>
     </div>
     <el-input v-model="form.note" type="textarea" :rows="2" maxlength="500" placeholder="需求与备注（可选）" aria-label="需求与备注" />
@@ -261,4 +247,5 @@ onMounted(() =>
       ></template
     ></el-dialog
   >
+<el-dialog v-model="productPicker" title="选择京东商品" width="760px" class="product-picker-dialog"><div v-if="productLoading" class="product-loading"><span class="execution-spinner" />正在查询商品…</div><el-alert v-if="productWarning" :title="productWarning" type="info" :closable="false" /><div class="product-picker-list"><button v-for="p in productOptions" :key="p.skuId" class="product-picker-option" @click="selectProduct(p)"><el-image v-if="p.image" :src="p.image" fit="contain" /><div><strong>{{p.title}}</strong><p>{{p.shopName}}</p><b>{{p.price ? '¥'+p.price : '待询价'}}</b></div><span>选择</span></button></div><p class="muted">报价以商品页面实际结算为准。</p></el-dialog>
 </template>
