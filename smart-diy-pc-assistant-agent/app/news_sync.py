@@ -60,6 +60,7 @@ class NewsSync:
         async with self.lock:
             report={'added':0,'skipped':0,'failed':0,'startedAt':datetime.now(UTC8).isoformat()}
             try:
+                await self.call('/cleanup',{})
                 state=await self.call('/state');known=set(state['urls']);cutoff=datetime.fromisoformat(state['cutoff'])
                 async with httpx.AsyncClient(timeout=30,follow_redirects=False,headers={'User-Agent':'SmartDIY-News/1.0 (+https://smartdiy.cctstudio.cn)'}) as web:
                     r=await web.get(LIST_URL);r.raise_for_status()

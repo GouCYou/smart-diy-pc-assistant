@@ -35,4 +35,4 @@ async def test_sync_uses_java_for_import_and_cleanup_then_skips_known(monkeypatc
     sync=Sync(Store(),None,'private-test-key')
     first=await sync.run();second=await sync.run()
     assert first['added']==1 and second['added']==0 and second['skipped']==1
-    assert sync.calls.count('/article')==1 and sync.calls.count('/cleanup')==2
+    assert sync.calls.count('/article')==1 and sync.calls.count('/cleanup')==4
