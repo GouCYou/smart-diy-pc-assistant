@@ -7,6 +7,7 @@ from typing import Literal
 from contextlib import AsyncExitStack
 from langchain.agents import create_agent
 from langchain.tools import tool
+from langchain_core.tools import ToolException
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command, interrupt
@@ -76,11 +77,18 @@ class Runtime:
         amount = re.search(r"预算\s*[¥￥]?\s*(\d{3,6})", request_text)
         explicit_budget = int(amount[1]) if amount else None
 
+        budget_warned = False
+
         async def guard(name):
-            nonlocal count
+            nonlocal count, budget_warned
+            reserve = 2 if cfg["max_tool_calls"] >= 8 else 0
+            limit = cfg["max_tool_calls"] if name == "propose_build" else cfg["max_tool_calls"] - reserve
+            if count >= limit:
+                if not budget_warned:
+                    await self.store.event(run["id"], "budget_warning", {"message": "查询额度即将用完，正在根据已有结果整理方案", "used": count, "limit": cfg["max_tool_calls"]})
+                    budget_warned = True
+                raise ToolException("查询额度已用完，不要继续查询。请根据已有资料调用 propose_build 校验现有候选，或直接回答已确认的结论并明确缺少的资料，不能编造报价。")
             count += 1
-            if count > cfg["max_tool_calls"]:
-                raise RuntimeError("已达到工具调用上限，请缩小任务范围后重试")
             await self.store.event(run["id"], "tool_started", {"name": name})
 
         @tool
@@ -165,7 +173,10 @@ class Runtime:
             await self.store.event(run["id"], "build_updated", draft)
             return draft
 
-        return [record_plan, ask_user, search_hardware, search_knowledge, search_products, get_build, propose_build]
+        tools = [record_plan, ask_user, search_hardware, search_knowledge, search_products, get_build, propose_build]
+        for item in tools:
+            item.handle_tool_error = True
+        return tools
 
     async def execute(self, run_id, token, resume=None):
         try:
@@ -182,6 +193,7 @@ class Runtime:
                 previous = await self.store.one("SELECT draft FROM runs WHERE conversation_id=? AND id<>? AND draft IS NOT NULL ORDER BY created_at DESC LIMIT 1", (run["conversation_id"], run_id))
                 if previous:
                     prompt += "\n上一次配置草稿（报价仅作历史参考，修改后需重新查询）：" + previous["draft"]
+                prompt += f"\n本轮工具调用总额度 {cfg['max_tool_calls']} 次。优先一次查询目录再选型，避免重复查询；收到额度提醒后使用已有结果完成校验和回答。"
                 tools = await self.tools(run, token, cfg)
                 agent = create_agent(model=model, tools=tools, system_prompt=prompt, checkpointer=self.checkpointer)
                 config = {"configurable": {"thread_id": run_id}, "recursion_limit": cfg["max_steps"]}
@@ -194,21 +206,37 @@ class Runtime:
                     messages = await self.store.all("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at,id", (run["conversation_id"],))
                     data = {"messages": messages[-30:]}
                 async with asyncio.timeout(cfg["max_run_seconds"]):
-                    pending_text, flushed_at = "", time.monotonic()
+                    pending_text, turn_text, flushed_at = "", "", time.monotonic()
                     async for event in agent.astream_events(data, config=config, version="v2"):
                         kind = event["event"]
-                        if kind == "on_chat_model_stream":
+                        if kind == "on_chat_model_start":
+                            await self.store.event(run_id, "model_turn_started", {})
+                        elif kind == "on_chat_model_stream":
                             chunk = event["data"]["chunk"]
                             text = chunk.content
                             if isinstance(text, str) and text:
                                 pending_text += text
+                                turn_text += text
                                 if len(pending_text) >= 80 or time.monotonic() - flushed_at >= 0.15:
                                     await self.store.event(run_id, "text_delta", {"text": pending_text})
-                                    pending_text, flushed_at = "", time.monotonic()
+                                    pending_text, turn_text, flushed_at = "", "", time.monotonic()
                         elif kind == "on_tool_end":
-                            await self.store.event(run_id, "tool_completed", {"name": event["name"]})
+                            tool_output = event["data"].get("output")
+                            event_type = "tool_limited" if getattr(tool_output, "status", None) == "error" else "tool_completed"
+                            await self.store.event(run_id, event_type, {"name": event["name"]})
                         elif kind == "on_chat_model_end":
                             output = event["data"].get("output")
+                            if not turn_text and isinstance(getattr(output, "content", None), str):
+                                turn_text = output.content
+                            if pending_text:
+                                await self.store.event(run_id, "text_delta", {"text": pending_text})
+                                pending_text = ""
+                            if getattr(output, "tool_calls", None):
+                                if turn_text.strip():
+                                    await self.store.event(run_id, "work_summary", {"text": turn_text})
+                            elif turn_text.strip():
+                                await self.store.event(run_id, "answer_ready", {"answer": turn_text})
+                            turn_text = ""
                             usage = getattr(output, "usage_metadata", None)
                             if usage:
                                 await self.store.event(run_id, "usage", usage)
@@ -234,8 +262,18 @@ class Runtime:
             log.error("Agent run %s failed (%s)", run_id, type(exc).__name__)
             # Never persist provider exceptions: they can contain request headers or API keys.
             message = str(exc) if isinstance(exc, (ValueError, TimeoutError)) else "任务执行失败，请检查模型、工具服务和调用额度后重试"
-            if isinstance(exc, TimeoutError):
+            if type(exc).__name__ == "AuthenticationError":
+                message = "模型接口认证失败，请管理员检查 API Key"
+            elif type(exc).__name__ == "NotFoundError":
+                message = "模型接口或模型名称不存在，请管理员核对服务商的模型 ID"
+            elif type(exc).__name__ == "RateLimitError":
+                message = "模型服务触发限流或额度不足，请稍后继续或检查服务商余额"
+            elif type(exc).__name__ in ("APITimeoutError", "APIConnectionError"):
+                message = "模型服务暂时无法连接或请求超时，已保留任务进度，可稍后继续"
+            elif isinstance(exc, TimeoutError):
                 message = "任务超过运行时限，可重试或缩小任务范围"
+            elif isinstance(exc, RuntimeError) and "工具调用上限" in str(exc):
+                message = "任务达到工具调用上限，已保留查询结果，可调整执行额度后继续"
             elif type(exc).__name__ == "GraphRecursionError":
                 message = "任务达到执行步骤上限，已保留进度。请缩小需求或调整执行额度后重试"
             await self.store.execute("UPDATE runs SET status='failed',error=?,updated_at=? WHERE id=?", (message[:300], now(), run_id))

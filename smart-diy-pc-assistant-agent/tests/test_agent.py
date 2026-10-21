@@ -280,3 +280,31 @@ async def test_rag_configuration_controls_chunking_and_result_limit(env):
     assert len(found) == 1
     chunks = await store.all('SELECT text FROM chunks WHERE document_id=?', (document['id'],))
     assert all(len(chunk['text']) <= 200 for chunk in chunks)
+
+
+async def test_tool_budget_returns_to_model_and_preserves_final_answer(env):
+    store,runtime,k,crawler,web,mp=env
+    await store.execute('INSERT INTO settings VALUES(?,?)',('max_tool_calls','2'))
+    model=ScriptedModel(responses=[call('search_hardware',{'part_type':'CPU'},'a'),call('search_hardware',{'part_type':'GPU'},'b'),call('search_hardware',{'part_type':'MEMORY'},'c'),AIMessage(content='已根据取得的目录整理结果；尚未取得报价。')])
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:model)
+    run=(await web.post('/agent/runs',json={'message':'查询各类硬件'})).json()
+    final=await done(store,run['id'])
+    assert final['status']=='completed',final
+    events=await store.all('SELECT type FROM events WHERE run_id=?',(run['id'],))
+    types=[e['type'] for e in events]
+    assert types.count('tool_started')==2
+    assert types.count('tool_completed')==2
+    assert 'budget_warning' in types and 'tool_limited' in types
+    assert 'run_failed' not in types
+
+
+async def test_model_work_summary_is_separate_from_final_answer(env):
+    store,runtime,k,crawler,web,mp=env
+    intermediate=call('search_hardware',{'part_type':'CPU'})
+    intermediate.content='正在查询处理器目录，稍后整理方案。'
+    mp.setattr('app.runtime.ChatOpenAI',lambda **kwargs:ScriptedModel(responses=[intermediate,AIMessage(content='这是最终回答。')]))
+    run=(await web.post('/agent/runs',json={'message':'查询 CPU'})).json()
+    final=await done(store,run['id'])
+    assert final['answer']=='这是最终回答。'
+    summaries=await store.all("SELECT data FROM events WHERE run_id=? AND type='work_summary'",(run['id'],))
+    assert len(summaries)==1 and '正在查询' in json.loads(summaries[0]['data'])['text']

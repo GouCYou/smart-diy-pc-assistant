@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     rag_similarity_threshold: float = 0.35
     timeout_seconds: int = 60
     max_steps: int = 30
-    max_tool_calls: int = 20
+    max_tool_calls: int = 48
     max_output_tokens: int = 4096
     max_run_seconds: int = 180
     max_concurrent_runs: int = 4

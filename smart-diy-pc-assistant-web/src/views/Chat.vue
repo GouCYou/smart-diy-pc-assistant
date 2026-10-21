@@ -50,6 +50,21 @@ const active = computed(
     get_build: "读取配置单",
     propose_build: "校验配置方案",
   };
+const visibleMessages = computed(() => {
+  const last = messages.value.at(-1);
+  return run.value?.answer && last?.role === 'assistant' && last.content === run.value.answer ? messages.value.slice(0,-1) : messages.value;
+});
+const currentEvents = computed(() => {
+  const events = activity.value.filter(e => e.run_id === run.value?.id);
+  let start = 0;
+  events.forEach((e,i) => { if(e.type === 'status' && e.data.status === 'running') start = i; });
+  return events.slice(start);
+});
+const completedCalls = computed(() => currentEvents.value.filter(e => e.type === 'tool_completed').length);
+const totalCalls = computed(() => currentEvents.value.filter(e => e.type === 'tool_started').length);
+const progress = computed(() => run.value?.status === 'completed' ? 100 : totalCalls.value ? Math.min(100, Math.round(completedCalls.value / totalCalls.value * 100)) : 0);
+const workSummaries = computed(() => currentEvents.value.filter(e => e.type === 'work_summary').map(e => e.data.text));
+const executionTitle = computed(() => active.value ? (step.value || '正在理解需求') : run.value?.status === 'completed' ? '处理完成' : runStatuses[run.value?.status || ''] || '执行过程');
 let controller: AbortController | undefined,
   cursor = 0,
   selectionVersion = 0;
@@ -99,9 +114,12 @@ async function connect() {
       (type, data, id) => {
         cursor = id;
         if (!run.value || run.value.id !== current) return;
-        if (!['text_delta','usage'].includes(type) && !activity.value.some(e => e.id === id)) {
+        if (!['text_delta','usage','model_turn_started','answer_ready'].includes(type) && !activity.value.some(e => e.id === id)) {
           activity.value.push({id,run_id:current,type,data,created_at:data._event_time || run.value.created_at});
         }
+        if (type === "model_turn_started") live.value = "";
+        if (type === "answer_ready") { run.value.answer = data.answer; live.value = ""; }
+        if (type === "work_summary") live.value = "";
         if (type === "text_delta" && !run.value.answer) live.value += data.text;
         if (type === "plan") plan.value = data.steps;
         if (type === "tool_started")
@@ -331,7 +349,7 @@ onUnmounted(() => controller?.abort());
         </section>
         <div class="messages">
           <article
-            v-for="m in messages"
+            v-for="m in visibleMessages"
             :key="m.id"
             class="message"
             :class="m.role"
@@ -348,33 +366,23 @@ onUnmounted(() => controller?.abort());
               v-html="markdown(m.content)"
             />
           </article>
-          <div v-if="run && (active || question || run.error || ['failed','cancelled','interrupted'].includes(run.status))" class="run-panel">
-            <div class="row" style="justify-content: space-between">
-              <strong>{{ runStatuses[run.status] }}</strong
-              ><el-button
-                v-if="active || run.status === 'needs_input'"
-                text
-                @click="cancel"
-                >取消任务</el-button
-              >
-            </div>
-            <ol v-if="plan.length">
-              <li v-for="p in plan" :key="p">{{ p }}</li>
-            </ol>
-            <p v-if="active" class="muted">{{ step || "正在理解你的需求" }}…</p>
-            <p v-if="run.error" class="content-text">{{ run.error }}</p>
-            <el-button
-              v-if="['failed', 'interrupted', 'cancelled'].includes(run.status)"
-              @click="retry"
-              >重试任务</el-button
-            >
+          <section v-if="run" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
+            <details :key="run.id" class="execution-details">
+              <summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">查看过程</span></summary>
+              <div class="execution-detail-body">
+                <ol v-if="plan.length"><li v-for="p in plan" :key="p">{{p}}</li></ol>
+                <div v-for="(summary,i) in workSummaries" :key="i" class="markdown execution-summary" v-html="markdown(summary)" />
+                <div v-if="live && !run.answer && active" class="markdown execution-summary" v-html="markdown(live)" />
+                <p v-if="!plan.length && !live && !workSummaries.length" class="muted">正在准备处理步骤。</p>
+              </div>
+            </details>
+            <div v-if="active || totalCalls" class="execution-progress" role="progressbar" aria-label="工具执行进度" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{width: progress + '%'}" /></div>
+            <p v-if="active" class="execution-hint">正在查询与校验，完成后会在下方给出方案。</p>
+            <p v-if="run.error" class="execution-error">{{ run.error }}</p>
             <p v-if="question" class="content-text">{{ question }}</p>
-          </div>
-          <div
-            v-if="live && !run?.answer"
-            class="message-body markdown"
-            v-html="markdown(live)"
-          />
+            <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" text @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
+          </section>
+          <article v-if="run?.answer" class="message assistant"><div class="message-label">Smart DIY</div><div class="message-body markdown" v-html="markdown(run.answer)" /></article>
           <DraftCard
             v-if="run?.draft"
             :key="run.id + JSON.stringify(run.draft.partIds)"

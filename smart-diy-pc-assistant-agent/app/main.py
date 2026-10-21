@@ -89,7 +89,7 @@ class Configuration(BaseModel):
     embedding_model: str = Field(default="", max_length=120)
     timeout_seconds: int = Field(default=60, ge=10, le=180)
     max_steps: int = Field(default=30, ge=4, le=100)
-    max_tool_calls: int = Field(default=20, ge=2, le=60)
+    max_tool_calls: int = Field(default=48, ge=2, le=60)
     max_output_tokens: int = Field(default=4096, ge=256, le=16384)
     max_run_seconds: int = Field(default=180, ge=30, le=600)
     rag_chunk_size: int = Field(default=900, ge=200, le=4000)

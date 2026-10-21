@@ -33,3 +33,8 @@
 - `/assistant`: endpoint/key/model, optional embedding model, time/step/tool/token limits, extra prompt, RAG chunk length/overlap/top-K/cosine threshold. Changes persist in Agent SQLite. Blank API key retains the current key.
 - `/knowledge`: text/PDF/Markdown/TXT/URL imports, search preview, per-document reindex/delete. Reindex after changing chunk settings or embedding model. Without embeddings, retrieval uses keyword matching; do not claim vector search is enabled.
 - `/runs`: execution status and events. JD search panel returns observed page prices and unknown availability; do not infer stock. Risk-control responses are reported, never bypassed.
+
+## Execution repair (2026-10-21)
+- The 18,000 CNY gaming task failed because a hard RuntimeError was raised when the 20-call tool budget was exhausted, not because the old model ID was invalid. The exception is present in the checkpoint error channel. Tool budget exhaustion now returns a handled ToolException to the model, reserves calls for draft validation and asks it to finish from existing evidence; normal budget defaults to 48. Never remove hard time/step limits.
+- Runtime separates public work summaries from final answers with model-turn events. The UI puts plans and summaries into closed details elements, shows completed/started tool counts, and left-aligns user message text. These are execution summaries, not hidden model reasoning.
+- User selected `moonshotai/kimi-k3-free` after trying the proposed DeepSeek replacement. The account model catalog and a real ping tool call verified availability. Keep the user-selected free model; do not silently fall back to paid models. Provider's own page warns of possible free-tier limits/outages.
