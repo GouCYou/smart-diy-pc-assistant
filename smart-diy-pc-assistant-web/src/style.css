@@ -1179,3 +1179,24 @@ button.feedback-mine {border:0;background:transparent;padding:4px 0;}
 @media(prefers-reduced-motion:reduce){.comment-reaction,.comment-delete-button,.comment-reply-button{transition:none;}}
 .social-detail .comment-composer {position:relative;bottom:auto;margin-top:20px;}
 .mobile-history-drawer.el-drawer {width:100vw!important;border-radius:0;height:100dvh;}
+/* Desktop detail is a true 50/50 workspace, with no modal or dimmed list. */
+.social-workspace {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,0fr);gap:0;align-items:start;transition:grid-template-columns .42s cubic-bezier(.22,.8,.24,1),gap .42s cubic-bezier(.22,.8,.24,1);}
+.social-list-pane {min-width:0;transition:padding .42s;}
+.social-detail-pane {min-width:0;overflow:hidden;opacity:0;transform:translateX(26px);transition:opacity .28s,transform .42s cubic-bezier(.22,.8,.24,1);pointer-events:none;position:sticky;top:0;}
+.social-workspace.detail-open {grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;}
+.social-workspace.detail-open .social-detail-pane {opacity:1;transform:translateX(0);pointer-events:auto;}
+.social-detail-panel {height:calc(100dvh - 64px);display:flex;flex-direction:column;border:1px solid #e5eaf2;border-radius:22px;background:#fff;overflow:hidden;}
+.social-detail-header {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;padding:16px 20px;border-bottom:1px solid #edf0f5;}
+.social-detail-header strong{font-size:17px;}
+.social-detail-body {overflow-y:auto;flex:1;min-height:0;scrollbar-width:thin;}
+.social-detail-pane .social-detail.is-embedded {padding:18px;}
+.social-detail-pane .social-detail .panel {padding:18px;border-radius:16px;}
+.social-detail-pane .social-detail h1 {font-size:25px;line-height:1.5;}
+.social-workspace.detail-open .social-list-pane {max-height:calc(100dvh - 64px);overflow-y:auto;padding-right:8px;scrollbar-width:thin;}
+.social-workspace.detail-open .feed-heading {flex-wrap:wrap;gap:16px;}
+.social-workspace.detail-open .feed-heading-actions {width:100%;justify-content:space-between;}
+.social-workspace.detail-open .feed-heading-actions .el-input {flex:1;width:auto;min-width:0;}
+.detail-content-enter-active,.detail-content-leave-active {transition:opacity .2s,transform .25s;}
+.detail-content-enter-from {opacity:0;transform:translateX(16px);}.detail-content-leave-to {opacity:0;transform:translateX(8px);}
+@media(max-width:760px){.social-workspace{display:block;}.social-detail-pane{display:none;}}
+@media(prefers-reduced-motion:reduce){.social-workspace,.social-detail-pane,.social-list-pane,.detail-content-enter-active,.detail-content-leave-active{transition:none;}}

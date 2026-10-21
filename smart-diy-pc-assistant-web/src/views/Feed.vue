@@ -5,13 +5,18 @@ import Detail from "./Detail.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, reactive, ref, watch, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Search, ChatDotRound, Star, Pointer } from "@element-plus/icons-vue";
+import { Search, ChatDotRound, Star, Pointer, Close } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { authenticated } from "../lib/session";
 import { useTask } from "../lib/task";
 import type { Build } from "../../../shared/types";
 const route = useRoute(), router=useRouter();
 const detailOpen=computed(()=>!!route.params.id);
+const desktop=ref(window.matchMedia("(min-width:761px)").matches);
+const desktopMedia=window.matchMedia("(min-width:761px)");
+function updateDesktop(){desktop.value=desktopMedia.matches;}
+onMounted(()=>desktopMedia.addEventListener("change",updateDesktop));
+onUnmounted(()=>desktopMedia.removeEventListener("change",updateDesktop));
 function closeDetail(){void router.replace("/"+props.kind);void perform(load);}
 const props = defineProps<{ kind: string }>(),
   { busy, error, perform } = useTask(),
@@ -29,7 +34,7 @@ const props = defineProps<{ kind: string }>(),
   images = ref<string[]>([]);
 const feedElement=ref<HTMLElement>(),columnCount=ref(2);
 let resizeObserver:ResizeObserver;
-onMounted(()=>{resizeObserver=new ResizeObserver(entries=>{columnCount.value=window.matchMedia("(max-width:760px)").matches ? 1 : entries[0]!.contentRect.width>=1050 ? 3 : 2;});if(feedElement.value)resizeObserver.observe(feedElement.value);});
+onMounted(()=>{resizeObserver=new ResizeObserver(entries=>{columnCount.value=window.matchMedia("(max-width:760px)").matches ? 1 : entries[0]!.contentRect.width>=1050 ? 3 : entries[0]!.contentRect.width>=650 ? 2 : 1;});if(feedElement.value)resizeObserver.observe(feedElement.value);});
 onUnmounted(()=>resizeObserver?.disconnect());
 const columns=computed(()=>{const result:any[][]=Array.from({length:columnCount.value},()=>[]);filtered.value.slice((page.value-1)*size,page.value*size).forEach((r,i)=>result[i%columnCount.value]!.push(r));return result;});
 const filtered = computed(() =>
@@ -85,6 +90,7 @@ watch(
 );
 </script>
 <template>
+  <div class="social-workspace" :class="{'detail-open':desktop && detailOpen}"><section class="social-list-pane">
   <div class="page-heading feed-heading">
     <div class="page-title-controls"><NavigationToggle />
       <h1><span class="desktop-only">{{ kind === "news" ? "硬件资讯" : "装机社区" }}</span><span class="mobile-only">{{kind === 'news' ? '热点' : '发现'}}</span></h1>
@@ -150,7 +156,8 @@ watch(
     :total="filtered.length"
     :page-size="size"
     layout="prev,pager,next"
-  /><el-drawer :model-value="detailOpen" direction="rtl" size="min(860px,100vw)" class="social-detail-drawer" :title="kind==='news' ? '硬件资讯' : '动态详情'" destroy-on-close @close="closeDetail"><Detail v-if="detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></el-drawer><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
+  /></section><aside class="social-detail-pane" :aria-hidden="!detailOpen || !desktop" :inert="!detailOpen || !desktop"><div class="social-detail-panel"><header class="social-detail-header"><strong>{{kind==='news' ? '硬件资讯' : '动态详情'}}</strong><button class="chat-icon-button" aria-label="关闭详情" @click="closeDetail"><el-icon><Close /></el-icon></button></header><div class="social-detail-body"><Transition name="detail-content" mode="out-in"><Detail v-if="desktop && detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></Transition></div></div></aside></div>
+  <el-drawer v-if="!desktop" :model-value="detailOpen" direction="rtl" size="100%" class="social-detail-drawer" :title="kind==='news' ? '硬件资讯' : '动态详情'" destroy-on-close @close="closeDetail"><Detail v-if="detailOpen" :key="String(route.params.id)" :kind="kind" :embedded="true" @close="closeDetail" /></el-drawer><el-dialog v-model="open" title="发布动态" width="720px" class="mobile-full-dialog compose-dialog" :show-close="false"
     ><template #header><DialogHeading title="发布动态" @close="open = false" /></template><el-input
       v-model="form.content"
       type="textarea"
