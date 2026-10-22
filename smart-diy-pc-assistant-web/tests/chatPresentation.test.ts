@@ -12,6 +12,6 @@ test('unfinished quotes never become message configuration links',()=>{
 });
 test('elapsed time carries seconds into minutes and minutes into hours',()=>{
  assert.equal(elapsedLabel(59),'59s');assert.equal(elapsedLabel(60),'1m 0s');
- assert.equal(elapsedLabel(3599),'59 分 59s');assert.equal(elapsedLabel(3600),'1h 0m');
+ assert.equal(elapsedLabel(3599),'59m 59s');assert.equal(elapsedLabel(3600),'1h 0m');
  assert.equal(elapsedLabel(7260),'2h 1m');
 });
