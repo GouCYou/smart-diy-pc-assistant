@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { COUNTRY_OPTIONS,CHINA_PROVINCES,CHINA_CITY_OPTIONS,TAIWAN_CITY_OPTIONS } from "../lib/regions";
-import { UserFilled } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user } from "../lib/session";
 import { useTask } from "../lib/task";
@@ -62,7 +62,7 @@ onMounted(() => perform(load));
       <section v-if="props.section === 'profile'" class="panel profile-editor">
         <h2 class="desktop-only">个人资料</h2>
         <div class="avatar-upload">
-          <el-avatar :size="64" :src="form.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar><div class="profile-avatar-copy"><strong>{{form.nickname || form.username}}</strong><label class="file-button"
+          <UserAvatar :size="64" :src="form.avatarUrl"/><div class="profile-avatar-copy"><strong>{{form.nickname || form.username}}</strong><label class="file-button"
             ><input
               hidden
               type="file"

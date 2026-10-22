@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { UserFilled } from '@element-plus/icons-vue';
 import { api } from '../lib/api';
 import { authenticated } from '../lib/session';
 import { useTask } from '../lib/task';
@@ -17,7 +17,7 @@ watch(() => route.params.id, () => perform(load),{immediate:true});
   <div class="space-page"><el-alert v-if="error" :title="error" type="error" />
     <template v-if="space">
       <section class="space-hero" :style="space.backgroundUrl ? {backgroundImage:`linear-gradient(var(--space-veil-start,#ffffffbb),var(--space-veil-end,#ffffffed)),url(${space.backgroundUrl})`} : {}">
-        <div class="space-identity"><el-avatar :size="64" :src="space.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar><div><h1>{{space.nickname || space.username}}</h1><span>@{{space.username}}</span></div></div>
+        <div class="space-identity"><UserAvatar :size="64" :src="space.avatarUrl"/><div><h1>{{space.nickname || space.username}}</h1><span>@{{space.username}}</span></div></div>
         <p class="space-bio">{{space.bio || '这个人还没有写简介。'}}</p>
         <div class="space-stats"><button @click="perform(() => follows('following'))"><strong>{{space.followingCount}}</strong>关注</button><button @click="perform(() => follows('followers'))"><strong>{{space.followerCount}}</strong>粉丝</button><span><strong>{{space.posts.length}}</strong>动态</span></div>
         <p v-if="space.profilePublic" class="muted space-location">{{[space.countryOrRegion,space.province,space.city].filter(Boolean).join(' · ')}}</p>
@@ -34,6 +34,6 @@ watch(() => route.params.id, () => perform(load),{immediate:true});
         </template>
       </template>
     </template>
-    <el-dialog v-model="showPeople" width="500px" class="mobile-full-dialog" :show-close="false"><template #header><DialogHeading :title="peopleKind === 'following' ? '关注' : '粉丝'" @close="showPeople = false" /></template><div v-slider class="segmented"><button :class="{selected:peopleKind === 'following'}" @click="perform(() => follows('following'))">关注</button><button :class="{selected:peopleKind === 'followers'}" @click="perform(() => follows('followers'))">粉丝</button></div><router-link v-for="p in people" :key="p.userId" :to="`/users/${p.userId}`" class="reference" @click="showPeople = false"><div class="post-author"><el-avatar :src="p.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar><strong>{{p.nickname || p.username}}</strong></div></router-link><EmptyState v-if="!people.length" :description="peopleKind === 'following' ? '暂无关注' : '暂无粉丝'" /></el-dialog>
+    <el-dialog v-model="showPeople" width="500px" class="mobile-full-dialog" :show-close="false"><template #header><DialogHeading :title="peopleKind === 'following' ? '关注' : '粉丝'" @close="showPeople = false" /></template><div v-slider class="segmented"><button :class="{selected:peopleKind === 'following'}" @click="perform(() => follows('following'))">关注</button><button :class="{selected:peopleKind === 'followers'}" @click="perform(() => follows('followers'))">粉丝</button></div><router-link v-for="p in people" :key="p.userId" :to="`/users/${p.userId}`" class="reference" @click="showPeople = false"><div class="post-author"><UserAvatar :src="p.avatarUrl"/><strong>{{p.nickname || p.username}}</strong></div></router-link><EmptyState v-if="!people.length" :description="peopleKind === 'following' ? '暂无关注' : '暂无粉丝'" /></el-dialog>
   </div>
 </template>

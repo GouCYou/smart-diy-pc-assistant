@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import DialogHeading from "../components/DialogHeading.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { InfoFilled, ArrowRight } from "@element-plus/icons-vue";
+import { ArrowRight } from "@element-plus/icons-vue";
 import { api } from "../lib/api";
 import { user } from "../lib/session";
 import { useTask } from "../lib/task";
@@ -54,7 +55,7 @@ onMounted(() => perform(load));
   </section>
   <template v-else><div class="notification-group">
     <button v-for="n in rows" :key="n.id" class="notification-row" @click="perform(() => view(n))">
-      <el-avatar :size="44" :src="n.actor?.avatarUrl"><el-icon><InfoFilled /></el-icon></el-avatar>
+      <UserAvatar :size="44" :src="n.actor?.avatarUrl"/>
       <div><strong>{{n.title}}<i v-if="n.unread" class="unread-dot" /></strong><p>{{n.content.slice(0,120)}}</p><time>{{n.createdAt?.replace('T',' ').slice(0,16)}}</time></div><el-icon><ArrowRight /></el-icon>
     </button></div>
     <EmptyState v-if="!rows.length" description="暂时没有新消息" kind="bell" /></template

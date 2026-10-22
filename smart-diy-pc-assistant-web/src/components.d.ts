@@ -56,6 +56,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     ThemeControl: typeof import('./components/ThemeControl.vue')['default']
     ToolTimeline: typeof import('./components/ToolTimeline.vue')['default']
+    UserAvatar: typeof import('./components/UserAvatar.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

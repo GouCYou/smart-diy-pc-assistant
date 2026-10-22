@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserAvatar from "./components/UserAvatar.vue";
 import ThemeControl from "./components/ThemeControl.vue";
 import ContentPreviews from "./components/ContentPreviews.vue";
 import { feedbackOpen,feedbackView } from "./lib/feedback";
@@ -94,7 +95,7 @@ onUnmounted(() => window.removeEventListener("session-expired", expired));
         </nav>
         <div class="sidebar-bottom"><ThemeControl/>
           <router-link to="/feedback" title="帮助与反馈" aria-label="帮助与反馈" class="sidebar-help"><el-icon><QuestionFilled /></el-icon><span>帮助与反馈</span></router-link
-          ><div class="account-link"><router-link :to="user ? '/account' : '/auth'" class="account-avatar" :aria-label="user?.nickname || '登录你的账户'"><el-avatar :size="36" :src="user?.avatarUrl"><span v-if="user">{{(user.nickname || user.username).slice(0,1)}}</span><el-icon v-else><User /></el-icon></el-avatar></router-link><router-link :to="user ? '/account' : '/auth'" class="account-name">{{user?.nickname || user?.username || '登录你的账户'}}</router-link><router-link to="/notifications" class="sidebar-notification" aria-label="消息通知" title="消息通知"><el-icon><Bell /></el-icon></router-link><router-link :to="user ? '/account' : '/auth'" class="account-arrow" aria-label="个人中心"><el-icon><ArrowRight /></el-icon></router-link></div>
+          ><div class="account-link"><router-link :to="user ? '/account' : '/auth'" class="account-avatar" :aria-label="user?.nickname || '登录你的账户'"><UserAvatar :size="36" :src="user?.avatarUrl"/></router-link><router-link :to="user ? '/account' : '/auth'" class="account-name">{{user?.nickname || user?.username || '登录你的账户'}}</router-link><router-link to="/notifications" class="sidebar-notification" aria-label="消息通知" title="消息通知"><el-icon><Bell /></el-icon></router-link><router-link :to="user ? '/account' : '/auth'" class="account-arrow" aria-label="个人中心"><el-icon><ArrowRight /></el-icon></router-link></div>
         </div>
       </aside>
       <div class="web-main">

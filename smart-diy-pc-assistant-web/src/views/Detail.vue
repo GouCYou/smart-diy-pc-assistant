@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import { previewBuildId,openImages } from "../lib/previews";
 import EmptyState from "../components/EmptyState.vue";
 import { computed, onMounted, reactive, ref } from "vue";
@@ -112,7 +113,7 @@ onMounted(() => perform(load));
         <div class="markdown" @click="event=>{const el=event.target as HTMLElement;if(el.tagName==='IMG')openImages([(el as HTMLImageElement).src]);}" v-html="markdown(item.content)" /></template
       ><template v-else
         ><router-link :to="`/users/${item.author.id}`" class="post-author"
-          ><el-avatar :src="item.author.avatarUrl" /><strong>{{
+          ><UserAvatar :src="item.author.avatarUrl" /><strong>{{
             item.author.nickname || item.author.username
           }}</strong></router-link
         >
@@ -150,7 +151,7 @@ onMounted(() => perform(load));
         /></el-select>
       </div>
       <article v-for="c in comments" :key="c.id" class="comment">
-        <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><el-avatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
+        <div class="comment-top"><router-link :to="`/users/${c.author.id}`" class="comment-person"><UserAvatar :size="36" :src="c.author.avatarUrl" /><div><strong>{{ c.author.nickname || c.author.username }}</strong><time>{{c.createdAt?.replace('T',' ').slice(0,16)}}</time></div></router-link><div class="comment-reactions"><button class="comment-reply-button" @click="form.parentCommentId=c.id;reply=c.author.nickname || c.author.username"><el-icon><ChatLineRound /></el-icon>回复</button><button class="comment-reaction" :class="{liked:c.liked}" :aria-label="c.liked ? '取消评论点赞' : '点赞评论'" :aria-pressed="c.liked" @click="perform(()=>likeComment(c.id))"><span aria-hidden="true">♥</span>{{c.likeCount}}</button><button v-if="kind==='community' && c.author.id===user?.userId" class="comment-delete-button" @click="confirm('删除这条评论？',()=>deleteComment(c.id))">删除</button></div></div>
         <p v-if="c.parentCommentId" class="comment-reply-context">回复 {{c.replyTo?.nickname || c.replyTo?.username || '一条评论'}}</p>
         <p>{{ c.content }}</p><button v-if="c.buildConfig" @click="previewBuildId=c.buildConfig.id" class="reference">▦ {{c.buildConfig.title}}</button>
         <div class="image-grid">

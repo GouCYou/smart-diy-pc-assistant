@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import NavigationToggle from "../components/NavigationToggle.vue";
 import { computed, onMounted, ref } from 'vue';
-import { UserFilled, ArrowRight } from '@element-plus/icons-vue';
+import { ArrowRight } from '@element-plus/icons-vue';
 import { user } from '../lib/session';
 import { api } from '../lib/api';
 import { useTask } from '../lib/task';
@@ -18,7 +19,7 @@ onMounted(() => perform(async () => {
     <h1 class="desktop-only account-heading page-title-controls"><NavigationToggle />我的</h1>
     <el-alert v-if="error" :title="error" type="error" />
     <router-link :to="user ? '/profile' : '/auth'" class="profile-card">
-      <el-avatar :size="64" :src="user?.avatarUrl"><el-icon><UserFilled /></el-icon></el-avatar>
+      <UserAvatar :size="64" :src="user?.avatarUrl"/>
       <div><strong>{{user?.nickname || user?.username || '登录 / 注册'}}</strong><p v-if="user">@{{user.username}}</p><p v-else>登录后同步配置、收藏和社区内容。</p></div><el-icon class="profile-chevron"><ArrowRight /></el-icon>
     </router-link>
     <div class="account-stats">

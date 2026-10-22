@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserAvatar from "../components/UserAvatar.vue";
 import NavigationToggle from "../components/NavigationToggle.vue";
 import DialogHeading from "../components/DialogHeading.vue";
 import MasonryFeed from "../components/MasonryFeed.vue";
@@ -131,10 +132,7 @@ watch(
             <p>{{ r.summary }}</p></template
           ><template v-else
             ><div class="post-author">
-              <el-avatar :src="r.author.avatarUrl">{{
-                (r.author.nickname || r.author.username).slice(0, 1)
-              }}</el-avatar
-              ><div><strong>{{ r.author.nickname || r.author.username }}</strong><small class="author-time">{{r.createdAt?.slice(0,10)}}</small></div>
+              <UserAvatar :src="r.author.avatarUrl"/><div><strong>{{ r.author.nickname || r.author.username }}</strong><small class="author-time">{{r.createdAt?.slice(0,10)}}</small></div>
             </div>
             <p class="content-text" style="color: #45516a">
               {{ r.content }}
