@@ -4,7 +4,7 @@ export function quotedDraft(draft?:Draft|null):draft is Draft {
 }
 export function elapsedLabel(seconds:number){
  const value=Math.max(0,Math.floor(seconds));
- if(value>=3600)return `${Math.floor(value/3600)} 小时 ${Math.floor(value%3600/60)} 分`;
- if(value>=60)return `${Math.floor(value/60)} 分 ${value%60} 秒`;
- return `${value} 秒`;
+ if(value>=3600)return `${Math.floor(value/3600)}h ${Math.floor(value%3600/60)}m`;
+ if(value>=60)return `${Math.floor(value/60)}m ${value%60}s`;
+ return `${value}s`;
 }

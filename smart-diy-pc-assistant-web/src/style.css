@@ -1232,3 +1232,8 @@ button.linked-build,button.linked-news,button.reference{text-align:left;font:inh
 .build-card-corner{display:flex;align-items:center;gap:10px;}.desktop-subpage-controls{display:flex;align-items:center;gap:12px;width:100%;max-width:1216px;margin:0 auto 24px;}.desktop-subpage-controls>button{flex:0 0 40px;width:40px;height:40px;border-radius:12px;}
 @media(max-width:760px){.desktop-subpage-controls{display:none;}.content-preview-dialog.el-dialog{width:calc(100vw - 24px)!important;}.build-card-corner{flex-wrap:wrap;justify-content:flex-end;}}
 button.linked-build,button.linked-news,button.reference{background:var(--theme-surface,#fff);}.content-preview-dialog .social-detail .cover{max-width:100%;}
+
+.message-duration {display:flex;align-items:center;gap:8px;width:100%;border:0;border-bottom:1px solid var(--theme-border,#e9edf4);background:transparent;color:var(--theme-muted,#8994a5);padding:0 0 12px;margin:0 0 20px;text-align:left;font-size:14px;cursor:pointer;}
+.message-duration .el-icon {font-size:13px;transition:transform .2s;}
+.message-duration .el-icon.is-open {transform:rotate(90deg);}
+@media(prefers-reduced-motion:reduce){.message-duration .el-icon{transition:none;}}

@@ -129,6 +129,7 @@ export interface Run {
   references: Reference[];
   error?: string;
   created_at: string;
+  updated_at?: string;
   partial_text?:string;
   event_cursor?:number;
   completion_required?:boolean;

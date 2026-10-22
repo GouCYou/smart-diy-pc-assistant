@@ -36,6 +36,7 @@ const route = useRoute(),
   router = useRouter(),
   { busy, error, perform, confirm } = useTask(),
   messages = ref<any[]>([]),
+  conversationRuns = ref<Run[]>([]),
   run = ref<Run | null>(null),
   draft = ref(""),
   live = ref(""),
@@ -66,6 +67,10 @@ function updateViewport(){
   if(!isMobile.value)mobileHistoryOpen.value=false;
 }
 const executionOpen=ref(false);
+const runElapsedLabel = computed(()=>elapsedLabel(active.value ? elapsed.value : durationSeconds(run.value)));
+function durationSeconds(value:Run|null){return value ? Math.max(0,Math.floor((Date.parse(value.updated_at || value.created_at)-Date.parse(value.created_at))/1000)) : 0;}
+function messageRun(message:any){return conversationRuns.value.find(r=>r.answer && r.answer===message.content);}
+function showRunActivity(){if(isMobile.value)showActivityMobile.value=true;else activityOpen.value=true;}
 const currentAnswerMessage = computed(()=>[...messages.value].reverse().find(m=>m.role==='assistant' && m.content===run.value?.answer));
 const active = computed(
     () => run.value && ["queued", "running"].includes(run.value.status),
@@ -151,6 +156,7 @@ async function loadConversation(id: string) {
   conversation.value = id;
   conversationTitle.value = c.title;
   messages.value = c.messages;
+  conversationRuns.value = c.runs;
   run.value = c.runs.at(-1) || null;
   plan.value = [];
   question.value = "";
@@ -217,6 +223,8 @@ async function connect() {
         }
         if (type === "run_completed" && !historical) {
           run.value.status = "completed";
+          run.value.updated_at = new Date().toISOString();
+          executionOpen.value = false;
           run.value.answer = data.answer;
           if(data.conversation_title) conversationTitle.value=data.conversation_title;
         }
@@ -232,6 +240,7 @@ async function connect() {
           `/agent/conversations/${conversation.value}`,
         );
         messages.value = c.messages;
+        conversationRuns.value = c.runs;
         live.value = "";
       }
       live.value=run.value?.partial_text || "";
@@ -310,6 +319,7 @@ function fresh() {
   conversation.value = "";
   conversationTitle.value = "新对话";
   messages.value = [];
+  conversationRuns.value = [];
   run.value = null;
   activity.value = [];
   plan.value = [];
@@ -463,6 +473,7 @@ onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);s
             :class="m.role"
           >
             <time v-if="showDate(index)" class="message-date" :datetime="m.created_at">{{messageDate(m.created_at)}}</time>
+            <button v-if="m.role==='assistant' && messageRun(m)" class="message-duration" @click="showRunActivity"><span>用时 {{elapsedLabel(durationSeconds(messageRun(m) || null))}}</span><el-icon><ArrowRight /></el-icon></button>
             <div v-if="m.role === 'user'" class="message-body">
               {{ m.content }}
             </div>
@@ -472,7 +483,8 @@ onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);s
               v-html="markdown(buildAnswer(m.content,!!(m.attachments?.build || m.attachments?.draft)))"
             /><MessageAttachments :attachments="m.attachments" /><MessageActions v-if="m.role==='assistant'" :content="m.content" :disabled="!!active" @retry="regenerateMessage(m.id)" @share="shareMessage(m.id)" />
           </article>
-          <section v-if="run" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
+          <button v-if="run" class="message-duration" :aria-expanded="executionOpen" @click="executionOpen=!executionOpen"><span>用时 {{runElapsedLabel}}</span><el-icon :class="{'is-open':executionOpen}"><ArrowRight /></el-icon></button>
+          <section v-if="run" v-show="active || executionOpen || run.status!=='completed' || run.completion_required" class="execution-panel" :class="{ 'is-active': active }" aria-live="polite">
             <AnimatedDisclosure :key="run.id" v-model="executionOpen" class="execution-details">
               <template #summary><span v-if="active" class="execution-spinner" /><strong>{{ executionTitle }}</strong><span class="execution-count" v-if="totalCalls">{{ completedCalls }} / {{ totalCalls }} 项工具调用完成</span><span class="execution-disclosure">思考过程</span></template>
               <div class="execution-detail-body">
@@ -483,7 +495,7 @@ onUnmounted(() => {mobileViewport.removeEventListener("change",updateViewport);s
               </div>
             </AnimatedDisclosure>
             <div v-if="active || totalCalls" class="execution-progress" role="progressbar" aria-label="工具执行进度" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{width: progress + '%'}" /></div>
-            <p v-if="active" class="execution-hint">{{progressHint}}<span class="execution-elapsed"> · {{elapsedLabel(elapsed)}}</span></p>
+            <p v-if="active" class="execution-hint">{{progressHint}}</p>
             <p v-if="run.error" class="execution-error">{{ run.error }}</p>
             <p v-if="question" class="content-text">{{ question }}</p><div v-if="(run.status==='needs_input' || run.completion_required) && questionOptions.length" class="decision-options" role="group" :aria-label="question"><button v-for="option in questionOptions" :key="option" :disabled="busy" @click="submit(option)">{{option}}</button></div>
             <div class="execution-actions"><el-button v-if="active || run.status === 'needs_input'" class="stop-task-button" :icon="VideoPause" round @click="cancel">停止任务</el-button><el-button v-if="['failed','interrupted','cancelled'].includes(run.status)" @click="retry">继续任务</el-button></div>
